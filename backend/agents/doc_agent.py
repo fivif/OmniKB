@@ -16,6 +16,17 @@ from docx import Document
 
 logger = logging.getLogger(__name__)
 
+IMAGE_EXTENSIONS = frozenset({
+    "jpg", "jpeg", "png", "gif", "webp", "bmp", "tiff", "tif",
+})
+
+_IMAGE_MIME: dict[str, str] = {
+    "jpg": "image/jpeg", "jpeg": "image/jpeg",
+    "png": "image/png",  "gif": "image/gif",
+    "webp": "image/webp", "bmp": "image/png",
+    "tiff": "image/jpeg", "tif": "image/jpeg",
+}
+
 
 @dataclass
 class RawDocument:
@@ -43,6 +54,13 @@ def parse_file(file_path: str | Path, file_type: str) -> RawDocument:
     if parser:
         return parser(path)
 
+    # Image types — no text content in sync path
+    if ext in IMAGE_EXTENSIONS:
+        return RawDocument(
+            content=f"[图片文件: {path.name}，视觉模型未启用，无法提取文字内容]",
+            metadata={"file_type": ext},
+        )
+
     # Fallback: plain text (txt, md, etc.)
     content = path.read_text(encoding="utf-8", errors="replace")
     return RawDocument(content=content, metadata={"file_type": ext})
@@ -60,6 +78,10 @@ async def parse_file_async(file_path: str | Path, file_type: str) -> RawDocument
     path = Path(file_path)
     ext = file_type.lower().lstrip(".")
 
+    # Images: always route through vision (falls back to placeholder if disabled)
+    if ext in IMAGE_EXTENSIONS:
+        return await _parse_image_async(path, ext)
+
     if is_vision_enabled():
         if ext == "pdf":
             return await parse_pdf_with_vision(path)
@@ -70,6 +92,32 @@ async def parse_file_async(file_path: str | Path, file_type: str) -> RawDocument
     return await asyncio.get_event_loop().run_in_executor(
         None, parse_file, file_path, file_type
     )
+
+
+async def _parse_image_async(path: Path, ext: str) -> RawDocument:
+    """Describe / OCR an image file via vision LLM."""
+    from agents.vision_agent import describe_image, is_vision_enabled
+
+    if not is_vision_enabled():
+        return RawDocument(
+            content=f"[图片文件: {path.name}，视觉模型未启用，无法提取文字内容]",
+            metadata={"file_type": ext},
+        )
+
+    mime = _IMAGE_MIME.get(ext, "image/jpeg")
+    try:
+        image_bytes = path.read_bytes()
+        description = await describe_image(image_bytes, mime=mime)  # type: ignore[arg-type]
+        return RawDocument(
+            content=description,
+            metadata={"file_type": ext, "source_type": "image"},
+        )
+    except Exception as exc:
+        logger.warning("Image vision parse failed for %s: %s", path.name, exc)
+        return RawDocument(
+            content=f"[图片文件: {path.name}，视觉解析失败: {exc}]",
+            metadata={"file_type": ext},
+        )
 
 
 def parse_text(content: str) -> RawDocument:

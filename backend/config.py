@@ -46,6 +46,10 @@ class Settings(BaseSettings):
     embedding_dimensions: int = 1024  # BGE-M3=1024, text-embedding-3-small=1536
     siliconflow_api_key: str = ""
     siliconflow_base_url: str = "https://api.siliconflow.cn/v1"
+    # Max concurrent embedding API calls (prevents RPM 403 on SiliconFlow free tier)
+    embedding_concurrency: int = 3
+    # Texts per API call (SiliconFlow recommends <=32 per request)
+    embedding_batch_size: int = 32
 
     # MCP
     mcp_api_key: str = "changeme-replace-with-strong-secret"

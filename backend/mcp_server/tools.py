@@ -111,8 +111,17 @@ async def ask_kb(question: str, context_k: int = 5) -> dict:
     return result
 
 
-async def ingest_url_tool(url: str, tags: list[str] | None = None) -> dict:
-    """Fetch and ingest a URL into the knowledge base."""
+async def ingest_url_tool(url: str, tags: list[str] | None = None, mode: str = "auto") -> dict:
+    """Fetch and ingest a URL into the knowledge base.
+
+    Parameters
+    ----------
+    mode:
+        ``'auto'``/``'static'`` — scrapling static fetcher (default).
+        ``'dynamic'``/``'stealth'`` — Playwright-based rendering.
+        ``'agent_browser'`` — agent-browser CLI (Layer 3-A, interactive/SPA pages).
+        ``'jshook'`` — jshookmcp CDP browser (Layer 3-B, anti-bot/JS-heavy).
+    """
     import uuid as _uuid
     from agents.web_agent import fetch_url
     from agents.orchestrator import run_ingest_pipeline
@@ -126,16 +135,16 @@ async def ingest_url_tool(url: str, tags: list[str] | None = None) -> dict:
     await insert_source({"id": source_id, "name": url, "type": "url", "url": url, "tags": tag_list})
     await insert_task({"id": task_id, "source_id": source_id, "status": "pending"})
 
-    raw_doc = await fetch_url(url)
+    raw_doc = await fetch_url(url, mode=mode)
     chunks_count = await run_ingest_pipeline(
         source_id, task_id, raw_doc,
         extra_metadata={"source_name": url, "source_url": url, "tags": tag_list},
     )
 
-    result = {"source_id": source_id, "task_id": task_id, "chunks": chunks_count}
+    result = {"source_id": source_id, "task_id": task_id, "chunks": chunks_count, "mode": mode}
     await _log(
         "ingest_url",
-        {"url": url},
+        {"url": url, "mode": mode},
         f"source_id={source_id}, chunks={chunks_count}",
         int((time.time() - t0) * 1000),
     )
@@ -187,4 +196,80 @@ async def get_chunk_tool(chunk_id: str) -> dict | None:
     t0 = time.time()
     result = await db_get_chunk(chunk_id)
     await _log("get_chunk", {"chunk_id": chunk_id}, "found" if result else "not found", int((time.time() - t0) * 1000))
+    return result
+
+
+async def browser_fetch_tool(
+    url: str,
+    mode: str = "agent_browser",
+    max_chars: int = 8000,
+) -> dict:
+    """Fetch a web page and return its text content without ingesting.
+
+    Useful when you want to read a page before deciding whether to ingest it,
+    or when you need real-time web content in a chat response.
+
+    Parameters
+    ----------
+    mode:
+        ``'agent_browser'`` — agent-browser CLI (default, handles SPAs/JS pages).
+        ``'jshook'`` — jshookmcp CDP (advanced anti-bot / network interception).
+        ``'stealth'`` — scrapling stealth Playwright.
+        ``'static'`` / ``'auto'`` — scrapling or httpx.
+    max_chars:
+        Truncate content to this many characters in the returned preview.
+    """
+    from agents.web_agent import fetch_url
+
+    t0 = time.time()
+    doc = await fetch_url(url, mode=mode)
+    content_preview = doc.content[:max_chars]
+    result = {
+        "url": url,
+        "mode": mode,
+        "char_count": len(doc.content),
+        "content": content_preview,
+        "truncated": len(doc.content) > max_chars,
+    }
+    await _log(
+        "browser_fetch",
+        {"url": url, "mode": mode},
+        f"{len(doc.content)} chars",
+        int((time.time() - t0) * 1000),
+    )
+    return result
+
+
+async def jshook_call_tool(tool_name: str, arguments: dict) -> dict:
+    """Call any jshookmcp tool directly by name.
+
+    jshookmcp exposes 387+ tools for browser automation, CDP debugging,
+    network interception, JS deobfuscation, WASM analysis, and more.
+
+    To discover available tools use ``tool_name='search_tools'`` with
+    ``arguments={'query': '<your query>'}``.
+
+    Common tools:
+    - ``search_tools`` — BM25-ranked tool discovery
+    - ``browser_launch`` / ``browser_close`` — start/stop browser
+    - ``page_navigate`` — navigate to URL
+    - ``page_evaluate`` — run JS in page context
+    - ``stealth_inject`` — inject anti-detection scripts
+    - ``page_cookies`` — manage cookies
+    - ``network_monitor_start`` — capture XHR/fetch requests
+    """
+    from agents.jshook_client import JsHookMcpClient
+
+    t0 = time.time()
+    async with JsHookMcpClient(profile="workflow") as client:
+        raw = await client.call_tool(tool_name, arguments, timeout=90.0)
+        text = JsHookMcpClient.extract_text(raw)
+
+    result = {"tool": tool_name, "result": text[:4000], "raw_truncated": len(text) > 4000}
+    await _log(
+        "jshook_call",
+        {"tool": tool_name, "args_keys": list(arguments.keys())},
+        text[:200],
+        int((time.time() - t0) * 1000),
+    )
     return result

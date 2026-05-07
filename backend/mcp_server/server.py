@@ -32,10 +32,18 @@ async def ingest_url(
     url: str,
     title: str | None = None,
     tags: list[str] | None = None,
+    mode: str = "auto",
 ) -> dict:
-    """Fetch and ingest a web page URL into the knowledge base (scrapling + httpx fallback)."""
+    """Fetch and ingest a web page URL into the knowledge base.
+
+    Choose *mode* to control the fetch strategy:
+    - ``'auto'`` / ``'static'`` — scrapling static + httpx fallback (default, fast)
+    - ``'dynamic'`` / ``'stealth'`` — Playwright-based rendering (JS-heavy pages)
+    - ``'agent_browser'`` — agent-browser CLI (SPA, scroll-to-load, interactive)
+    - ``'jshook'`` — jshookmcp CDP browser (anti-bot, network capture, deep JS)
+    """
     from mcp_server.tools import ingest_url_tool
-    return await ingest_url_tool(url, tags=tags)
+    return await ingest_url_tool(url, tags=tags, mode=mode)
 
 
 @mcp.tool()
@@ -61,6 +69,45 @@ async def get_chunk(chunk_id: str) -> dict | None:
     """Retrieve a specific knowledge base chunk by its ID."""
     from mcp_server.tools import get_chunk_tool
     return await get_chunk_tool(chunk_id)
+
+
+@mcp.tool()
+async def browser_fetch(
+    url: str,
+    mode: str = "agent_browser",
+    max_chars: int = 8000,
+) -> dict:
+    """Fetch a web page and return its text content (without ingesting).
+
+    Use this to read real-time web content in chat responses or preview
+    a page before ingesting.
+
+    *mode* values: ``'agent_browser'`` (default), ``'jshook'``, ``'stealth'``,
+    ``'dynamic'``, ``'static'``.
+    """
+    from mcp_server.tools import browser_fetch_tool
+    return await browser_fetch_tool(url, mode=mode, max_chars=max_chars)
+
+
+@mcp.tool()
+async def jshook_call(tool_name: str, arguments: dict) -> dict:
+    """Call any jshookmcp tool directly for advanced browser/JS analysis.
+
+    jshookmcp provides 387+ tools across 36 domains:
+    browser automation, CDP debugging, network interception, JS deobfuscation,
+    WASM analysis, source map reconstruction, anti-debug bypass, and more.
+
+    Start with ``tool_name='search_tools'`` and ``arguments={'query': '...'}``
+    to discover relevant tools. Then call them by name.
+
+    Examples:
+    - search tools: ``{'tool_name': 'search_tools', 'arguments': {'query': 'navigate page content'}}``
+    - launch browser: ``{'tool_name': 'browser_launch', 'arguments': {}}``
+    - navigate: ``{'tool_name': 'page_navigate', 'arguments': {'url': 'https://example.com'}}``
+    - evaluate JS: ``{'tool_name': 'page_evaluate', 'arguments': {'expression': 'document.title'}}``
+    """
+    from mcp_server.tools import jshook_call_tool
+    return await jshook_call_tool(tool_name, arguments)
 
 
 # ── ASGI app factory (SSE, with API-key auth) ─────────────────

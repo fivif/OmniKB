@@ -19,14 +19,28 @@
 
       <!-- File mode -->
       <div id="mode-file" class="mode-panel space-y-4">
-        <div id="drop-zone" class="drop-zone rounded-2xl p-12 text-center cursor-pointer">
+        <div id="drop-zone" class="drop-zone rounded-2xl p-10 text-center">
           <svg class="w-12 h-12 mx-auto text-slate-600 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
               d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
           </svg>
-          <p class="text-slate-400 mb-1">拖拽文件到此处，或<span class="text-brand cursor-pointer underline">点击浏览</span></p>
-          <p class="text-slate-600 text-xs">支持 TXT、MD、PDF、DOCX、HTML、JSON、CSV<br><span class="text-slate-700">视频 MP4/MKV/AVI/MOV · 音频 MP3/WAV/M4A（自动转录）</span></p>
-          <input id="file-input" type="file" class="hidden" multiple accept=".txt,.md,.pdf,.docx,.html,.json,.csv,.mp4,.mkv,.avi,.mov,.webm,.mp3,.wav,.m4a,.ogg,.flac" />
+          <p class="text-slate-400 mb-3">拖拽文件或文件夹到此处</p>
+          <!-- Pick buttons -->
+          <div class="flex items-center justify-center gap-3 mb-3">
+            <label for="file-input"
+              class="cursor-pointer text-xs text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-600 hover:border-slate-400 px-4 py-2 rounded-lg transition-colors select-none">
+              📄 浏览文件
+            </label>
+            <label for="folder-input"
+              class="cursor-pointer text-xs text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-600 hover:border-slate-400 px-4 py-2 rounded-lg transition-colors select-none">
+              📁 选择文件夹
+            </label>
+          </div>
+          <p class="text-slate-600 text-xs mb-1">截图后可直接 <kbd class="bg-slate-800 px-1 rounded text-slate-500">Ctrl+V</kbd> 粘贴上传</p>
+          <p class="text-slate-700 text-xs">TXT · MD · PDF · DOCX · HTML · JSON · CSV · 图片 · 视频 · 音频</p>
+          <input id="file-input" type="file" class="hidden" multiple accept=".txt,.md,.pdf,.docx,.html,.json,.csv,.mp4,.mkv,.avi,.mov,.webm,.mp3,.wav,.m4a,.ogg,.flac,.jpg,.jpeg,.png,.gif,.webp,.bmp,.tiff,.tif" />
+          <input id="folder-input" type="file" class="hidden" webkitdirectory multiple />
+          <span id="folder-hint" class="block text-xs text-slate-600 mt-1"></span>
         </div>
         <div>
           <label class="text-xs text-slate-400 mb-1 block">标签（逗号分隔）</label>
@@ -72,6 +86,9 @@
             <option value="auto">自动（静态优先，失败则回退 httpx）</option>
             <option value="static">静态（scrapling Fetcher）</option>
             <option value="dynamic">动态（scrapling PlayWright，需已安装）</option>
+            <option value="stealth">隐身（PlayWright + 反检测，绕过 Cloudflare）</option>
+            <option value="agent_browser">交互式浏览器（agent-browser，SPA / 懒加载）</option>
+            <option value="jshook">CDP 深度（jshookmcp，高级反爬 / 网络拦截）</option>
           </select>
         </div>
 
@@ -113,7 +130,6 @@
         <div class="flex items-center justify-between mb-3">
           <h2 class="text-sm font-semibold text-slate-300">摄入任务</h2>
           <div class="flex items-center gap-2">
-            <button id="btn-toggle-log" class="text-xs text-slate-500 hover:text-slate-300 border border-slate-700 px-2 py-1 rounded transition-colors">日志</button>
             <button id="btn-refresh-tasks" class="text-xs text-slate-500 hover:text-slate-300 transition-colors">↺ 刷新</button>
           </div>
         </div>
@@ -122,25 +138,7 @@
     </div>
   `;
 
-  // Floating log panel — appended to body so it's fixed to viewport
-  const logPanel = document.createElement('div');
-  logPanel.id = 'log-float';
-  logPanel.innerHTML = `
-    <div id="log-float-inner">
-      <div class="log-float-header">
-        <span>处理日志</span>
-        <div style="display:flex;gap:8px;align-items:center">
-          <button id="btn-clear-log" style="font-size:11px;color:#64748b;background:none;border:none;cursor:pointer">清空</button>
-          <button id="btn-hide-log" style="font-size:11px;color:#64748b;background:none;border:none;cursor:pointer" title="隐藏到边界">✕</button>
-        </div>
-      </div>
-      <div id="log-content" class="log-float-body"></div>
-    </div>
-    <button id="btn-show-log-tab" title="展开日志">日志</button>
-  `;
-  document.body.appendChild(logPanel);
-
-  // Inject Tailwind-based primary button style via CSS
+  // Base styles
   const style = document.createElement('style');
   style.textContent = `
     .btn-primary { background:#4f46e5; color:#fff; }
@@ -154,68 +152,6 @@
     .task-progress-bar { transition: width 0.6s ease; }
     @keyframes progress-pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
     .progress-indeterminate { animation: progress-pulse 1.4s ease-in-out infinite; }
-    /* Floating log panel */
-    #log-float {
-      position: fixed;
-      top: 72px;
-      right: 0;
-      width: 340px;
-      z-index: 9999;
-      display: flex;
-      align-items: flex-start;
-      gap: 0;
-      transition: transform 0.3s cubic-bezier(.4,0,.2,1);
-    }
-    #log-float.log-hidden { transform: translateX(340px); }
-    #log-float-inner {
-      flex: 1;
-      background: #0a0f1a;
-      border: 1px solid #1e293b;
-      border-right: none;
-      border-radius: 12px 0 0 12px;
-      overflow: hidden;
-      box-shadow: -4px 4px 24px rgba(0,0,0,.5);
-    }
-    .log-float-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 8px 12px;
-      border-bottom: 1px solid #1e293b;
-      font-size: 11px;
-      font-weight: 600;
-      color: #94a3b8;
-      background: #0f172a;
-    }
-    .log-float-body {
-      height: 360px;
-      overflow-y: auto;
-      padding: 10px 12px;
-      font-family: monospace;
-      font-size: 11px;
-      color: #94a3b8;
-      line-height: 1.6;
-    }
-    .log-float-body::-webkit-scrollbar { width:3px; }
-    .log-float-body::-webkit-scrollbar-track { background:transparent; }
-    .log-float-body::-webkit-scrollbar-thumb { background:#334155; border-radius:3px; }
-    #btn-show-log-tab {
-      writing-mode: vertical-rl;
-      text-orientation: mixed;
-      background: #0f172a;
-      border: 1px solid #1e293b;
-      border-left: none;
-      border-radius: 0 6px 6px 0;
-      padding: 10px 5px;
-      font-size: 11px;
-      color: #64748b;
-      cursor: pointer;
-      align-self: stretch;
-      transition: color .2s, background .2s;
-      display: none;
-    }
-    #log-float.log-hidden #btn-show-log-tab { display: block; }
-    #btn-show-log-tab:hover { color:#e2e8f0; background:#1e293b; }
   `;
   document.head.appendChild(style);
 
@@ -245,15 +181,110 @@
   const dropZone = document.getElementById('drop-zone');
   const fileInput = document.getElementById('file-input');
 
-  dropZone.addEventListener('click', () => fileInput.click());
+  const folderInput = document.getElementById('folder-input');
+  const folderHint  = document.getElementById('folder-hint');
+
+  // Drop zone click → do nothing (labels inside handle file/folder picker)
   dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
   dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
-  dropZone.addEventListener('drop', e => {
+  dropZone.addEventListener('drop', async e => {
     e.preventDefault();
     dropZone.classList.remove('drag-over');
+    // Try FileSystem API for folder/file drop
+    if (e.dataTransfer.items && e.dataTransfer.items.length) {
+      const all = await _collectFromDataTransfer(e.dataTransfer.items);
+      if (all.length) { uploadFiles(all); return; }
+    }
+    // Fallback: dragged image URL from browser (e.g. drag image from webpage)
+    const imgUrl = e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain');
+    if (imgUrl && /\.(jpe?g|png|gif|webp|bmp|tiff?)(\?.*)?$/i.test(imgUrl)) {
+      _uploadImageUrl(imgUrl); return;
+    }
     uploadFiles(e.dataTransfer.files);
   });
   fileInput.addEventListener('change', () => uploadFiles(fileInput.files));
+
+  // ── Clipboard paste (Ctrl+V screenshot / copied image) ───────
+  document.addEventListener('paste', async e => {
+    // Only handle when file mode is active
+    const activeMode = panel.querySelector('.mode-btn.active-mode');
+    if (activeMode && activeMode.dataset.mode !== 'file') return;
+    const items = Array.from(e.clipboardData?.items || []);
+    const imageItems = items.filter(i => i.type.startsWith('image/'));
+    if (!imageItems.length) return;
+    e.preventDefault();
+    const files = imageItems.map((item, idx) => {
+      const blob = item.getAsFile();
+      // Give it a meaningful filename with timestamp
+      const ext = item.type.split('/')[1]?.replace('jpeg', 'jpg') || 'png';
+      const name = `clipboard-${Date.now()}${idx ? `-${idx}` : ''}.${ext}`;
+      return new File([blob], name, { type: item.type });
+    });
+    dropZone.classList.add('drag-over');
+    setTimeout(() => dropZone.classList.remove('drag-over'), 400);
+    uploadFiles(files);
+  });
+
+  // Upload an image by URL (fetched client-side then sent as blob)
+  async function _uploadImageUrl(url) {
+    try {
+      toast('正在获取图片…', 'info');
+      const resp = await fetch(url);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const blob = await resp.blob();
+      const ext = (blob.type.split('/')[1] || 'jpg').replace('jpeg', 'jpg');
+      const name = `image-${Date.now()}.${ext}`;
+      const file = new File([blob], name, { type: blob.type });
+      uploadFiles([file]);
+    } catch (err) {
+      toast(`图片获取失败: ${err.message}`, 'error');
+    }
+  }
+
+  // Folder picker
+  // folder-input change handled below alongside fileInput
+  folderInput.addEventListener('change', () => {
+    const files = Array.from(folderInput.files);
+    folderHint.textContent = files.length ? `已选 ${files.length} 个文件` : '';
+    if (files.length) uploadFiles(files);
+  });
+
+  // ── FileSystem API helpers for folder drag-drop ───────────────
+  async function _collectFromDataTransfer(items) {
+    const files = [];
+    const tasks = [];
+    for (const item of items) {
+      if (item.kind !== 'file') continue;
+      const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : null;
+      if (entry) tasks.push(_traverseEntry(entry, files));
+      else { const f = item.getAsFile(); if (f) files.push(f); }
+    }
+    await Promise.all(tasks);
+    return files;
+  }
+
+  async function _traverseEntry(entry, files) {
+    if (entry.isFile) {
+      const f = await new Promise((res, rej) => entry.file(res, rej));
+      files.push(f);
+    } else if (entry.isDirectory) {
+      const reader = entry.createReader();
+      const entries = await _readAllEntries(reader);
+      await Promise.all(entries.map(e => _traverseEntry(e, files)));
+    }
+  }
+
+  function _readAllEntries(reader) {
+    return new Promise((resolve, reject) => {
+      const all = [];
+      (function read() {
+        reader.readEntries(batch => {
+          if (!batch.length) resolve(all);
+          else { all.push(...batch); read(); }
+        }, reject);
+      })();
+    });
+  }
 
   async function uploadFiles(fileList) {
     if (!fileList.length) return;
@@ -312,19 +343,10 @@
     } catch {}
   });
 
-  // Task list + Floating log panel
+  // Task list
   const taskList = document.getElementById('task-list');
-  const logFloat = document.getElementById('log-float');
-  const logContent = document.getElementById('log-content');
-  const btnToggleLog = document.getElementById('btn-toggle-log');
-  const btnHideLog = document.getElementById('btn-hide-log');
-  const btnShowLogTab = document.getElementById('btn-show-log-tab');
-  const btnClearLog = document.getElementById('btn-clear-log');
   let pollTimer = null;
   const seenLogLen = new Map(); // task_id → char length already rendered
-
-  function showLog() { logFloat.classList.remove('log-hidden'); }
-  function hideLog() { logFloat.classList.add('log-hidden'); }
 
   function statusBadge(status) {
     const map = {
@@ -361,24 +383,28 @@
     </div>`;
   }
 
+  // Route task log lines to the bottom agent console
   function appendLog(taskId, sourceName, logText) {
     const prev = seenLogLen.get(taskId) || 0;
     if (!logText || logText.length <= prev) return;
     const newPart = logText.slice(prev);
     seenLogLen.set(taskId, logText.length);
 
-    const label = sourceName ? sourceName.slice(0, 30) : taskId.slice(0, 8);
+    const label = sourceName ? sourceName.slice(0, 40) : taskId.slice(0, 8);
     newPart.split('\n').forEach(line => {
       const trimmed = line.trim();
       if (!trimmed) return;
-      // line format from backend: "[HH:MM:SS] msg"
-      const div = document.createElement('div');
-      div.className = 'text-slate-400';
-      div.textContent = trimmed.startsWith('[') ? `${label}  ${trimmed}` : `[--:--:--] ${label}  ${trimmed}`;
-      logContent.appendChild(div);
+      // Infer kind from emoji prefix
+      let kind = 'progress';
+      if (trimmed.startsWith('✅') || trimmed.startsWith('🏁')) kind = 'success';
+      else if (trimmed.startsWith('❌') || trimmed.startsWith('⚠️')) kind = 'error';
+      else if (trimmed.startsWith('⛔')) kind = 'warning';
+      window.agentConsole?.emit({
+        t: Date.now(), kind,
+        agent: 'ingest', label,
+        msg: trimmed,
+      });
     });
-    // Auto-scroll to bottom
-    logContent.scrollTop = logContent.scrollHeight;
   }
 
   async function loadTasks() {
@@ -416,28 +442,11 @@
       clearInterval(pollTimer);
       if (hasPending) {
         pollTimer = setInterval(loadTasks, 2000);
-        // Auto-show floating log when tasks are running
-        showLog();
       } else {
         refreshStats();
       }
     } catch {}
   }
-
-  // Toggle floating log (button in task header)
-  btnToggleLog.addEventListener('click', () => {
-    logFloat.classList.contains('log-hidden') ? showLog() : hideLog();
-  });
-  // Hide via × in panel header
-  btnHideLog.addEventListener('click', hideLog);
-  // Show tab (visible only when hidden)
-  btnShowLogTab.addEventListener('click', showLog);
-
-  // Clear log
-  btnClearLog.addEventListener('click', () => {
-    logContent.innerHTML = '';
-    seenLogLen.clear();
-  });
 
   document.getElementById('btn-refresh-tasks').addEventListener('click', loadTasks);
   document.addEventListener('tab:shown', e => { if (e.detail === 'upload') loadTasks(); });

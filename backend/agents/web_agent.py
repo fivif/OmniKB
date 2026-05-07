@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
+import shutil
 from urllib.parse import urljoin, urlparse
 from urllib.robotparser import RobotFileParser
 
@@ -46,10 +48,16 @@ async def fetch_url(
     Parameters
     ----------
     mode:
-        ``'auto'`` or ``'static'`` — try scrapling Fetcher, fallback httpx.
-        ``'dynamic'`` — try scrapling PlayWrightFetcher, fallback httpx.
-        ``'stealth'`` — scrapling PlayWrightFetcher with anti-bot/stealth
-        options (Cloudflare, JS-heavy sites). Falls back to httpx.
+        ``'auto'`` / ``'static'`` — scrapling Fetcher, fallback httpx.
+        ``'dynamic'`` — scrapling PlayWrightFetcher, fallback httpx.
+        ``'stealth'`` — scrapling PlayWrightFetcher with anti-bot stealth
+        (Cloudflare, JS-heavy). Falls back to httpx.
+        ``'agent_browser'`` — Layer 3-A: agent-browser CLI (native Rust/CDP).
+        Best for interactive, SPA, or scroll-to-load pages.
+        Falls back to httpx on failure.
+        ``'jshook'`` — Layer 3-B: jshookmcp (@jshookmcp/jshook) CDP browser.
+        Best for advanced anti-bot, network interception, JS-heavy reverse.
+        Requires Node.js. Falls back to httpx on failure.
     cookies:
         Optional cookies to inject. Dict ``{name: value}`` or list of
         Playwright cookie objects ``{name, value, domain, path}``.
@@ -69,6 +77,16 @@ async def fetch_url(
             return await _scrapling_stealth(url, cookies=cookies)
         except Exception as e:
             logger.debug("scrapling stealth failed for %s: %s", url, e)
+    elif mode == "agent_browser":
+        try:
+            return await _agent_browser_fetch(url, cookies=cookies)
+        except Exception as e:
+            logger.debug("agent_browser failed for %s: %s", url, e)
+    elif mode == "jshook":
+        try:
+            return await _jshook_fetch(url, cookies=cookies)
+        except Exception as e:
+            logger.debug("jshook failed for %s: %s", url, e)
     return await _httpx_fetch(url, cookies=cookies)
 
 
@@ -140,6 +158,117 @@ async def _httpx_fetch(url: str, cookies: CookieJar | None = None) -> RawDocumen
         resp = await client.get(url)
         resp.raise_for_status()
     return parse_url_content(resp.text, url)
+
+
+async def _agent_browser_fetch(url: str, cookies: CookieJar | None = None) -> RawDocument:
+    """Layer 3-A: agent-browser CLI — handles interactive/SPA/JS-heavy pages.
+
+    Uses the agent-browser daemon (persistent across commands).  Each command
+    runs in an isolated session so parallel calls don't interfere.
+    """
+    ab = shutil.which("agent-browser")
+    if not ab:
+        raise RuntimeError("agent-browser not installed (npm install -g agent-browser)")
+
+    # Unique session per task to allow parallel fetches
+    task = asyncio.current_task()
+    session = f"omnigkb-{id(task) if task else 'default'}"
+    env = {**os.environ, "AGENT_BROWSER_SESSION": session}
+
+    try:
+        from utils.agent_bus import emit as _emit
+    except ImportError:
+        def _emit(*a, **kw): pass  # type: ignore
+
+    async def _run(*args: str, timeout: float = 30.0) -> tuple[str, int]:
+        proc = await asyncio.create_subprocess_exec(
+            ab, *args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=env,
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        return stdout.decode("utf-8", errors="replace"), proc.returncode or 0
+
+    text = ""
+    _emit(f"正在打开页面：{url}", kind="progress", agent="agent_browser")
+    try:
+        await _run("open", url, timeout=30.0)
+
+        # Inject cookies (dict form only; list form requires Playwright-style handling)
+        if cookies and isinstance(cookies, dict):
+            for name, value in cookies.items():
+                await _run("cookies", "set", name, value, timeout=10.0)
+
+        # Wait for full network idle
+        _emit("等待网络空闲…", kind="progress", agent="agent_browser")
+        await _run("wait", "--load", "networkidle", timeout=30.0)
+
+        # Prefer plain text (no HTML noise)
+        _emit("提取页面文本…", kind="progress", agent="agent_browser")
+        text, code = await _run("get", "text", "body", timeout=20.0)
+        if code != 0 or not text.strip():
+            html, _ = await _run("get", "html", "body", timeout=20.0)
+            if html.strip():
+                text = _clean_html(html)
+    finally:
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                ab, "close", env=env,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            await asyncio.wait_for(proc.wait(), timeout=5.0)
+        except Exception:
+            pass
+
+    if not text.strip():
+        _emit(f"获取内容为空：{url}", kind="error", agent="agent_browser")
+        raise RuntimeError(f"agent-browser returned empty content for {url}")
+
+    _emit(f"✅ 获取完成，{len(text.strip())} 字符", kind="success", agent="agent_browser")
+    return RawDocument(
+        content=text.strip(),
+        metadata={"file_type": "url", "source_url": url, "fetch_mode": "agent_browser"},
+    )
+
+
+async def _jshook_fetch(url: str, cookies: CookieJar | None = None) -> RawDocument:
+    """Layer 3-B: jshookmcp (@jshookmcp/jshook) — CDP-level browser control.
+
+    Best for sites with advanced anti-bot measures, complex CDP interactions,
+    or when network-level interception is needed.
+    Requires Node.js / npx; the server is downloaded on first use via npx -y.
+    """
+    from agents.jshook_client import JsHookMcpClient  # lazy import
+
+    try:
+        from utils.agent_bus import emit as _emit
+    except ImportError:
+        def _emit(*a, **kw): pass  # type: ignore
+
+    simple_cookies: dict | None = None
+    if cookies and isinstance(cookies, dict):
+        simple_cookies = cookies
+
+    _emit(f"启动 jshookmcp 服务…", kind="progress", agent="jshook")
+    async with JsHookMcpClient(profile="workflow") as client:
+        _emit(f"导航至：{url}", kind="progress", agent="jshook")
+        text = await client.fetch_page(url, cookies=simple_cookies)
+
+    if not text.strip():
+        _emit(f"获取内容为空：{url}", kind="error", agent="jshook")
+        raise RuntimeError(f"jshookmcp returned empty content for {url}")
+
+    # If the result is raw HTML, clean it
+    if text.lstrip().startswith(("<html", "<!doctype", "<HTML", "<!DOCTYPE")):
+        text = _clean_html(text)
+
+    _emit(f"✅ 获取完成，{len(text.strip())} 字符", kind="success", agent="jshook")
+    return RawDocument(
+        content=text.strip(),
+        metadata={"file_type": "url", "source_url": url, "fetch_mode": "jshook"},
+    )
 
 
 # ── BFS site crawl ────────────────────────────────────────────

@@ -304,6 +304,19 @@ async def append_task_log(task_id: str, line: str) -> None:
             (entry, _now(), task_id),
         )
         await db.commit()
+    # Broadcast to agent activity console
+    try:
+        from utils.agent_bus import emit
+        kind = (
+            "success" if any(x in line for x in ("✅", "🏁", "已完成", "完成"))
+            else "error"   if any(x in line for x in ("❌", "失败", "错误", "Error"))
+            else "warning"  if any(x in line for x in ("⚠️", "跳过", "重复"))
+            else "progress" if any(x in line for x in ("⚙️", "📄", "✂️", "🔍", "🔢", "📥", "📝", "🌐", "🏷️"))
+            else "info"
+        )
+        emit(line, kind=kind, agent="ingest", task_id=task_id)
+    except Exception:
+        pass
 
 
 # ── Chat sessions ──────────────────────────────────────────────

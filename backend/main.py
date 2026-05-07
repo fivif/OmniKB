@@ -24,6 +24,7 @@ from storage.metadata_db import init_db
 from storage.vector_store import init_vector_store
 from api import ingest, search, chat, kb
 from api import mcp_logs
+from api import agent_stream
 from mcp_server.server import create_mcp_app
 
 # ── Logging setup ─────────────────────────────────────────────
@@ -98,7 +99,8 @@ app.include_router(ingest.router,   prefix="/ingest",    tags=["ingest"])
 app.include_router(search.router,   prefix="/search",    tags=["search"])
 app.include_router(chat.router,     prefix="/chat",      tags=["chat"])
 app.include_router(kb.router,       prefix="/kb",        tags=["kb"])
-app.include_router(mcp_logs.router, prefix="/mcp/logs",  tags=["mcp"])
+app.include_router(mcp_logs.router,    prefix="/mcp/logs",  tags=["mcp"])
+app.include_router(agent_stream.router, prefix="/agent",     tags=["agent"])
 
 # MCP SSE endpoint (authenticated)
 app.mount("/mcp", create_mcp_app())
