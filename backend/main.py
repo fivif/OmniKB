@@ -1,4 +1,5 @@
 from __future__ import annotations
+import logging
 import os
 
 # Disable TensorFlow backend in HuggingFace transformers before any import
@@ -11,12 +12,11 @@ import time
 from collections import defaultdict
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
-from starlette.responses import JSONResponse
 
 from config import settings
 from storage.file_store import init_file_store
@@ -25,6 +25,13 @@ from storage.vector_store import init_vector_store
 from api import ingest, search, chat, kb
 from api import mcp_logs
 from mcp_server.server import create_mcp_app
+
+# ── Logging setup ─────────────────────────────────────────────
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger("omnikb")
 
 
 # ── Rate limiter middleware for /mcp routes ────────────────────
@@ -66,7 +73,9 @@ async def lifespan(app: FastAPI):
     await init_db()
     await init_vector_store()
     init_file_store()
+    logger.info("OmniKB startup complete")
     yield
+    logger.info("OmniKB shutdown")
 
 
 app = FastAPI(
@@ -95,9 +104,18 @@ app.include_router(mcp_logs.router, prefix="/mcp/logs",  tags=["mcp"])
 app.mount("/mcp", create_mcp_app())
 
 
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error("Unhandled exception on %s %s: %s", request.method, request.url.path, exc, exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error", "error": str(exc)},
+    )
+
+
 @app.get("/health", tags=["system"])
 async def health():
-    return {"status": "ok"}
+    return {"status": "ok", "version": app.version}
 
 
 # Serve frontend if present (production mode)

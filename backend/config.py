@@ -68,5 +68,21 @@ class Settings(BaseSettings):
     # Auto-tag (LLM-based, uses LLM credits)
     autotag_enabled: bool = False
 
+    # ── Vision (multimodal cloud LLM for OCR + video frame description) ──
+    # Set vision_enabled=true to activate; vision_provider defaults to llm_provider
+    vision_enabled: bool = False
+    # Provider: "" = inherit llm_provider | "openai" | "anthropic" | "custom"
+    vision_provider: str = ""
+    # Model: gpt-4o-mini (cheap), gpt-4o, claude-3-haiku-20240307, Qwen/Qwen2.5-VL-72B-Instruct …
+    vision_model: str = "gpt-4o-mini"
+    # Independent API key for vision provider; falls back to provider's default key when empty
+    vision_api_key: str = ""
+    # Independent base URL for vision provider (OpenAI-compatible); falls back when empty
+    vision_base_url: str = ""
+    # Seconds between keyframes when describing video (0 = disable frame description)
+    vision_frame_interval: int = 60
+    # Min chars per PDF page below which OCR is triggered (0 = always OCR image pages)
+    vision_pdf_ocr_threshold: int = 80
+
 
 settings = Settings()

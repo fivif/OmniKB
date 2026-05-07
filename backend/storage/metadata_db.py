@@ -379,3 +379,87 @@ async def list_mcp_logs(
         async with db.execute(sql, params) as cur:
             rows = await cur.fetchall()
             return [dict(r) for r in rows]
+
+
+# ── Export ────────────────────────────────────────────────────
+
+async def export_all_data() -> dict:
+    """Return a full snapshot of sources + chunks for export."""
+    async with aiosqlite.connect(settings.sqlite_path) as db:
+        db.row_factory = aiosqlite.Row
+
+        async with db.execute("SELECT * FROM sources ORDER BY created_at DESC") as cur:
+            src_rows = await cur.fetchall()
+
+        sources = []
+        for row in src_rows:
+            src = dict(row)
+            src["tags"] = json.loads(src["tags"])
+
+            async with db.execute(
+                "SELECT id, content, chunk_index, metadata FROM chunks "
+                "WHERE source_id = ? ORDER BY chunk_index",
+                (src["id"],),
+            ) as ccur:
+                chunk_rows = await ccur.fetchall()
+            src["chunks"] = [
+                {**dict(c), "metadata": json.loads(c["metadata"])}
+                for c in chunk_rows
+            ]
+            sources.append(src)
+
+    return {"sources": sources, "total_sources": len(sources)}
+
+
+async def batch_delete_sources(source_ids: list[str]) -> int:
+    """Delete multiple sources by ID. Returns count deleted."""
+    if not source_ids:
+        return 0
+    placeholders = ",".join("?" * len(source_ids))
+    async with aiosqlite.connect(settings.sqlite_path) as db:
+        await db.execute(f"DELETE FROM sources WHERE id IN ({placeholders})", source_ids)
+        await db.execute(f"DELETE FROM chunks WHERE source_id IN ({placeholders})", source_ids)
+        await db.commit()
+    return len(source_ids)
+
+
+async def batch_update_tags(
+    source_ids: list[str],
+    tags: list[str],
+    mode: str = "replace",  # replace | add | remove
+) -> None:
+    """Batch update tags on multiple sources.
+
+    mode='replace': set tags to exactly ``tags``
+    mode='add':     union of existing tags and ``tags``
+    mode='remove':  remove ``tags`` from existing tags
+    """
+    if not source_ids:
+        return
+    placeholders = ",".join("?" * len(source_ids))
+    now = _now()
+    async with aiosqlite.connect(settings.sqlite_path) as db:
+        if mode == "replace":
+            tags_json = json.dumps(tags)
+            await db.execute(
+                f"UPDATE sources SET tags = ?, updated_at = ? WHERE id IN ({placeholders})",
+                [tags_json, now] + source_ids,
+            )
+        else:
+            # Read current tags, merge/remove, write back
+            db.row_factory = aiosqlite.Row
+            async with db.execute(
+                f"SELECT id, tags FROM sources WHERE id IN ({placeholders})", source_ids
+            ) as cur:
+                rows = await cur.fetchall()
+            for row in rows:
+                existing = set(json.loads(row["tags"]))
+                if mode == "add":
+                    new_tags = sorted(existing | set(tags))
+                else:  # remove
+                    new_tags = sorted(existing - set(tags))
+                await db.execute(
+                    "UPDATE sources SET tags = ?, updated_at = ? WHERE id = ?",
+                    (json.dumps(new_tags), now, row["id"]),
+                )
+        await db.commit()

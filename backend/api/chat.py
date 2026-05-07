@@ -15,16 +15,25 @@ from storage.vector_store import hybrid_search
 router = APIRouter()
 
 _RAG_SYSTEM = (
-    "You are OmniKB, an AI assistant backed by a personal knowledge base.\n"
-    "Answer questions using the provided context. Cite sources as [1], [2], etc.\n"
-    "If the context lacks relevant information, state that clearly."
+    "You are OmniKB, a knowledgeable AI assistant. "
+    "When relevant reference material from the user's knowledge base is provided, "
+    "use it to supplement and enrich your answer. "
+    "You are NOT limited to the provided context — draw on your own knowledge freely. "
+    "Cite knowledge-base sources inline as [1], [2], etc. only when you actually use them. "
+    "Never refuse to answer just because the context is limited."
 )
 
-_CTX_TEMPLATE = """<context>
+_CTX_TEMPLATE = """\
+The following excerpts from the user's personal knowledge base may be relevant. \
+Use them as supplementary reference alongside your own knowledge.
+
+<context>
 {chunks}
 </context>
 
 User question: {question}"""
+
+_NO_CTX_TEMPLATE = "{question}"
 
 
 class Message(BaseModel):
@@ -103,7 +112,6 @@ async def _stream(req: ChatRequest) -> AsyncGenerator[str, None]:
             rerank, user_query, chunks, settings.reranker_model, req.top_k
         )
 
-    ctx_str = _build_context(chunks)
     llm = _get_llm(provider, model)
 
     from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -115,7 +123,11 @@ async def _stream(req: ChatRequest) -> AsyncGenerator[str, None]:
         elif msg.role == "assistant":
             lc_msgs.append(AIMessage(content=msg.content))
 
-    final_user = _CTX_TEMPLATE.format(chunks=ctx_str, question=user_query)
+    if chunks:
+        ctx_str = _build_context(chunks)
+        final_user = _CTX_TEMPLATE.format(chunks=ctx_str, question=user_query)
+    else:
+        final_user = _NO_CTX_TEMPLATE.format(question=user_query)
     lc_msgs.append(HumanMessage(content=final_user))
 
     full_text = ""
@@ -143,8 +155,9 @@ async def _stream(req: ChatRequest) -> AsyncGenerator[str, None]:
     ]
     try:
         await upsert_session(thread_id, updated_messages)
-    except Exception:
-        pass  # logging failure must not abort the response
+    except Exception as _sess_err:
+        import logging as _lg
+        _lg.getLogger(__name__).warning("session persist failed for %s: %s", thread_id, _sess_err)
 
     yield f"data: {json.dumps({'type': 'session', 'thread_id': thread_id})}\n\n"
     yield "data: [DONE]\n\n"

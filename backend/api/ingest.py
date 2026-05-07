@@ -5,7 +5,7 @@ import uuid
 from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
-from agents.doc_agent import parse_file, parse_text
+from agents.doc_agent import parse_file, parse_file_async, parse_text
 from agents.orchestrator import run_ingest_pipeline
 from storage.file_store import save_file
 from storage.metadata_db import (
@@ -31,7 +31,8 @@ class UrlIngestRequest(BaseModel):
     url: str
     title: str | None = None
     tags: list[str] = []
-    mode: str = "auto"  # auto | static | dynamic
+    mode: str = "auto"  # auto | static | dynamic | stealth
+    cookies: dict[str, str] | None = None  # {name: value} for authenticated pages
 
 
 class SiteIngestRequest(BaseModel):
@@ -40,7 +41,8 @@ class SiteIngestRequest(BaseModel):
     tags: list[str] = []
     max_pages: int = 50
     max_depth: int = 3
-    mode: str = "auto"
+    mode: str = "auto"  # auto | static | dynamic | stealth
+    cookies: dict[str, str] | None = None  # session cookies for authenticated sites
 
 
 # ── Background task runners ───────────────────────────────────
@@ -56,17 +58,15 @@ async def _run_file_task(
     await append_task_log(task_id, f"📂 收到文件，类型 {file_type.upper()}")
     # Route media files (video/audio) to MediaAgent
     try:
-        from agents.media_agent import is_media_file, transcribe
+        from agents.media_agent import is_media_file, transcribe_async
         if is_media_file(ext):
             from config import settings
-            raw_doc = await asyncio.to_thread(
-                transcribe, file_path, settings.whisper_model_size
-            )
+            raw_doc = await transcribe_async(file_path, settings.whisper_model_size)
         else:
-            raw_doc = parse_file(file_path, file_type)
+            raw_doc = await parse_file_async(file_path, file_type)
     except ImportError:
         # faster-whisper not installed — fall back to doc parser
-        raw_doc = parse_file(file_path, file_type)
+        raw_doc = await parse_file_async(file_path, file_type)
     await run_ingest_pipeline(source_id, task_id, raw_doc, extra_metadata=extra)
 
 
@@ -87,10 +87,11 @@ async def _run_url_task(
     url: str,
     extra: dict,
     mode: str = "auto",
+    cookies: dict | None = None,
 ) -> None:
-    await append_task_log(task_id, f"🌐 抓取 URL：{url}")
+    await append_task_log(task_id, f"🌐 抓取 URL：{url}（模式：{mode}）")
     from agents.web_agent import fetch_url
-    raw_doc = await fetch_url(url, mode=mode)
+    raw_doc = await fetch_url(url, mode=mode, cookies=cookies)
     await run_ingest_pipeline(source_id, task_id, raw_doc, extra_metadata=extra)
 
 
@@ -102,6 +103,7 @@ async def _run_site_task(
     max_depth: int,
     mode: str,
     extra: dict,
+    cookies: dict | None = None,
 ) -> None:
     """BFS site crawl: each page becomes an individual source entry."""
     from agents.web_agent import crawl_site
@@ -117,6 +119,7 @@ async def _run_site_task(
             max_depth=max_depth,
             mode=mode,
             log_cb=_log,
+            cookies=cookies,
         )
     except Exception as exc:
         await append_task_log(task_id, f"❌ 整站爬取异常：{exc}")
@@ -149,8 +152,9 @@ async def _run_site_task(
         await insert_task({"id": page_task_id, "source_id": page_src_id, "status": "pending"})
         try:
             await run_ingest_pipeline(page_src_id, page_task_id, doc, extra_metadata=page_extra)
-        except Exception:
-            pass  # individual page errors don't abort the whole crawl
+        except Exception as _page_err:
+            import logging as _lg
+            _lg.getLogger(__name__).warning("page ingest failed for %s: %s", page_url, _page_err)
 
     # Mark the parent "site" source as done
     await update_task(task_id, "done")
@@ -226,6 +230,7 @@ async def ingest_url(req: UrlIngestRequest, background_tasks: BackgroundTasks):
         source_id, task_id, req.url,
         {"source_name": title, "source_url": req.url, "tags": req.tags},
         req.mode,
+        req.cookies,
     )
     return {"source_id": source_id, "task_id": task_id}
 
@@ -247,6 +252,7 @@ async def ingest_site(req: SiteIngestRequest, background_tasks: BackgroundTasks)
         source_id, task_id, req.url,
         req.max_pages, req.max_depth, req.mode,
         {"source_name": title, "source_url": req.url, "tags": req.tags},
+        req.cookies,
     )
     return {
         "source_id": source_id,

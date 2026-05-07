@@ -1,14 +1,16 @@
 """WebAgent — fetch and crawl web pages.
 
 Layer 1: scrapling static Fetcher (if installed)
-Layer 2: scrapling PlayWrightFetcher (dynamic SPA, if installed)
+Layer 2: scrapling PlayWrightFetcher (dynamic SPA / stealth anti-bot, if installed)
 Fallback: httpx + BeautifulSoup
 
 Site crawl: BFS with robots.txt compliance and concurrency limiter.
+Cookie injection supported for authenticated pages.
 """
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 from urllib.parse import urljoin, urlparse
 from urllib.robotparser import RobotFileParser
@@ -18,6 +20,8 @@ from bs4 import BeautifulSoup
 
 from agents.doc_agent import RawDocument, parse_url_content
 
+logger = logging.getLogger(__name__)
+
 _HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -26,10 +30,17 @@ _HEADERS = {
     )
 }
 
+# Cookie dict type: {name: value} or list of {name, value, domain, path}
+CookieJar = dict[str, str] | list[dict]
+
 
 # ── Single-page fetch ─────────────────────────────────────────
 
-async def fetch_url(url: str, mode: str = "auto") -> RawDocument:
+async def fetch_url(
+    url: str,
+    mode: str = "auto",
+    cookies: CookieJar | None = None,
+) -> RawDocument:
     """Fetch a single URL and return a :class:`RawDocument`.
 
     Parameters
@@ -37,26 +48,39 @@ async def fetch_url(url: str, mode: str = "auto") -> RawDocument:
     mode:
         ``'auto'`` or ``'static'`` — try scrapling Fetcher, fallback httpx.
         ``'dynamic'`` — try scrapling PlayWrightFetcher, fallback httpx.
+        ``'stealth'`` — scrapling PlayWrightFetcher with anti-bot/stealth
+        options (Cloudflare, JS-heavy sites). Falls back to httpx.
+    cookies:
+        Optional cookies to inject. Dict ``{name: value}`` or list of
+        Playwright cookie objects ``{name, value, domain, path}``.
     """
     if mode in ("auto", "static"):
         try:
-            return await _scrapling_static(url)
-        except Exception:
-            pass
+            return await _scrapling_static(url, cookies=cookies)
+        except Exception as e:
+            logger.debug("scrapling static failed for %s: %s", url, e)
     elif mode == "dynamic":
         try:
-            return await _scrapling_dynamic(url)
-        except Exception:
-            pass
-    return await _httpx_fetch(url)
+            return await _scrapling_dynamic(url, cookies=cookies)
+        except Exception as e:
+            logger.debug("scrapling dynamic failed for %s: %s", url, e)
+    elif mode == "stealth":
+        try:
+            return await _scrapling_stealth(url, cookies=cookies)
+        except Exception as e:
+            logger.debug("scrapling stealth failed for %s: %s", url, e)
+    return await _httpx_fetch(url, cookies=cookies)
 
 
-async def _scrapling_static(url: str) -> RawDocument:
+async def _scrapling_static(url: str, cookies: CookieJar | None = None) -> RawDocument:
     from scrapling.fetchers import Fetcher  # type: ignore[import-untyped]
 
     def _sync():
         fetcher = Fetcher(auto_match=False)
-        page = fetcher.get(url, headers=_HEADERS, timeout=30)
+        extra = {}
+        if cookies and isinstance(cookies, dict):
+            extra["cookies"] = cookies
+        page = fetcher.get(url, headers=_HEADERS, timeout=30, **extra)
         return getattr(page, "html_content", str(page))
 
     html = await asyncio.to_thread(_sync)
@@ -66,11 +90,18 @@ async def _scrapling_static(url: str) -> RawDocument:
     )
 
 
-async def _scrapling_dynamic(url: str) -> RawDocument:
+async def _scrapling_dynamic(url: str, cookies: CookieJar | None = None) -> RawDocument:
     from scrapling.fetchers import PlayWrightFetcher  # type: ignore[import-untyped]
 
     fetcher = PlayWrightFetcher(auto_match=False)
-    page = await fetcher.async_get(url, headless=True, timeout=60_000)
+    pw_cookies = _normalize_cookies(url, cookies)
+    page = await fetcher.async_get(
+        url,
+        headless=True,
+        timeout=60_000,
+        network_idle=True,
+        **({"cookies": pw_cookies} if pw_cookies else {}),
+    )
     html = getattr(page, "html_content", str(page))
     return RawDocument(
         content=_clean_html(html),
@@ -78,9 +109,33 @@ async def _scrapling_dynamic(url: str) -> RawDocument:
     )
 
 
-async def _httpx_fetch(url: str) -> RawDocument:
+async def _scrapling_stealth(url: str, cookies: CookieJar | None = None) -> RawDocument:
+    """PlayWrightFetcher with stealth/fingerprint options for anti-bot sites."""
+    from scrapling.fetchers import PlayWrightFetcher  # type: ignore[import-untyped]
+
+    fetcher = PlayWrightFetcher(auto_match=False)
+    pw_cookies = _normalize_cookies(url, cookies)
+    page = await fetcher.async_get(
+        url,
+        headless=True,
+        timeout=90_000,
+        network_idle=True,
+        stealth=True,
+        humanize=True,
+        **({"cookies": pw_cookies} if pw_cookies else {}),
+    )
+    html = getattr(page, "html_content", str(page))
+    return RawDocument(
+        content=_clean_html(html),
+        metadata={"file_type": "url", "source_url": url, "fetch_mode": "stealth"},
+    )
+
+
+async def _httpx_fetch(url: str, cookies: CookieJar | None = None) -> RawDocument:
+    httpx_cookies = cookies if isinstance(cookies, dict) else None
     async with httpx.AsyncClient(
-        follow_redirects=True, timeout=30, headers=_HEADERS
+        follow_redirects=True, timeout=30, headers=_HEADERS,
+        cookies=httpx_cookies or {},
     ) as client:
         resp = await client.get(url)
         resp.raise_for_status()
@@ -95,6 +150,7 @@ async def crawl_site(
     max_depth: int = 3,
     mode: str = "auto",
     log_cb=None,
+    cookies: CookieJar | None = None,
 ) -> list[RawDocument]:
     """BFS crawl starting from *start_url*.
 
@@ -105,6 +161,8 @@ async def crawl_site(
     ----------
     log_cb:
         Optional async callable(msg: str) for streaming progress logs.
+    cookies:
+        Optional session cookies for authenticated crawls.
 
     Returns
     -------
@@ -132,22 +190,30 @@ async def crawl_site(
 
         async with sem:
             try:
-                async with httpx.AsyncClient(
-                    follow_redirects=True, timeout=20, headers=_HEADERS
-                ) as client:
-                    resp = await client.get(url)
+                # Use fetch_url for stealth/dynamic modes; plain httpx for auto/static (faster)
+                if mode in ("stealth", "dynamic"):
+                    doc = await fetch_url(url, mode=mode, cookies=cookies)
+                    html_for_links: str | None = None  # can't re-extract links without raw html
+                else:
+                    httpx_cookies = cookies if isinstance(cookies, dict) else None
+                    async with httpx.AsyncClient(
+                        follow_redirects=True, timeout=20, headers=_HEADERS,
+                        cookies=httpx_cookies or {},
+                    ) as client:
+                        resp = await client.get(url)
 
-                if not resp.is_success:
-                    await _log(f"⚠️ HTTP {resp.status_code}，跳过：{url}")
-                    continue
+                    if not resp.is_success:
+                        await _log(f"⚠️ HTTP {resp.status_code}，跳过：{url}")
+                        continue
 
-                ct = resp.headers.get("content-type", "")
-                if "html" not in ct and "text" not in ct:
-                    await _log(f"⏭️ 非HTML内容({ct[:30]})，跳过：{url}")
-                    continue
+                    ct = resp.headers.get("content-type", "")
+                    if "html" not in ct and "text" not in ct:
+                        await _log(f"⏭️ 非HTML内容({ct[:30]})，跳过：{url}")
+                        continue
 
-                html = resp.text
-                doc = parse_url_content(html, url)
+                    html_for_links = resp.text
+                    doc = parse_url_content(html_for_links, url)
+
                 content_len = len(doc.content.strip())
                 if content_len > 100:
                     results.append(doc)
@@ -155,13 +221,14 @@ async def crawl_site(
                 else:
                     await _log(f"⏭️ 内容过短({content_len}字)，跳过：{url}")
 
-                if depth < max_depth:
+                if depth < max_depth and html_for_links is not None:
                     # 用当前页 url 作为基准解析相对链接
-                    for link in _extract_links(html, url):
+                    for link in _extract_links(html_for_links, url):
                         if link not in visited:
                             queue.append((link, depth + 1))
             except Exception as exc:
                 await _log(f"❌ 抓取失败：{url} — {exc}")
+                logger.debug("crawl_site error for %s: %s", url, exc, exc_info=True)
                 continue
 
     await _log(f"🏁 爬取结束，共获取 {len(results)} 页")
@@ -212,3 +279,17 @@ def _build_robots_checker(start_url: str):
         return rp.can_fetch("*", url)
 
     return can_fetch
+
+
+def _normalize_cookies(url: str, cookies: CookieJar | None) -> list[dict] | None:
+    """Convert a simple {name: value} dict to Playwright cookie list."""
+    if not cookies:
+        return None
+    if isinstance(cookies, list):
+        return cookies  # already in Playwright format
+    parsed = urlparse(url)
+    domain = parsed.netloc
+    return [
+        {"name": k, "value": v, "domain": domain, "path": "/"}
+        for k, v in cookies.items()
+    ]

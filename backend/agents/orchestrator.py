@@ -46,8 +46,9 @@ async def run_ingest_pipeline(
                     meta["tags"] = tags
                     await update_source_tags(source_id, tags)
                     await append_task_log(task_id, f"🏷️ 标签：{', '.join(tags)}")
-            except Exception:
-                pass  # tagging failure must never abort ingest
+            except Exception as _tag_err:
+                import logging as _lg
+                _lg.getLogger(__name__).warning("auto_tag failed for %s: %s", source_id, _tag_err)
 
         await append_task_log(task_id, "✂️ 分块中…")
         text_chunks = chunk_text(raw_doc.content, source_id=source_id, base_metadata=meta)

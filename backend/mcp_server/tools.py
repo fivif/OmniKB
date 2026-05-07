@@ -44,8 +44,9 @@ async def _log(tool_name: str, args: dict, result_preview: str, duration_ms: int
             "duration_ms": duration_ms,
             "called_at": datetime.now(timezone.utc).isoformat(),
         })
-    except Exception:
-        pass  # log failure must never break the tool response
+    except Exception as _log_err:
+        import logging as _lg
+        _lg.getLogger(__name__).debug("mcp_log insert failed: %s", _log_err)
 
 
 # ── Public tools ──────────────────────────────────────────────
