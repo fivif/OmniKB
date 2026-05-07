@@ -1,0 +1,43 @@
+# ── Secrets ────────────────────────────────────────────────────
+.env
+
+# ── Python ─────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# venv (entire virtualenv)
+backend/venv/
+venv/
+
+# ── Data & Storage ─────────────────────────────────────────────
+data/
+qdrant/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# ── Model downloads ────────────────────────────────────────────
+*.safetensors
+*.bin
+*.pth
+*.pt
+
+# ── IDE ────────────────────────────────────────────────────────
+.idea/
+*.swp
+*.swo
+*~
+
+# ── OS ─────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── Docker volumes ─────────────────────────────────────────────
+docker-compose.override.yml

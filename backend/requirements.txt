@@ -1,0 +1,47 @@
+# Web framework
+fastapi>=0.111.0
+uvicorn[standard]>=0.30.0
+pydantic>=2.7.0
+pydantic-settings>=2.3.0
+python-multipart>=0.0.9
+aiofiles>=23.2.1
+starlette>=0.37.0
+
+# Vector store
+qdrant-client[fastembed]>=1.10.0
+
+# Metadata DB
+aiosqlite>=0.20.0
+
+# LLM / Embeddings
+openai>=1.30.0
+langchain>=0.2.0
+langchain-openai>=0.1.8
+langchain-anthropic>=0.1.12
+langchain-community>=0.2.0
+langchain-text-splitters>=0.2.0
+langgraph>=0.1.5
+
+# MCP
+fastmcp>=0.4.0
+
+# Document processing
+pdfplumber>=0.11.0
+python-docx>=1.1.2
+beautifulsoup4>=4.12.3
+httpx>=0.27.0
+
+# Utilities
+python-dotenv>=1.0.1
+
+# ── P1 features ────────────────────────────────────────────────
+# Media transcription (video/audio → text)
+# Note: ffmpeg must also be installed and on PATH for video support
+faster-whisper>=1.0.0
+ffmpeg-python>=0.2.0
+
+# Web scraping (Layer 1: static fetcher)
+scrapling>=0.2.0
+
+# Re-ranking (cross-encoder, large download on first use)
+sentence-transformers>=3.0.0

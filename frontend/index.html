@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="h-full">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OmniKB</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: { DEFAULT: '#6366f1', dark: '#4f46e5', light: '#818cf8' }
+          }
+        }
+      }
+    }
+  </script>
+  <link rel="stylesheet" href="css/main.css" />
+</head>
+<body class="h-full bg-slate-950 text-slate-100 flex">
+
+  <!-- ── Sidebar ──────────────────────────────────────────────── -->
+  <aside class="w-16 lg:w-56 flex-shrink-0 bg-slate-900 border-r border-slate-800 flex flex-col">
+    <!-- Logo -->
+    <div class="h-14 flex items-center px-4 border-b border-slate-800 gap-3">
+      <div class="w-8 h-8 rounded-lg bg-brand flex items-center justify-center flex-shrink-0">
+        <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+        </svg>
+      </div>
+      <span class="hidden lg:block font-semibold text-white text-lg">OmniKB</span>
+    </div>
+
+    <!-- Nav -->
+    <nav class="flex-1 p-2 space-y-1 mt-2">
+      <button data-tab="upload" class="nav-btn active w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors">
+        <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+        </svg>
+        <span class="hidden lg:block">上传</span>
+      </button>
+
+      <button data-tab="search" class="nav-btn w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors">
+        <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+        </svg>
+        <span class="hidden lg:block">搜索</span>
+      </button>
+
+      <button data-tab="chat" class="nav-btn w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors">
+        <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
+        </svg>
+        <span class="hidden lg:block">对话</span>
+      </button>
+
+      <button data-tab="kb" class="nav-btn w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors">
+        <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M4 6h16M4 10h16M4 14h16M4 18h16"/>
+        </svg>
+        <span class="hidden lg:block">知识库</span>
+      </button>
+
+      <button data-tab="settings" class="nav-btn w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors">
+        <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+        </svg>
+        <span class="hidden lg:block">设置</span>
+      </button>
+    </nav>
+
+    <!-- Stats footer -->
+    <div id="sidebar-stats" class="hidden lg:block p-3 border-t border-slate-800 text-xs text-slate-500">
+      <div id="stat-sources">— 来源</div>
+      <div id="stat-chunks">— 片段</div>
+    </div>
+  </aside>
+
+  <!-- ── Main content ──────────────────────────────────────────── -->
+  <main class="flex-1 flex flex-col min-w-0 overflow-hidden">
+
+    <!-- Toast container -->
+    <div id="toast-container" class="fixed top-4 right-4 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+    <!-- Upload panel -->
+    <section id="tab-upload" class="tab-panel flex-1 overflow-y-auto p-6"></section>
+
+    <!-- Search panel -->
+    <section id="tab-search" class="tab-panel hidden flex-1 overflow-y-auto p-6"></section>
+
+    <!-- Chat panel -->
+    <section id="tab-chat" class="tab-panel hidden flex-col flex-1 overflow-hidden"></section>
+
+    <!-- KB Manager panel -->
+    <section id="tab-kb" class="tab-panel hidden flex-1 overflow-y-auto p-6"></section>
+
+    <!-- Settings panel -->
+    <section id="tab-settings" class="tab-panel hidden flex-1 overflow-y-auto p-6"></section>
+
+  </main>
+
+  <!-- Scripts (order matters) -->
+  <script src="js/app.js"></script>
+  <script src="js/upload.js"></script>
+  <script src="js/search.js"></script>
+  <script src="js/chat.js"></script>
+  <script src="js/kb-manager.js"></script>
+  <script src="js/settings.js"></script>
+</body>
+</html>
