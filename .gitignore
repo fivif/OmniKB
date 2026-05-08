@@ -43,3 +43,11 @@ Thumbs.db
 
 # ── Docker volumes ─────────────────────────────────────────────
 docker-compose.override.yml
+
+# ── Claude Code ────────────────────────────────────────────────
+.claude/
+
+# ── Docs & Tests ───────────────────────────────────────────────
+PRD.md
+docs/
+tests/

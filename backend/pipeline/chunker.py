@@ -5,8 +5,8 @@ from typing import Any
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-CHUNK_SIZE = 1000
-CHUNK_OVERLAP = 200
+CHUNK_SIZE = 800
+CHUNK_OVERLAP = 160
 
 _MD_SEPARATORS = [
     "\n## ", "\n### ", "\n#### ", "\n##### ",
