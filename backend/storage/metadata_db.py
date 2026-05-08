@@ -58,6 +58,39 @@ CREATE TABLE IF NOT EXISTS mcp_call_logs (
 );
 CREATE INDEX IF NOT EXISTS idx_mcp_logs_tool ON mcp_call_logs(tool_name);
 CREATE INDEX IF NOT EXISTS idx_mcp_logs_time ON mcp_call_logs(called_at);
+
+CREATE TABLE IF NOT EXISTS sessions (
+    id          TEXT PRIMARY KEY,
+    task_id     TEXT,
+    cwd         TEXT,
+    status      TEXT NOT NULL DEFAULT 'running',
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS session_messages (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id  TEXT NOT NULL,
+    role        TEXT NOT NULL,
+    content     TEXT,
+    tool_calls  TEXT,
+    created_at  TEXT NOT NULL,
+    FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_session_msgs_sid ON session_messages(session_id);
+
+CREATE TABLE IF NOT EXISTS skills (
+    id              TEXT PRIMARY KEY,
+    name            TEXT NOT NULL,
+    url_pattern     TEXT,
+    description     TEXT,
+    recipe          TEXT NOT NULL DEFAULT '{}',
+    embedding       BLOB,
+    success_count   INTEGER NOT NULL DEFAULT 0,
+    last_used_at    TEXT,
+    created_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_skills_name ON skills(name);
 """
 
 
@@ -476,3 +509,133 @@ async def batch_update_tags(
                     (json.dumps(new_tags), now, row["id"]),
                 )
         await db.commit()
+
+# ── Web Agent sessions (P3) ───────────────────────────────────
+
+async def create_web_session(session: dict) -> None:
+    now = _now()
+    async with aiosqlite.connect(settings.sqlite_path) as db:
+        await db.execute(
+            """INSERT INTO sessions (id, task_id, cwd, status, created_at, updated_at)
+               VALUES (:id, :task_id, :cwd, :status, :created_at, :updated_at)""",
+            {
+                "id": session["id"],
+                "task_id": session.get("task_id"),
+                "cwd": session.get("cwd"),
+                "status": session.get("status", "running"),
+                "created_at": now,
+                "updated_at": now,
+            },
+        )
+        await db.commit()
+
+
+async def append_session_message(session_id: str, role: str, content: str | None, tool_calls: str | None = None) -> None:
+    async with aiosqlite.connect(settings.sqlite_path) as db:
+        await db.execute(
+            """INSERT INTO session_messages (session_id, role, content, tool_calls, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            (session_id, role, content, tool_calls, _now()),
+        )
+        await db.execute(
+            "UPDATE sessions SET updated_at = ? WHERE id = ?",
+            (_now(), session_id),
+        )
+        await db.commit()
+
+
+async def list_session_messages(session_id: str, limit: int = 1000) -> list[dict]:
+    async with aiosqlite.connect(settings.sqlite_path) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM session_messages WHERE session_id = ? ORDER BY id LIMIT ?",
+            (session_id, limit),
+        ) as cur:
+            rows = await cur.fetchall()
+            return [dict(r) for r in rows]
+
+
+async def update_session_status(session_id: str, status: str) -> None:
+    async with aiosqlite.connect(settings.sqlite_path) as db:
+        await db.execute(
+            "UPDATE sessions SET status = ?, updated_at = ? WHERE id = ?",
+            (status, _now(), session_id),
+        )
+        await db.commit()
+
+
+async def get_web_session(session_id: str) -> dict | None:
+    async with aiosqlite.connect(settings.sqlite_path) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM sessions WHERE id = ?", (session_id,)
+        ) as cur:
+            row = await cur.fetchone()
+            return dict(row) if row else None
+
+
+async def list_web_sessions(limit: int = 50, offset: int = 0) -> list[dict]:
+    async with aiosqlite.connect(settings.sqlite_path) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM sessions ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            (limit, offset),
+        ) as cur:
+            rows = await cur.fetchall()
+            return [dict(r) for r in rows]
+
+
+# ── Skills (P3) ───────────────────────────────────────────────
+
+async def upsert_skill(skill: dict) -> None:
+    """Insert or replace a skill. ``embedding`` should be float32 bytes or None."""
+    now = _now()
+    async with aiosqlite.connect(settings.sqlite_path) as db:
+        await db.execute(
+            """INSERT INTO skills (id, name, url_pattern, description, recipe,
+                                   embedding, success_count, last_used_at, created_at)
+               VALUES (:id, :name, :url_pattern, :description, :recipe,
+                       :embedding, :success_count, :last_used_at, :created_at)
+               ON CONFLICT(id) DO UPDATE SET
+                 name           = excluded.name,
+                 url_pattern    = excluded.url_pattern,
+                 description    = excluded.description,
+                 recipe         = excluded.recipe,
+                 embedding      = excluded.embedding""",
+            {
+                "id": skill["id"],
+                "name": skill["name"],
+                "url_pattern": skill.get("url_pattern"),
+                "description": skill.get("description"),
+                "recipe": skill.get("recipe", "{}"),
+                "embedding": skill.get("embedding"),
+                "success_count": skill.get("success_count", 0),
+                "last_used_at": skill.get("last_used_at"),
+                "created_at": skill.get("created_at", now),
+            },
+        )
+        await db.commit()
+
+
+async def list_skills() -> list[dict]:
+    async with aiosqlite.connect(settings.sqlite_path) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM skills") as cur:
+            rows = await cur.fetchall()
+            return [dict(r) for r in rows]
+
+
+async def increment_skill_use(skill_id: str) -> None:
+    async with aiosqlite.connect(settings.sqlite_path) as db:
+        await db.execute(
+            "UPDATE skills SET success_count = success_count + 1, last_used_at = ? WHERE id = ?",
+            (_now(), skill_id),
+        )
+        await db.commit()
+
+
+async def count_skills() -> int:
+    async with aiosqlite.connect(settings.sqlite_path) as db:
+        async with db.execute("SELECT COUNT(*) FROM skills") as cur:
+            row = await cur.fetchone()
+            return row[0] if row else 0

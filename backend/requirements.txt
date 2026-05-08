@@ -43,5 +43,12 @@ ffmpeg-python>=0.2.0
 # Web scraping (Layer 1: static fetcher)
 scrapling>=0.2.0
 
+# Stealth-patched Playwright fork (drop-in). Optional; falls back to plain playwright.
+patchright>=1.40.0
+
 # Re-ranking (cross-encoder, large download on first use)
 sentence-transformers>=3.0.0
+
+# Smart URL fetching: YouTube metadata extraction (optional, improves YouTube ingest)
+# Install separately: pip install yt-dlp
+# yt-dlp>=2024.1.0

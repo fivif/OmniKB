@@ -57,32 +57,10 @@
             class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-brand" />
         </div>
 
-        <!-- Crawl mode toggle -->
-        <div>
-          <label class="text-xs text-slate-400 mb-2 block">爬取模式</label>
-          <div class="flex gap-1 bg-slate-950 p-1 rounded-lg w-fit">
-            <button data-crawl="single" class="crawl-btn active-crawl px-3 py-1 rounded-md text-xs font-medium transition-colors">单页</button>
-            <button data-crawl="site"   class="crawl-btn px-3 py-1 rounded-md text-xs font-medium transition-colors">整站爬取</button>
-          </div>
-        </div>
-
-        <!-- Site crawl options (hidden by default) -->
-        <div id="site-options" class="hidden grid grid-cols-2 gap-3">
-          <div>
-            <label class="text-xs text-slate-400 mb-1 block">最大页数</label>
-            <input id="site-max-pages" type="number" value="20" min="1" max="200"
-              class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-brand" />
-          </div>
-          <div>
-            <label class="text-xs text-slate-400 mb-1 block">最大深度</label>
-            <input id="site-max-depth" type="number" value="2" min="1" max="5"
-              class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-brand" />
-          </div>
-        </div>
-
         <div>
           <label class="text-xs text-slate-400 mb-1 block">抓取模式</label>
           <select id="url-fetch-mode" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none">
+            <option value="smart" selected>智能模式（自动识别 URL 类型，选最优策略）</option>
             <option value="auto">自动（静态优先，失败则回退 httpx）</option>
             <option value="static">静态（scrapling Fetcher）</option>
             <option value="dynamic">动态（scrapling PlayWright，需已安装）</option>
@@ -100,6 +78,14 @@
         <div>
           <label class="text-xs text-slate-400 mb-1 block">标签</label>
           <input id="url-tags" type="text" placeholder="网页, 新闻"
+            class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-brand" />
+        </div>
+        <div>
+          <label class="text-xs text-slate-400 mb-1 block">
+            收集意图
+            <span class="text-slate-600 font-normal ml-1">（可选，当 WEB_JUDGE_ENABLED=true 时用于 LLM 过滤无关页面）</span>
+          </label>
+          <input id="url-intent" type="text" placeholder="例如：Python async 教程、RAG 技术文章、XX 公司产品介绍"
             class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-brand" />
         </div>
         <button id="btn-ingest-url" class="btn-primary px-5 py-2 text-sm rounded-lg font-medium">摄入</button>
@@ -146,9 +132,6 @@
     .mode-btn { color:#64748b; }
     .mode-btn:hover { color:#e2e8f0; }
     .active-mode { background:#4f46e5; color:#fff; }
-    .crawl-btn { color:#64748b; }
-    .crawl-btn:hover { color:#e2e8f0; }
-    .active-crawl { background:#334155; color:#e2e8f0; }
     .task-progress-bar { transition: width 0.6s ease; }
     @keyframes progress-pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
     .progress-indeterminate { animation: progress-pulse 1.4s ease-in-out infinite; }
@@ -163,17 +146,6 @@
       btn.classList.add('active-mode');
       panel.querySelectorAll('.mode-panel').forEach(p => p.classList.add('hidden'));
       document.getElementById(`mode-${btn.dataset.mode}`).classList.remove('hidden');
-    });
-  });
-
-  // Crawl mode toggle (single / site)
-  let crawlMode = 'single';
-  panel.querySelectorAll('.crawl-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      panel.querySelectorAll('.crawl-btn').forEach(b => b.classList.remove('active-crawl'));
-      btn.classList.add('active-crawl');
-      crawlMode = btn.dataset.crawl;
-      document.getElementById('site-options').classList.toggle('hidden', crawlMode !== 'site');
     });
   });
 
@@ -311,20 +283,11 @@
     const tags = document.getElementById('url-tags').value.split(',').map(t => t.trim()).filter(Boolean);
     const title = document.getElementById('url-title').value.trim() || null;
     const mode = document.getElementById('url-fetch-mode').value;
+    const intent = document.getElementById('url-intent').value.trim();
 
     try {
-      if (crawlMode === 'site') {
-        const maxPages = parseInt(document.getElementById('site-max-pages').value) || 20;
-        const maxDepth = parseInt(document.getElementById('site-max-depth').value) || 2;
-        const res = await apiJson('/ingest/site', {
-          method: 'POST',
-          body: JSON.stringify({ url, title, tags, max_pages: maxPages, max_depth: maxDepth, mode }),
-        });
-        toast(`整站爬取已开始（最多 ${maxPages} 页）`, 'success');
-      } else {
-        await apiJson('/ingest/url', { method: 'POST', body: JSON.stringify({ url, title, tags, mode }) });
-        toast('URL 已加入队列', 'success');
-      }
+      await apiJson('/ingest/url', { method: 'POST', body: JSON.stringify({ url, title, tags, mode, intent }) });
+      toast('URL 已加入摄入队列', 'success');
       loadTasks();
     } catch {}
   });

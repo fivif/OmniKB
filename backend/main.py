@@ -74,8 +74,53 @@ async def lifespan(app: FastAPI):
     await init_db()
     await init_vector_store()
     init_file_store()
+
+    from agents.web import pool as _pool_mod
+    from agents.web.pool import JsHookPool, PlaywrightPool
+    app.state.jshook_pool = JsHookPool(size=settings.jshook_pool_size)
+    app.state.playwright_pool = PlaywrightPool(size=settings.playwright_pool_size)
+    _pool_mod.JSHOOK_POOL = app.state.jshook_pool
+    _pool_mod.PLAYWRIGHT_POOL = app.state.playwright_pool
+    try:
+        await app.state.jshook_pool.start()
+    except Exception as exc:
+        logger.warning("JsHookPool startup failed (non-fatal): %s", exc)
+    if settings.playwright_pool_size > 0:
+        try:
+            await app.state.playwright_pool.start()
+        except Exception as exc:
+            logger.warning("PlaywrightPool startup failed (non-fatal): %s", exc)
+
+    # P2: register jshookmcp tools as LangChain StructuredTools
+    app.state.jshook_tools = []
+    try:
+        from agents.web.tools.jshook_dynamic import discover_jshook_tools
+        app.state.jshook_tools = await discover_jshook_tools()
+    except Exception as exc:
+        logger.warning("jshook tool discovery failed (non-fatal): %s", exc)
+
+    # P3: load seed skills if skills table empty
+    try:
+        from agents.web.tools.memory import load_seed_skills_if_empty
+        loaded = await load_seed_skills_if_empty()
+        if loaded:
+            logger.info("Loaded %d seed skills", loaded)
+    except Exception as exc:
+        logger.warning("seed skill load failed (non-fatal): %s", exc)
+
     logger.info("OmniKB startup complete")
     yield
+
+    try:
+        await app.state.jshook_pool.stop()
+    except Exception as exc:
+        logger.debug("JsHookPool stop: %s", exc)
+    try:
+        await app.state.playwright_pool.stop()
+    except Exception as exc:
+        logger.debug("PlaywrightPool stop: %s", exc)
+    _pool_mod.JSHOOK_POOL = None
+    _pool_mod.PLAYWRIGHT_POOL = None
     logger.info("OmniKB shutdown")
 
 

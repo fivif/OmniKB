@@ -31,8 +31,11 @@ class UrlIngestRequest(BaseModel):
     url: str
     title: str | None = None
     tags: list[str] = []
-    mode: str = "auto"  # auto | static | dynamic | stealth
+    mode: str = "smart"  # smart | auto | static | dynamic | stealth | agent_browser | jshook
     cookies: dict[str, str] | None = None  # {name: value} for authenticated pages
+    # Free-text description of what to collect, used by the LLM judge.
+    # If empty, tags are joined as fallback intent.
+    intent: str = ""
 
 
 class SiteIngestRequest(BaseModel):
@@ -43,6 +46,9 @@ class SiteIngestRequest(BaseModel):
     max_depth: int = 3
     mode: str = "auto"  # auto | static | dynamic | stealth
     cookies: dict[str, str] | None = None  # session cookies for authenticated sites
+    # Free-text description of what to collect, used by the LLM judge.
+    # If empty, tags are joined as fallback intent.
+    intent: str = ""
 
 
 # ── Background task runners ───────────────────────────────────
@@ -88,10 +94,27 @@ async def _run_url_task(
     extra: dict,
     mode: str = "auto",
     cookies: dict | None = None,
+    intent: str = "",
 ) -> None:
-    await append_task_log(task_id, f"🌐 抓取 URL：{url}（模式：{mode}）")
-    from agents.web_agent import fetch_url
-    raw_doc = await fetch_url(url, mode=mode, cookies=cookies)
+    await append_task_log(task_id, f"🌐 抓取 URL：{url}（模式：{mode}{'  意图：' + intent if intent else ''}）")
+    if mode == "smart":
+        from agents.web.loop import run_agent
+        try:
+            raw_doc = await run_agent(url=url, intent=intent, task_id=task_id)
+        except Exception as exc:
+            await append_task_log(task_id, f"❌ smart agent failed: {exc}")
+            await update_task(task_id, "error", error=str(exc))
+            await update_source_status(source_id, "error")
+            return
+    else:
+        from agents.web_agent import fetch_url
+        try:
+            raw_doc = await fetch_url(url, mode=mode, cookies=cookies, intent=intent)
+        except ValueError as exc:
+            await append_task_log(task_id, f"🚫 页面被 LLM 判定无价值，已跳过：{exc}")
+            await update_task(task_id, "done")
+            await update_source_status(source_id, "done")
+            return
     await run_ingest_pipeline(source_id, task_id, raw_doc, extra_metadata=extra)
 
 
@@ -104,10 +127,12 @@ async def _run_site_task(
     mode: str,
     extra: dict,
     cookies: dict | None = None,
+    intent: str = "",
 ) -> None:
     """BFS site crawl: each page becomes an individual source entry."""
     from agents.web_agent import crawl_site
-    await append_task_log(task_id, f"🌐 整站爬取开始：{url}，最多 {max_pages} 页，深度 {max_depth}")
+    judge_hint = f"，意图：{intent}" if intent else ""
+    await append_task_log(task_id, f"🌐 整站爬取开始：{url}，最多 {max_pages} 页，深度 {max_depth}{judge_hint}")
 
     async def _log(msg: str):
         await append_task_log(task_id, msg)
@@ -120,6 +145,7 @@ async def _run_site_task(
             mode=mode,
             log_cb=_log,
             cookies=cookies,
+            intent=intent,
         )
     except Exception as exc:
         await append_task_log(task_id, f"❌ 整站爬取异常：{exc}")
@@ -231,6 +257,7 @@ async def ingest_url(req: UrlIngestRequest, background_tasks: BackgroundTasks):
         {"source_name": title, "source_url": req.url, "tags": req.tags},
         req.mode,
         req.cookies,
+        req.intent or ", ".join(req.tags),
     )
     return {"source_id": source_id, "task_id": task_id}
 
@@ -253,6 +280,7 @@ async def ingest_site(req: SiteIngestRequest, background_tasks: BackgroundTasks)
         req.max_pages, req.max_depth, req.mode,
         {"source_name": title, "source_url": req.url, "tags": req.tags},
         req.cookies,
+        req.intent or ", ".join(req.tags),
     )
     return {
         "source_id": source_id,

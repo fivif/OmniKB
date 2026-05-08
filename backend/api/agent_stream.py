@@ -61,3 +61,23 @@ async def agent_events(request: Request):
             "Connection": "keep-alive",
         },
     )
+
+
+@router.get("/sessions", tags=["agent"])
+async def list_agent_sessions(limit: int = 50, offset: int = 0):
+    """List web-agent ingestion sessions (newest first)."""
+    from storage.metadata_db import list_web_sessions
+    return await list_web_sessions(limit=limit, offset=offset)
+
+
+@router.get("/sessions/{session_id}", tags=["agent"])
+async def get_agent_session(session_id: str):
+    """Get a session's metadata + full message history."""
+    from fastapi import HTTPException
+    from storage.metadata_db import get_web_session, list_session_messages
+    sess = await get_web_session(session_id)
+    if not sess:
+        raise HTTPException(status_code=404, detail="session not found")
+    msgs = await list_session_messages(session_id)
+    return {"session": sess, "messages": msgs}
+

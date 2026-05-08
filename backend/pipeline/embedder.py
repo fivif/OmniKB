@@ -2,6 +2,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
+import time
 
 from openai import AsyncOpenAI
 from fastembed import SparseTextEmbedding
@@ -16,12 +17,43 @@ _bm25_model: SparseTextEmbedding | None = None
 # Semaphore: limits concurrent embedding API calls to avoid RPM 403 on SiliconFlow
 _embed_sem: asyncio.Semaphore | None = None
 
+# Sliding-window RPM limiter
+_rpm_lock: asyncio.Lock | None = None
+_rpm_timestamps: list[float] = []
+
 
 def _get_sem() -> asyncio.Semaphore:
     global _embed_sem
     if _embed_sem is None:
         _embed_sem = asyncio.Semaphore(settings.embedding_concurrency)
     return _embed_sem
+
+
+async def _rpm_wait() -> None:
+    """Proactively throttle to stay under embedding_rpm_limit requests/min.
+
+    Uses a sliding 60-second window. Holds _rpm_lock while checking so that
+    concurrent tasks queue up rather than all firing at once.
+    """
+    if not settings.embedding_rpm_limit:
+        return
+    global _rpm_lock, _rpm_timestamps
+    if _rpm_lock is None:
+        _rpm_lock = asyncio.Lock()
+    async with _rpm_lock:
+        now = time.monotonic()
+        # Evict timestamps older than 60 s
+        _rpm_timestamps = [t for t in _rpm_timestamps if now - t < 60.0]
+        if len(_rpm_timestamps) >= settings.embedding_rpm_limit:
+            # Wait until the oldest request falls outside the 60-s window
+            wait = 60.0 - (now - _rpm_timestamps[0]) + 0.1
+            if wait > 0:
+                logger.debug("RPM limit reached (%d/%d), waiting %.1fs",
+                             len(_rpm_timestamps), settings.embedding_rpm_limit, wait)
+                await asyncio.sleep(wait)
+            now = time.monotonic()
+            _rpm_timestamps = [t for t in _rpm_timestamps if now - t < 60.0]
+        _rpm_timestamps.append(time.monotonic())
 
 
 def _get_embed_client() -> AsyncOpenAI:
@@ -70,6 +102,7 @@ async def _embed_batch_with_retry(
     sem = _get_sem()
     client = _get_embed_client()
     for attempt in range(max_retries):
+        await _rpm_wait()
         async with sem:
             try:
                 resp = await client.embeddings.create(

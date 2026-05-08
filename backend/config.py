@@ -35,6 +35,10 @@ class Settings(BaseSettings):
     # Custom / third-party OpenAI-compatible LLM
     llm_base_url: str = ""   # e.g. https://api.siliconflow.cn/v1
     llm_api_key: str = ""    # API key for the custom provider
+    # JSON object passed as extra_body to OpenAI-compatible LLM. Useful for
+    # provider-specific flags such as {"enable_thinking": false} on hybrid
+    # thinking models. Empty string = no extra body.
+    llm_extra_body_json: str = ""
 
     # Default LLM
     llm_provider: Literal["openai", "anthropic", "ollama", "custom"] = "custom"
@@ -50,6 +54,9 @@ class Settings(BaseSettings):
     embedding_concurrency: int = 3
     # Texts per API call (SiliconFlow recommends <=32 per request)
     embedding_batch_size: int = 32
+    # Max embedding API requests per minute (0 = disabled). Set to your provider's RPM quota.
+    # SiliconFlow free tier ≈ 10 RPM; paid tier is higher. Proactively throttles before hitting 403.
+    embedding_rpm_limit: int = 10
 
     # MCP
     mcp_api_key: str = "changeme-replace-with-strong-secret"
@@ -87,6 +94,21 @@ class Settings(BaseSettings):
     vision_frame_interval: int = 60
     # Min chars per PDF page below which OCR is triggered (0 = always OCR image pages)
     vision_pdf_ocr_threshold: int = 80
+
+    # ── Web Judge (LLM-powered content intelligence for web ingestion) ──
+    # When enabled, every fetched page is scored by the LLM before being stored.
+    # Pages with score < web_judge_min_score are discarded.
+    # For site crawl, link lists are also LLM-filtered to stay on-topic.
+    # Uses the default LLM (llm_provider / llm_model). Costs ~100-300 tokens/page.
+    web_judge_enabled: bool = False
+    # Pages with LLM score below this threshold are dropped (0-10 scale).
+    web_judge_min_score: int = 4
+
+    # ── Web agent pools (P0) ──────────────────────────────────────
+    # JsHookMcpClient instance count to keep alive in app lifespan
+    jshook_pool_size: int = 2
+    # patchright/playwright browser count (0 = disable)
+    playwright_pool_size: int = 1
 
 
 settings = Settings()
