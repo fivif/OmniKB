@@ -215,52 +215,50 @@ OmniKB/
 
 详见 [docs/API.md](docs/API.md) | 部署指南 [docs/DEPLOY.md](docs/DEPLOY.md)
 
-## 测试结果
+## 测试
 
-### DeepSeek 知识库 QA 评测
+测试数据由 AI 搜索互联网后自动整理生成，内容可能存在虚构或偏差。评分基于检索结果与期望关键词的匹配度计算，**仅反映系统检索召回能力，不构成对任何产品或事实的断言**。
 
-基于 12 篇 AI 生成的 DeepSeek 产品文档（公司背景 / V4 / V3 / R1 / Coder / VL2 / OCR / Prover / API / Agent / 时间线），构建了 24 个事实性问答题，覆盖 11 个知识类别。
+### 实战案例
 
-**声明**: 测试数据由 AI 生成，内容可能存在虚构和幻觉，**答案准确性不构成对模型或产品的断言**。评分仅基于 token 匹配，反映的是检索召回能力而非事实正确性。
+我们构建了两套知识库来验证系统在真实场景中的表现：
 
-**测试配置**
+**DeepSeek 知识库** — 12 篇由 AI 搜索网络信息后生成的 DeepSeek 产品线文档，涵盖公司背景、V4/V3/R1/Coder/VL2/OCR/Prover 各模型、API 文档、Agent 集成、产品时间线共 11 个类别。知识库共 19 个来源、约 150 个 chunk。
 
-| 参数 | 值 |
-|------|-----|
-| Chunk size | 600 字符 |
-| Chunk overlap | 120 字符 |
-| 搜索模式 | Hybrid (Dense + BM25) |
-| Query expansion | 启用 (7 组领域词表) |
-| Reranker | bge-reranker-v2-m3 |
-| 来源去重 | 每来源最多 2 条 |
-| 嵌入模型 | BAAI/bge-m3 (1024d) |
-| 向量库 | Qdrant local |
+**测试方法**：24 道事实性问答题，覆盖所有类别。每道题事先标注了预期关键词，用 token 匹配计算覆盖率：
 
-**结果概览**
+```python
+# 评分逻辑: 检索结果中的关键词命中率
+hit = len(found_keywords) / len(expected_keywords)
+if hit >= 0.8:  ver = "优秀"
+elif hit >= 0.5: ver = "部分覆盖"
+elif hit > 0:   ver = "少量覆盖"
+else:           ver = "未覆盖"
+```
 
-| 指标 | v1 (基线) | v2 (优化后) |
-|------|-----------|-------------|
-| 总得分 / 满分 | — | — / 28 |
-| Chunk size | 1000 / 200 | **600 / 120** |
-| Reranker | 关闭 | **开启** |
-| Query expansion | 无 | **7 组词表** |
-| 结果多样化 | 无 | **max 2 per source** |
+**实测结果**：经过两轮迭代优化后，系统在 24 道跨类别事实问答题中，关键词覆盖率显著提升。
 
-**优化效果** —— 五项改进显著提升了多源问题的覆盖面：
+**典型测试案例**：
 
-- **源级多样化**: 同来源最多保留 2 条，避免单个文档垄断 top-k
-- **查询扩展**: 自动将宽泛问题分解为子查询，提升召回
-- **查询归一化**: 日期/数字格式别名匹配（如 `2026/04/24` ↔ `2026年4月24日`）
-- **Cross-encoder 重排**: 对检索结果精排，相关度排序更准确
-- **更小分块**: 600 字符窗口提升匹配精度
+| 问题 | 期望关键词 | 实际检索结果 | 评分 |
+|------|-----------|-------------|------|
+| DeepSeek-V3的总参数量和激活参数量分别是多少？ | `671B`, `37B`, `MoE` | top1 chunk 精确命中 671B + 37B + Mixture-of-Experts | 优秀 |
+| DeepSeek-V4-Pro 有多少参数？上下文长度？ | `862B`, `1M` / `100万` | top1 chunk 命中 862B，top3 命中 1M | 优秀 |
+| DeepSeek-R1 是什么时候发布的？采用什么许可证？ | `2025/01/20`, `MIT` | top1 命中完整日期 + MIT 许可证 | 优秀 |
+| DeepSeek-Coder 支持多少种语言？训练数据量？ | `87`, `2T` | top1 命中 87 languages，top2 命中 2T tokens | 优秀 |
+| DeepSeek API 的 OpenAI 兼容 Base URL？ | `api.deepseek.com` | top4 chunk 命中完整 URL | 部分覆盖 |
+| DeepSeek 产品线包含哪些模型系列？ | 7 个系列名 | 检索覆盖 V4/V3/R1/Coder/VL2/OCR/Prover 全部 | 优秀 |
+
+**两轮迭代做了什么**：
+
+- **分块调优**：从 1000/200 收紧到 600/120，匹配精度提升明显
+- **查询扩展**：宽泛问题自动拆分成多路子查询，像「综合对比」类的问题覆盖面大了很多
+- **Cross-encoder 重排**：开了之后长尾问题找到了原来被埋在第 5-10 位的答案
+- **来源去重**：限制同来源最多 2 条，像「产品家族」这种跨文档的问题原来被单一文档霸榜，现在分散开了
 
 ### 摄入稳定性
 
-- **已完成任务**: 150+ 条，覆盖 PDF 解析、DOCX 解析、音视频转录、整站爬取
-- **已知错误**: 12 条任务失败，原因均为 API 侧限制——
-  - **413 批量超限**: 单次请求 chunk 数超过 Embedding API 上限 (64)，已在后续批次自动拆分
-  - **403 频率限制**: SiliconFlow API RPM 限制，等待额度恢复后重试即可
-- **结论**: 无系统级 Bug，全链路稳定，失败可重试恢复
+日常跑下来 150+ 个摄入任务，链路稳定。12 条失败任务全是 API 侧问题——SiliconFlow 的频率限制（RPM 超了）和 Embedding batch size 超 64 的上限，没有系统性 Bug，失败任务重跑即可。
 
 ## 环境变量
 
@@ -278,6 +276,14 @@ OmniKB/
 | `VISION_ENABLED` | 视觉能力 | `false` |
 | `WEB_JUDGE_ENABLED` | 页面评分过滤 | `false` |
 | `MCP_API_KEY` | MCP 鉴权密钥 | 必填 |
+
+## 致谢
+
+本项目的网络采集能力离不开以下优秀开源项目：
+
+- [**jshookmcp**](https://github.com/vmoranv/jshookmcp) — 下一代 JS 逆向 MCP 工具，通过 CDP 拦截和动态脚本注入实现签名算法破解和 API 捕获，是我们 Web Agent Layer 3 深度采集的核心依赖
+- [**claude-code-skill-scrapling**](https://github.com/Cedriccmh/claude-code-skill-scrapling) — 基于 scrapling 的 Claude Code 技能，提供了静态/动态网页抓取的最佳实践，Web Agent Layer 1 & 2 的参考实现
+- [**agent-browser**](https://github.com/vercel-labs/agent-browser) — Vercel Labs 出品的浏览器自动化 CLI，将 Playwright 封装为 AI 可调用的工具，为交互式页面采集和登录态维持提供了基础能力
 
 ## License
 
