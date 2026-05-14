@@ -26,8 +26,16 @@ logger = logging.getLogger(__name__)
 _PAGE_SYS = (
     "You are an expert content curator for a personal knowledge base. "
     "Analyse the given web page content and decide whether it is worth storing.\n\n"
-    "Worthless pages: login walls, 404 errors, pure navigation/index pages, "
-    "cookie-consent dialogs, advertisement-only pages, empty or near-empty pages.\n\n"
+    "REJECT (score 0-2, keep=false):\n"
+    "  - Login walls, 404/403 error pages, Cloudflare/DDoS challenge pages\n"
+    "  - Pure navigation/index pages, cookie dialogs, ads-only pages\n"
+    "  - Empty or near-empty pages\n"
+    "  - AI agent self-reports about fetch failures (\"I was unable to access\",\n"
+    "    \"all tool tiers exhausted\", HTTP status code summaries, etc.)\n"
+    "  - Any content that describes the act of fetching rather than the fetched material itself\n\n"
+    "ACCEPT (score 5-10, keep=true):\n"
+    "  - Actual articles, documentation, READMEs, code, transcripts, papers\n"
+    "  - Real web page content extracted from the target URL\n\n"
     "Return ONLY a JSON object with these keys:\n"
     '  "keep": true/false\n'
     '  "score": integer 0-10  (0=garbage, 10=highly relevant)\n'

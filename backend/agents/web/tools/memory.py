@@ -12,6 +12,7 @@ back to regex-only matching.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -160,6 +161,19 @@ async def recall_skill(query: str = "", url: str = "", top_k: int = 3) -> str:
     top = [s for sc, s in scored[:top_k] if sc > 0]
     if not top:
         return ""
+
+    # Fire-and-forget: bump success_count + last_used_at for each retrieved
+    # skill so popularity-tiebreak actually works (previously this counter was
+    # never incremented).
+    try:
+        from storage.metadata_db import increment_skill_use
+        for s in top:
+            sid = s.get("id")
+            if not sid:
+                continue
+            asyncio.create_task(increment_skill_use(sid))
+    except Exception as exc:  # pragma: no cover — non-fatal
+        logger.debug("skill use increment skipped: %s", exc)
 
     blocks = []
     for s in top:

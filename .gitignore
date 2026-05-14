@@ -44,8 +44,14 @@ Thumbs.db
 # ── Docker volumes ─────────────────────────────────────────────
 docker-compose.override.yml
 
+# ── Browser automation logs ────────────────────────────────────
+.playwright-mcp/
+
 # ── Claude Code ────────────────────────────────────────────────
 .claude/
+
+# ── Telegram Bot ───────────────────────────────────────────────
+tg_bot/
 
 # ── Docs & Tests ───────────────────────────────────────────────
 PRD.md

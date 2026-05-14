@@ -1,0 +1,369 @@
+.sapi-page {
+  margin: 0;
+  min-height: 100vh;
+  --sapi-glow-primary: rgba(21, 94, 239, 0.14);
+  --sapi-glow-secondary: rgba(240, 124, 82, 0.12);
+  --sapi-page-wash: rgba(255, 255, 255, 0.42);
+  --sapi-panel-border: var(--bd-subtle);
+  --sapi-panel-shadow: var(--sh-md);
+  --sapi-panel-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(255, 253, 247, 0.9));
+  --sapi-secondary-btn-bg: rgba(255, 255, 255, 0.56);
+  --sapi-stat-bg: linear-gradient(135deg, var(--accent-bg), transparent 70%), rgba(255, 255, 255, 0.72);
+  --sapi-code-bg: linear-gradient(180deg, rgba(7, 12, 20, 0.92), rgba(15, 23, 42, 0.96));
+  color: var(--t-primary);
+  font-family: var(--font-sans);
+  background-color: var(--bg-body);
+  background-image:
+    radial-gradient(circle at top left, var(--sapi-glow-primary), transparent 28%),
+    radial-gradient(circle at top right, var(--sapi-glow-secondary), transparent 24%),
+    linear-gradient(180deg, var(--sapi-page-wash), transparent 22%);
+}
+
+[data-theme="dark"] .sapi-page {
+  --sapi-glow-primary: rgba(91, 140, 255, 0.2);
+  --sapi-glow-secondary: rgba(27, 185, 138, 0.14);
+  --sapi-page-wash: rgba(7, 10, 16, 0.14);
+  --sapi-panel-border: rgba(255, 255, 255, 0.08);
+  --sapi-panel-shadow: 0 22px 48px rgba(0, 0, 0, 0.34), 0 8px 18px rgba(0, 0, 0, 0.22);
+  --sapi-panel-bg: linear-gradient(180deg, rgba(26, 30, 35, 0.92), rgba(18, 21, 26, 0.98));
+  --sapi-secondary-btn-bg: rgba(24, 26, 29, 0.82);
+  --sapi-stat-bg: linear-gradient(135deg, var(--accent-bg), transparent 72%), rgba(20, 23, 28, 0.9);
+  --sapi-code-bg: linear-gradient(180deg, rgba(5, 8, 14, 0.98), rgba(10, 16, 28, 0.99));
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .sapi-page {
+    --sapi-glow-primary: rgba(91, 140, 255, 0.2);
+    --sapi-glow-secondary: rgba(27, 185, 138, 0.14);
+    --sapi-page-wash: rgba(7, 10, 16, 0.14);
+    --sapi-panel-border: rgba(255, 255, 255, 0.08);
+    --sapi-panel-shadow: 0 22px 48px rgba(0, 0, 0, 0.34), 0 8px 18px rgba(0, 0, 0, 0.22);
+    --sapi-panel-bg: linear-gradient(180deg, rgba(26, 30, 35, 0.92), rgba(18, 21, 26, 0.98));
+    --sapi-secondary-btn-bg: rgba(24, 26, 29, 0.82);
+    --sapi-stat-bg: linear-gradient(135deg, var(--accent-bg), transparent 72%), rgba(20, 23, 28, 0.9);
+    --sapi-code-bg: linear-gradient(180deg, rgba(5, 8, 14, 0.98), rgba(10, 16, 28, 0.99));
+  }
+}
+
+.sapi-shell {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 32px 24px 56px;
+}
+
+.sapi-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.sapi-kicker,
+.sapi-section-kicker,
+.sapi-card-label {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.sapi-headline {
+  margin: 10px 0 0;
+  font-family: var(--font-display);
+  font-size: clamp(32px, 5vw, 52px);
+  line-height: 0.98;
+  letter-spacing: -0.04em;
+}
+
+.sapi-lead {
+  margin: 12px 0 0;
+  max-width: 680px;
+  font-size: 15px;
+  line-height: 1.75;
+  color: var(--t-secondary);
+}
+
+.sapi-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.sapi-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  padding: 0 16px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+  transition: transform var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+
+.sapi-btn:hover {
+  transform: translateY(-1px);
+}
+
+.sapi-btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.sapi-btn-secondary {
+  background: var(--sapi-secondary-btn-bg);
+  border-color: var(--sapi-panel-border);
+  color: var(--t-primary);
+}
+
+.sapi-main {
+  margin-top: 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.sapi-hero,
+.sapi-flow-card,
+.sapi-card,
+.sapi-code-card,
+.sapi-status {
+  border-radius: 24px;
+  border: 1px solid var(--sapi-panel-border);
+  background-color: var(--bg-surface);
+  background-image: var(--sapi-panel-bg);
+  box-shadow: var(--sapi-panel-shadow);
+}
+
+.sapi-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.8fr) minmax(280px, 0.9fr);
+  gap: 16px;
+  padding: 24px;
+}
+
+.sapi-template-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-bd);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sapi-title {
+  margin: 14px 0 0;
+  font-family: var(--font-display);
+  font-size: clamp(26px, 4vw, 42px);
+  line-height: 1.02;
+  letter-spacing: -0.04em;
+}
+
+.sapi-description {
+  margin: 12px 0 0;
+  max-width: 720px;
+  font-size: 15px;
+  line-height: 1.75;
+  color: var(--t-secondary);
+}
+
+.sapi-hero-side {
+  display: grid;
+  gap: 12px;
+}
+
+.sapi-stat {
+  padding: 18px;
+  border-radius: 20px;
+  border: 1px solid var(--sapi-panel-border);
+  background: var(--sapi-stat-bg);
+}
+
+.sapi-stat-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.sapi-stat-value,
+.sapi-endpoint,
+.sapi-link {
+  display: block;
+  margin-top: 10px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.7;
+  word-break: break-all;
+}
+
+.sapi-link {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.sapi-link:hover {
+  text-decoration: underline;
+}
+
+.sapi-status {
+  padding: 14px 16px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.sapi-status[data-tone="error"] {
+  border-color: rgba(229, 72, 77, 0.22);
+  background: var(--danger-bg);
+  color: var(--danger-t);
+}
+
+.sapi-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.sapi-card {
+  padding: 18px;
+}
+
+.sapi-card-desc {
+  margin: 12px 0 0;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--t-secondary);
+}
+
+.sapi-flow-card {
+  padding: 20px 22px;
+}
+
+.sapi-section-head h3 {
+  margin: 8px 0 0;
+  font-family: var(--font-display);
+  font-size: 24px;
+  letter-spacing: -0.03em;
+}
+
+.sapi-flow-list {
+  margin: 16px 0 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 10px;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--t-secondary);
+}
+
+.sapi-code-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.sapi-code-card {
+  min-width: 0;
+  padding: 16px;
+}
+
+.sapi-code-card-wide {
+  grid-column: 1 / -1;
+}
+
+.sapi-code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--t-primary);
+}
+
+.sapi-code-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-bd);
+  color: var(--accent);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sapi-code {
+  margin: 12px 0 0;
+  padding: 16px;
+  border-radius: 18px;
+  overflow-x: auto;
+  background: var(--sapi-code-bg);
+  color: #e5edf7;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+@media (max-width: 980px) {
+  .sapi-header,
+  .sapi-hero {
+    grid-template-columns: 1fr;
+    display: grid;
+  }
+
+  .sapi-header-actions {
+    justify-content: flex-start;
+  }
+
+  .sapi-grid,
+  .sapi-code-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .sapi-shell {
+    padding: 20px 16px 40px;
+  }
+
+  .sapi-hero,
+  .sapi-flow-card,
+  .sapi-card,
+  .sapi-code-card {
+    border-radius: 20px;
+  }
+
+  .sapi-hero,
+  .sapi-flow-card {
+    padding: 18px;
+  }
+
+  .sapi-card,
+  .sapi-code-card {
+    padding: 14px;
+  }
+
+  .sapi-code {
+    padding: 14px;
+  }
+}

@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>场景 API 接入</title>
+
+  <script>
+    (function () {
+      try {
+        var pref = localStorage.getItem('omnikb-theme') || 'system';
+        var resolved = pref;
+        if (pref === 'system') {
+          resolved = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+        if (resolved === 'dark' && pref !== 'system') {
+          document.documentElement.setAttribute('data-theme', 'dark');
+        } else if (resolved === 'light' && pref !== 'system') {
+          document.documentElement.setAttribute('data-theme', 'light');
+        }
+        document.documentElement.setAttribute('data-theme-pref', pref);
+      } catch (e) {}
+    })();
+  </script>
+
+  <link rel="stylesheet" href="css/main.css"/>
+  <link rel="stylesheet" href="css/panels/scenario-api.css"/>
+</head>
+<body class="sapi-page">
+  <div class="sapi-shell">
+    <header class="sapi-header">
+      <div class="sapi-header-copy">
+        <span class="sapi-kicker">Scenario API</span>
+        <h1 class="sapi-headline">场景 API 接入</h1>
+        <p id="sapi-lead" class="sapi-lead">读取当前场景配置后，会自动生成对应的接口地址和请求示例。</p>
+      </div>
+      <div class="sapi-header-actions">
+        <a id="sapi-back-console" class="sapi-btn sapi-btn-secondary" href="index.html#scenarios">返回问答管理</a>
+        <a id="sapi-open-chat" class="sapi-btn sapi-btn-primary" href="#" target="_blank" rel="noreferrer">打开问答页</a>
+      </div>
+    </header>
+
+    <main class="sapi-main">
+      <section class="sapi-hero">
+        <div class="sapi-hero-main">
+          <span id="sapi-template" class="sapi-template-badge">Knowledge Q&amp;A</span>
+          <h2 id="sapi-title" class="sapi-title">加载场景中…</h2>
+          <p id="sapi-description" class="sapi-description">正在请求场景的公开配置。</p>
+        </div>
+        <div class="sapi-hero-side">
+          <div class="sapi-stat">
+            <span class="sapi-stat-label">场景 ID</span>
+            <span id="sapi-id" class="sapi-stat-value">-</span>
+          </div>
+          <div class="sapi-stat">
+            <span class="sapi-stat-label">API Base</span>
+            <span id="sapi-base" class="sapi-stat-value">-</span>
+          </div>
+        </div>
+      </section>
+
+      <section id="sapi-status" class="sapi-status" hidden></section>
+
+      <section class="sapi-grid">
+        <article class="sapi-card">
+          <div class="sapi-card-label">场景信息接口</div>
+          <div id="sapi-meta-url" class="sapi-endpoint">-</div>
+          <p class="sapi-card-desc">GET 请求，无需鉴权。返回场景名称、描述以及 ui_config，适合前端初始化页面时先请求。</p>
+        </article>
+        <article class="sapi-card">
+          <div class="sapi-card-label">流式问答接口</div>
+          <div id="sapi-chat-url" class="sapi-endpoint">-</div>
+          <p class="sapi-card-desc">POST 请求，响应类型是 text/event-stream。必须带 Authorization: Bearer YOUR_SCENARIO_API_KEY。</p>
+        </article>
+        <article class="sapi-card">
+          <div class="sapi-card-label">公开问答页</div>
+          <a id="sapi-public-url" class="sapi-link" href="#" target="_blank" rel="noreferrer">-</a>
+          <p class="sapi-card-desc">联调时可直接打开真实问答页，验证场景模板、欢迎语和真实对话体验。</p>
+        </article>
+      </section>
+
+      <section class="sapi-flow-card">
+        <div class="sapi-section-head">
+          <span class="sapi-section-kicker">Flow</span>
+          <h3>接入步骤</h3>
+        </div>
+        <ol class="sapi-flow-list">
+          <li>先在问答管理的“API 密钥”标签页里为当前场景创建一个密钥。</li>
+          <li>调用场景信息接口，拿到 name、description 和 ui_config 初始化页面。</li>
+          <li>再向流式问答接口发送 messages 数组；服务端会基于当前场景绑定的知识片段做检索增强。</li>
+          <li>流中会依次返回 token 和 citations，最后用 [DONE] 结束整个响应。</li>
+        </ol>
+      </section>
+
+      <section class="sapi-code-grid">
+        <article class="sapi-code-card sapi-code-card-wide">
+          <div class="sapi-code-head">
+            <span>场景信息请求示例</span>
+            <span class="sapi-code-badge">GET</span>
+          </div>
+          <pre id="sapi-meta-curl" class="sapi-code"></pre>
+        </article>
+
+        <article class="sapi-code-card">
+          <div class="sapi-code-head">
+            <span>流式问答 curl 示例</span>
+            <span class="sapi-code-badge">POST</span>
+          </div>
+          <pre id="sapi-chat-curl" class="sapi-code"></pre>
+        </article>
+
+        <article class="sapi-code-card">
+          <div class="sapi-code-head">
+            <span>fetch 流式示例</span>
+            <span class="sapi-code-badge">JS</span>
+          </div>
+          <pre id="sapi-fetch-example" class="sapi-code"></pre>
+        </article>
+
+        <article class="sapi-code-card sapi-code-card-wide">
+          <div class="sapi-code-head">
+            <span>SSE 事件格式</span>
+            <span class="sapi-code-badge">STREAM</span>
+          </div>
+          <pre id="sapi-stream-example" class="sapi-code"></pre>
+        </article>
+      </section>
+    </main>
+  </div>
+
+  <script src="js/scenario-api.js"></script>
+</body>
+</html>

@@ -2,257 +2,274 @@
 
 (function initUpload() {
   const panel = document.getElementById('tab-upload');
+  let activeMode = 'file';
+  let pollTimer = null;
+  const seenLogLen = new Map();
 
   panel.innerHTML = `
-    <div class="max-w-3xl mx-auto space-y-6">
-      <div>
-        <h1 class="text-2xl font-bold text-white">上传 & 摄入</h1>
-        <p class="text-slate-400 text-sm mt-1">向知识库添加内容</p>
-      </div>
-
-      <!-- Input type tabs -->
-      <div class="flex gap-1 bg-slate-900 p-1 rounded-xl w-fit">
-        <button data-mode="file"  class="mode-btn active-mode px-4 py-1.5 rounded-lg text-sm font-medium transition-colors">文件</button>
-        <button data-mode="url"   class="mode-btn px-4 py-1.5 rounded-lg text-sm font-medium transition-colors">URL</button>
-        <button data-mode="text"  class="mode-btn px-4 py-1.5 rounded-lg text-sm font-medium transition-colors">粘贴文本</button>
-      </div>
-
-      <!-- File mode -->
-      <div id="mode-file" class="mode-panel space-y-4">
-        <div id="drop-zone" class="drop-zone rounded-2xl p-10 text-center">
-          <svg class="w-12 h-12 mx-auto text-slate-600 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
-              d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
-          </svg>
-          <p class="text-slate-400 mb-3">拖拽文件或文件夹到此处</p>
-          <!-- Pick buttons -->
-          <div class="flex items-center justify-center gap-3 mb-3">
-            <label for="file-input"
-              class="cursor-pointer text-xs text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-600 hover:border-slate-400 px-4 py-2 rounded-lg transition-colors select-none">
-              📄 浏览文件
-            </label>
-            <label for="folder-input"
-              class="cursor-pointer text-xs text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-600 hover:border-slate-400 px-4 py-2 rounded-lg transition-colors select-none">
-              📁 选择文件夹
-            </label>
+    <div class="panel-shell upload-shell">
+      <section class="section-card">
+        <div class="section-card-body stack-md">
+          <div class="section-head">
+            <div>
+              <div class="section-title">选择摄入方式</div>
+              <div class="section-subtitle">把后端已有能力完整露出来，不再只给你一半入口。</div>
+            </div>
           </div>
-          <p class="text-slate-600 text-xs mb-1">截图后可直接 <kbd class="bg-slate-800 px-1 rounded text-slate-500">Ctrl+V</kbd> 粘贴上传</p>
-          <p class="text-slate-700 text-xs">TXT · MD · PDF · DOCX · HTML · JSON · CSV · 图片 · 视频 · 音频</p>
-          <input id="file-input" type="file" class="hidden" multiple accept=".txt,.md,.pdf,.docx,.html,.json,.csv,.mp4,.mkv,.avi,.mov,.webm,.mp3,.wav,.m4a,.ogg,.flac,.jpg,.jpeg,.png,.gif,.webp,.bmp,.tiff,.tif" />
-          <input id="folder-input" type="file" class="hidden" webkitdirectory multiple />
-          <span id="folder-hint" class="block text-xs text-slate-600 mt-1"></span>
-        </div>
-        <div>
-          <label class="text-xs text-slate-400 mb-1 block">标签（逗号分隔）</label>
-          <input id="file-tags" type="text" placeholder="研究, 2024, 项目X"
-            class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-brand" />
-        </div>
-      </div>
 
-      <!-- URL mode -->
-      <div id="mode-url" class="mode-panel hidden space-y-4">
-        <div>
-          <label class="text-xs text-slate-400 mb-1 block">页面 URL</label>
-          <input id="url-input" type="url" placeholder="https://example.com/article"
-            class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-brand" />
-        </div>
+          <div class="mode-strip">
+            <button class="mode-card ingest-mode-card active" data-mode="file" type="button">
+              <span class="mode-card-icon">📁</span>
+              <span class="mode-card-title">文件 / 文件夹</span>
+              <span class="mode-card-copy">拖拽上传、批量选择、截图粘贴，适合本地资料快速入库。</span>
+              <span class="mode-card-badge">Batch</span>
+            </button>
+            <button class="mode-card ingest-mode-card" data-mode="page" type="button">
+              <span class="mode-card-icon">🔗</span>
+              <span class="mode-card-title">智能抓取</span>
+              <span class="mode-card-copy">AI Agent 自主选择策略，智能判断抓取方式，适应各种页面。</span>
+              <span class="mode-card-badge">Smart</span>
+            </button>
+            <button class="mode-card ingest-mode-card" data-mode="text" type="button">
+              <span class="mode-card-icon">✍️</span>
+              <span class="mode-card-title">粘贴文本</span>
+              <span class="mode-card-copy">适合临时笔记、代码片段、会议纪要和复制来的结构化内容。</span>
+              <span class="mode-card-badge">Quick Note</span>
+            </button>
+          </div>
 
-        <div>
-          <label class="text-xs text-slate-400 mb-1 block">抓取模式</label>
-          <select id="url-fetch-mode" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none">
-            <option value="smart" selected>智能模式（自动识别 URL 类型，选最优策略）</option>
-            <option value="auto">自动（静态优先，失败则回退 httpx）</option>
-            <option value="static">静态（scrapling Fetcher）</option>
-            <option value="dynamic">动态（scrapling PlayWright，需已安装）</option>
-            <option value="stealth">隐身（PlayWright + 反检测，绕过 Cloudflare）</option>
-            <option value="agent_browser">交互式浏览器（agent-browser，SPA / 懒加载）</option>
-            <option value="jshook">CDP 深度（jshookmcp，高级反爬 / 网络拦截）</option>
-          </select>
-        </div>
+          <div class="surface-note">提示：智能抓取支持“收集意图”。当后端启用 Web Judge 时，它会帮助你过滤掉抓到但没有价值的页面。</div>
 
-        <div>
-          <label class="text-xs text-slate-400 mb-1 block">标题（可选）</label>
-          <input id="url-title" type="text" placeholder="留空自动检测"
-            class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-brand" />
-        </div>
-        <div>
-          <label class="text-xs text-slate-400 mb-1 block">标签</label>
-          <input id="url-tags" type="text" placeholder="网页, 新闻"
-            class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-brand" />
-        </div>
-        <div>
-          <label class="text-xs text-slate-400 mb-1 block">
-            收集意图
-            <span class="text-slate-600 font-normal ml-1">（可选，当 WEB_JUDGE_ENABLED=true 时用于 LLM 过滤无关页面）</span>
-          </label>
-          <input id="url-intent" type="text" placeholder="例如：Python async 教程、RAG 技术文章、XX 公司产品介绍"
-            class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-brand" />
-        </div>
-        <button id="btn-ingest-url" class="btn-primary px-5 py-2 text-sm rounded-lg font-medium">摄入</button>
-      </div>
+          <div class="upload-panels">
+            <div id="mode-file" class="ingest-panel stack-md">
+              <div id="drop-zone" class="upload-dropzone">
+                <div class="upload-drop-icon">
+                  <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6"
+                      d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M12 12v8m0-8l-3 3m3-3l3 3" />
+                  </svg>
+                </div>
+                <div class="upload-drop-title">把文件或文件夹拖到这里</div>
+                <div class="upload-drop-copy">支持本地资料批量摄入，也支持从浏览器直接拖拽图片链接。截图后按 Ctrl+V 同样会自动上传。</div>
+                <div class="upload-drop-actions">
+                  <label for="file-input" class="btn btn-primary upload-action-label">浏览文件</label>
+                  <label for="folder-input" class="btn btn-secondary upload-action-label">选择文件夹</label>
+                </div>
+                <div class="upload-drop-meta">TXT · MD · PDF · DOCX · HTML · JSON · CSV · 图片 · 视频 · 音频</div>
+                <input id="file-input" type="file" class="hidden" multiple accept=".txt,.md,.pdf,.docx,.html,.json,.csv,.mp4,.mkv,.avi,.mov,.webm,.mp3,.wav,.m4a,.ogg,.flac,.jpg,.jpeg,.png,.gif,.webp,.bmp,.tiff,.tif" />
+                <input id="folder-input" type="file" class="hidden" webkitdirectory multiple />
+                <span id="folder-hint" class="upload-inline-hint"></span>
+              </div>
+              <div class="field-grid">
+                <div class="stack-sm field-span-2">
+                  <label class="form-label">标签（逗号分隔）</label>
+                  <input id="file-tags" type="text" class="input" placeholder="研究, 2024, 项目X" />
+                </div>
+              </div>
+            </div>
 
-      <!-- Text mode -->
-      <div id="mode-text" class="mode-panel hidden space-y-4">
-        <div>
-          <label class="text-xs text-slate-400 mb-1 block">标题</label>
-          <input id="text-title" type="text" placeholder="我的笔记" value="未命名"
-            class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-brand" />
-        </div>
-        <div>
-          <label class="text-xs text-slate-400 mb-1 block">内容</label>
-          <textarea id="text-content" rows="10" placeholder="粘贴文本、代码、笔记…"
-            class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-brand font-mono resize-y"></textarea>
-        </div>
-        <div>
-          <label class="text-xs text-slate-400 mb-1 block">标签</label>
-          <input id="text-tags" type="text" placeholder="笔记, 代码片段"
-            class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-brand" />
-        </div>
-        <button id="btn-ingest-text" class="btn-primary px-5 py-2 text-sm rounded-lg font-medium">摄入文本</button>
-      </div>
+            <div id="mode-page" class="ingest-panel stack-md hidden">
+              <div class="field-grid">
+                <div class="stack-sm field-span-2">
+                  <label class="form-label">页面 URL</label>
+                  <input id="url-input" type="url" class="input" placeholder="https://example.com/article" />
+                </div>
+                <div class="stack-sm">
+                  <label class="form-label">标题（可选）</label>
+                  <input id="url-title" type="text" class="input" placeholder="留空自动检测" />
+                </div>
+                <div class="stack-sm">
+                  <label class="form-label">标签</label>
+                  <input id="url-tags" type="text" class="input" placeholder="网页, 新闻, 文档" />
+                </div>
+                <div class="stack-sm">
+                  <label class="form-label">收集意图</label>
+                  <input id="url-intent" type="text" class="input" placeholder="例如：Python async 教程、RAG 技术文章" />
+                </div>
+              </div>
+              <div class="toolbar-row">
+                <div class="upload-inline-hint">适合单篇文章、文档页、登录后单页内容。AI Agent 自动判断最佳抓取策略。</div>
+                <button id="btn-ingest-url" class="btn btn-primary" type="button">开始智能抓取</button>
+              </div>
+            </div>
 
-      <!-- Task queue -->
-      <div>
-        <div class="flex items-center justify-between mb-3">
-          <h2 class="text-sm font-semibold text-slate-300">摄入任务</h2>
-          <div class="flex items-center gap-2">
-            <button id="btn-refresh-tasks" class="text-xs text-slate-500 hover:text-slate-300 transition-colors">↺ 刷新</button>
+            <div id="mode-text" class="ingest-panel stack-md hidden">
+              <div class="field-grid">
+                <div class="stack-sm">
+                  <label class="form-label">标题</label>
+                  <input id="text-title" type="text" class="input" placeholder="我的笔记" value="未命名" />
+                </div>
+                <div class="stack-sm">
+                  <label class="form-label">标签</label>
+                  <input id="text-tags" type="text" class="input" placeholder="笔记, 代码片段" />
+                </div>
+                <div class="stack-sm field-span-2">
+                  <label class="form-label">内容</label>
+                  <textarea id="text-content" rows="12" class="textarea upload-textarea" placeholder="粘贴文本、代码、会议纪要、待整理素材…"></textarea>
+                </div>
+              </div>
+              <div class="toolbar-row">
+                <div class="upload-inline-hint">适合临时收集不值得做成文件的内容。</div>
+                <button id="btn-ingest-text" class="btn btn-primary" type="button">开始摄入文本</button>
+              </div>
+            </div>
           </div>
         </div>
-        <div id="task-list" class="space-y-2"></div>
-      </div>
+      </section>
+
+      <section class="section-card">
+        <div class="section-card-body stack-md">
+          <div class="section-head">
+            <div>
+              <div class="section-title">摄入任务</div>
+              <div class="section-subtitle">所有入口共享同一任务队列。处理中的任务会持续轮询，完成后会自动刷新统计。</div>
+            </div>
+            <button id="btn-refresh-tasks" class="btn btn-secondary" type="button">刷新队列</button>
+          </div>
+          <div id="task-list" class="upload-task-list"></div>
+        </div>
+      </section>
     </div>
   `;
 
-  // Base styles
-  const style = document.createElement('style');
-  style.textContent = `
-    .btn-primary { background:#4f46e5; color:#fff; }
-    .btn-primary:hover { background:#4338ca; }
-    .mode-btn { color:#64748b; }
-    .mode-btn:hover { color:#e2e8f0; }
-    .active-mode { background:#4f46e5; color:#fff; }
-    .task-progress-bar { transition: width 0.6s ease; }
-    @keyframes progress-pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
-    .progress-indeterminate { animation: progress-pulse 1.4s ease-in-out infinite; }
-  `;
-  document.head.appendChild(style);
-
-  // Mode switching
-  const modeBtns = panel.querySelectorAll('.mode-btn');
-  modeBtns.forEach(btn => {
-    btn.addEventListener('click', () => {
-      modeBtns.forEach(b => b.classList.remove('active-mode'));
-      btn.classList.add('active-mode');
-      panel.querySelectorAll('.mode-panel').forEach(p => p.classList.add('hidden'));
-      document.getElementById(`mode-${btn.dataset.mode}`).classList.remove('hidden');
-    });
-  });
-
-  // Drop zone
   const dropZone = document.getElementById('drop-zone');
   const fileInput = document.getElementById('file-input');
-
   const folderInput = document.getElementById('folder-input');
-  const folderHint  = document.getElementById('folder-hint');
+  const folderHint = document.getElementById('folder-hint');
+  const taskList = document.getElementById('task-list');
 
-  // Drop zone click → do nothing (labels inside handle file/folder picker)
-  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
-  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
-  dropZone.addEventListener('drop', async e => {
-    e.preventDefault();
-    dropZone.classList.remove('drag-over');
-    // Try FileSystem API for folder/file drop
-    if (e.dataTransfer.items && e.dataTransfer.items.length) {
-      const all = await _collectFromDataTransfer(e.dataTransfer.items);
-      if (all.length) { uploadFiles(all); return; }
-    }
-    // Fallback: dragged image URL from browser (e.g. drag image from webpage)
-    const imgUrl = e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain');
-    if (imgUrl && /\.(jpe?g|png|gif|webp|bmp|tiff?)(\?.*)?$/i.test(imgUrl)) {
-      _uploadImageUrl(imgUrl); return;
-    }
-    uploadFiles(e.dataTransfer.files);
-  });
-  fileInput.addEventListener('change', () => uploadFiles(fileInput.files));
-
-  // ── Clipboard paste (Ctrl+V screenshot / copied image) ───────
-  document.addEventListener('paste', async e => {
-    // Only handle when file mode is active
-    const activeMode = panel.querySelector('.mode-btn.active-mode');
-    if (activeMode && activeMode.dataset.mode !== 'file') return;
-    const items = Array.from(e.clipboardData?.items || []);
-    const imageItems = items.filter(i => i.type.startsWith('image/'));
-    if (!imageItems.length) return;
-    e.preventDefault();
-    const files = imageItems.map((item, idx) => {
-      const blob = item.getAsFile();
-      // Give it a meaningful filename with timestamp
-      const ext = item.type.split('/')[1]?.replace('jpeg', 'jpg') || 'png';
-      const name = `clipboard-${Date.now()}${idx ? `-${idx}` : ''}.${ext}`;
-      return new File([blob], name, { type: item.type });
+  function setMode(mode) {
+    activeMode = mode;
+    panel.querySelectorAll('.ingest-mode-card').forEach(button => {
+      button.classList.toggle('active', button.dataset.mode === mode);
     });
-    dropZone.classList.add('drag-over');
-    setTimeout(() => dropZone.classList.remove('drag-over'), 400);
-    uploadFiles(files);
-  });
-
-  // Upload an image by URL (fetched client-side then sent as blob)
-  async function _uploadImageUrl(url) {
-    try {
-      toast('正在获取图片…', 'info');
-      const resp = await fetch(url);
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const blob = await resp.blob();
-      const ext = (blob.type.split('/')[1] || 'jpg').replace('jpeg', 'jpg');
-      const name = `image-${Date.now()}.${ext}`;
-      const file = new File([blob], name, { type: blob.type });
-      uploadFiles([file]);
-    } catch (err) {
-      toast(`图片获取失败: ${err.message}`, 'error');
-    }
+    panel.querySelectorAll('.ingest-panel').forEach(section => section.classList.add('hidden'));
+    const target = document.getElementById(`mode-${mode}`);
+    if (target) target.classList.remove('hidden');
   }
 
-  // Folder picker
-  // folder-input change handled below alongside fileInput
+  panel.querySelectorAll('.ingest-mode-card').forEach(button => {
+    button.addEventListener('click', () => setMode(button.dataset.mode));
+  });
+
+  function splitTags(value) {
+    return value.split(',').map(tag => tag.trim()).filter(Boolean);
+  }
+
+  function escapeHtml(value) {
+    return String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  dropZone.addEventListener('dragover', event => {
+    event.preventDefault();
+    dropZone.classList.add('drag-over');
+  });
+
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+
+  dropZone.addEventListener('drop', async event => {
+    event.preventDefault();
+    dropZone.classList.remove('drag-over');
+
+    if (event.dataTransfer.items && event.dataTransfer.items.length) {
+      const all = await collectFromDataTransfer(event.dataTransfer.items);
+      if (all.length) {
+        uploadFiles(all);
+        return;
+      }
+    }
+
+    const imageUrl = event.dataTransfer.getData('text/uri-list') || event.dataTransfer.getData('text/plain');
+    if (imageUrl && /\.(jpe?g|png|gif|webp|bmp|tiff?)(\?.*)?$/i.test(imageUrl)) {
+      uploadImageUrl(imageUrl);
+      return;
+    }
+
+    uploadFiles(event.dataTransfer.files);
+  });
+
+  fileInput.addEventListener('change', () => uploadFiles(fileInput.files));
   folderInput.addEventListener('change', () => {
-    const files = Array.from(folderInput.files);
+    const files = Array.from(folderInput.files || []);
     folderHint.textContent = files.length ? `已选 ${files.length} 个文件` : '';
     if (files.length) uploadFiles(files);
   });
 
-  // ── FileSystem API helpers for folder drag-drop ───────────────
-  async function _collectFromDataTransfer(items) {
+  document.addEventListener('paste', event => {
+    if (activeMode !== 'file') return;
+    const items = Array.from(event.clipboardData?.items || []);
+    const imageItems = items.filter(item => item.type.startsWith('image/'));
+    if (!imageItems.length) return;
+
+    event.preventDefault();
+    const files = imageItems.map((item, index) => {
+      const blob = item.getAsFile();
+      const ext = item.type.split('/')[1]?.replace('jpeg', 'jpg') || 'png';
+      const name = `clipboard-${Date.now()}${index ? `-${index}` : ''}.${ext}`;
+      return new File([blob], name, { type: item.type });
+    });
+    dropZone.classList.add('drag-over');
+    setTimeout(() => dropZone.classList.remove('drag-over'), 320);
+    uploadFiles(files);
+  });
+
+  async function uploadImageUrl(url) {
+    try {
+      toast('正在获取图片…', 'info');
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const blob = await response.blob();
+      const ext = (blob.type.split('/')[1] || 'jpg').replace('jpeg', 'jpg');
+      const name = `image-${Date.now()}.${ext}`;
+      const file = new File([blob], name, { type: blob.type });
+      uploadFiles([file]);
+    } catch (error) {
+      toast(`图片获取失败: ${error.message}`, 'error');
+    }
+  }
+
+  async function collectFromDataTransfer(items) {
     const files = [];
     const tasks = [];
+
     for (const item of items) {
       if (item.kind !== 'file') continue;
       const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : null;
-      if (entry) tasks.push(_traverseEntry(entry, files));
-      else { const f = item.getAsFile(); if (f) files.push(f); }
+      if (entry) tasks.push(traverseEntry(entry, files));
+      else {
+        const file = item.getAsFile();
+        if (file) files.push(file);
+      }
     }
+
     await Promise.all(tasks);
     return files;
   }
 
-  async function _traverseEntry(entry, files) {
+  async function traverseEntry(entry, files) {
     if (entry.isFile) {
-      const f = await new Promise((res, rej) => entry.file(res, rej));
-      files.push(f);
-    } else if (entry.isDirectory) {
+      const file = await new Promise((resolve, reject) => entry.file(resolve, reject));
+      files.push(file);
+      return;
+    }
+
+    if (entry.isDirectory) {
       const reader = entry.createReader();
-      const entries = await _readAllEntries(reader);
-      await Promise.all(entries.map(e => _traverseEntry(e, files)));
+      const entries = await readAllEntries(reader);
+      await Promise.all(entries.map(child => traverseEntry(child, files)));
     }
   }
 
-  function _readAllEntries(reader) {
+  function readAllEntries(reader) {
     return new Promise((resolve, reject) => {
       const all = [];
       (function read() {
         reader.readEntries(batch => {
           if (!batch.length) resolve(all);
-          else { all.push(...batch); read(); }
+          else {
+            all.push(...batch);
+            read();
+          }
         }, reject);
       })();
     });
@@ -260,113 +277,111 @@
 
   async function uploadFiles(fileList) {
     if (!fileList.length) return;
-    const fd = new FormData();
-    for (const f of fileList) fd.append('files', f);
-    fd.append('tags', document.getElementById('file-tags').value);
+
+    const formData = new FormData();
+    for (const file of fileList) formData.append('files', file);
+    formData.append('tags', document.getElementById('file-tags').value.trim());
 
     try {
       const base = loadSettings().api_base || 'http://localhost:8000';
-      const res = await fetch(`${base}/ingest/file`, { method: 'POST', body: fd });
-      if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
-      const data = await res.json();
+      const response = await fetch(`${base}/ingest/file`, { method: 'POST', body: formData });
+      if (!response.ok) throw new Error((await response.json()).detail || response.statusText);
+      const data = await response.json();
+      folderHint.textContent = `${data.results.length} 个文件已加入队列`;
       toast(`已加入队列 ${data.results.length} 个文件`, 'success');
       loadTasks();
-    } catch (e) {
-      toast(e.message, 'error');
+    } catch (error) {
+      toast(error.message, 'error');
     }
   }
 
-  // URL ingest
   document.getElementById('btn-ingest-url').addEventListener('click', async () => {
     const url = document.getElementById('url-input').value.trim();
-    if (!url) { toast('请输入 URL', 'error'); return; }
-    const tags = document.getElementById('url-tags').value.split(',').map(t => t.trim()).filter(Boolean);
-    const title = document.getElementById('url-title').value.trim() || null;
-    const mode = document.getElementById('url-fetch-mode').value;
-    const intent = document.getElementById('url-intent').value.trim();
+    if (!url) {
+      toast('请输入页面 URL', 'error');
+      return;
+    }
 
     try {
-      await apiJson('/ingest/url', { method: 'POST', body: JSON.stringify({ url, title, tags, mode, intent }) });
-      toast('URL 已加入摄入队列', 'success');
+      await apiJson('/ingest/url', {
+        method: 'POST',
+        body: JSON.stringify({
+          url,
+          title: document.getElementById('url-title').value.trim() || null,
+          tags: splitTags(document.getElementById('url-tags').value),
+          intent: document.getElementById('url-intent').value.trim(),
+        }),
+      });
+      toast('智能抓取任务已启动', 'success');
       loadTasks();
     } catch {}
   });
 
-  // Text ingest
   document.getElementById('btn-ingest-text').addEventListener('click', async () => {
     const content = document.getElementById('text-content').value.trim();
-    if (!content) { toast('请输入内容', 'error'); return; }
-    const title = document.getElementById('text-title').value.trim() || 'Untitled';
-    const tags = document.getElementById('text-tags').value.split(',').map(t => t.trim()).filter(Boolean);
+    if (!content) {
+      toast('请输入要摄入的内容', 'error');
+      return;
+    }
+
     try {
-      await apiJson('/ingest/text', { method: 'POST', body: JSON.stringify({ content, title, tags }) });
-      toast('文本已加入队列', 'success');
-      loadTasks();
+      await apiJson('/ingest/text', {
+        method: 'POST',
+        body: JSON.stringify({
+          content,
+          title: document.getElementById('text-title').value.trim() || 'Untitled',
+          tags: splitTags(document.getElementById('text-tags').value),
+        }),
+      });
+      toast('文本已加入摄入队列', 'success');
       document.getElementById('text-content').value = '';
+      loadTasks();
     } catch {}
   });
 
-  // Task list
-  const taskList = document.getElementById('task-list');
-  let pollTimer = null;
-  const seenLogLen = new Map(); // task_id → char length already rendered
-
-  function statusBadge(status) {
+  function taskStatusBadge(status) {
     const map = {
-      pending:    'bg-slate-700 text-slate-300',
-      processing: 'bg-blue-900 text-blue-300',
-      done:       'bg-emerald-900 text-emerald-300',
-      error:      'bg-red-900 text-red-400',
-      failed:     'bg-red-900 text-red-400',
+      pending: { label: '待处理', className: 'badge-pending' },
+      processing: { label: '处理中', className: 'badge-processing' },
+      done: { label: '完成', className: 'badge-done' },
+      error: { label: '失败', className: 'badge-error' },
+      failed: { label: '失败', className: 'badge-error' },
     };
-    const label = { pending:'待处理', processing:'处理中', done:'完成', error:'失败', failed:'失败' };
-    const cls = map[status] || 'bg-slate-700 text-slate-300';
-    return `<span class="text-xs px-2 py-0.5 rounded-full font-medium ${cls}">${label[status] || status}</span>`;
+    const current = map[status] || map.pending;
+    return `<span class="upload-task-status ${current.className}">${current.label}</span>`;
   }
 
-  function progressBar(status) {
-    if (status === 'done') {
-      return `<div class="w-full bg-slate-800 rounded-full h-1 mt-2">
-        <div class="task-progress-bar bg-emerald-500 h-1 rounded-full" style="width:100%"></div>
-      </div>`;
-    }
-    if (status === 'error' || status === 'failed') {
-      return `<div class="w-full bg-slate-800 rounded-full h-1 mt-2">
-        <div class="task-progress-bar bg-red-500 h-1 rounded-full" style="width:100%"></div>
-      </div>`;
-    }
-    if (status === 'processing') {
-      return `<div class="w-full bg-slate-800 rounded-full h-1 mt-2">
-        <div class="task-progress-bar progress-indeterminate bg-blue-500 h-1 rounded-full" style="width:60%"></div>
-      </div>`;
-    }
-    // pending
-    return `<div class="w-full bg-slate-800 rounded-full h-1 mt-2">
-      <div class="task-progress-bar bg-slate-700 h-1 rounded-full" style="width:5%"></div>
-    </div>`;
+  function taskProgress(status) {
+    if (status === 'done') return { width: '100%', extra: '', className: 'is-done' };
+    if (status === 'error' || status === 'failed') return { width: '100%', extra: '', className: 'is-error' };
+    if (status === 'processing') return { width: '60%', extra: 'upload-progress-bar--indeterminate', className: 'is-processing' };
+    return { width: '8%', extra: '', className: 'is-pending' };
   }
 
-  // Route task log lines to the bottom agent console
   function appendLog(taskId, sourceName, logText) {
     const prev = seenLogLen.get(taskId) || 0;
     if (!logText || logText.length <= prev) return;
+
     const newPart = logText.slice(prev);
     seenLogLen.set(taskId, logText.length);
-
     const label = sourceName ? sourceName.slice(0, 40) : taskId.slice(0, 8);
+
     newPart.split('\n').forEach(line => {
       const trimmed = line.trim();
       if (!trimmed) return;
-      // Infer kind from emoji prefix
       let kind = 'progress';
       if (trimmed.startsWith('✅') || trimmed.startsWith('🏁')) kind = 'success';
       else if (trimmed.startsWith('❌') || trimmed.startsWith('⚠️')) kind = 'error';
       else if (trimmed.startsWith('⛔')) kind = 'warning';
-      window.agentConsole?.emit({
-        t: Date.now(), kind,
-        agent: 'ingest', label,
-        msg: trimmed,
-      });
+      if (window.agentConsole && typeof window.agentConsole.emit === 'function') {
+        window.agentConsole.emit({
+          t: Date.now(),
+          kind,
+          agent: 'ingest',
+          label,
+          msg: trimmed,
+        });
+      }
     });
   }
 
@@ -374,44 +389,58 @@
     try {
       const tasks = await apiJson('/ingest/tasks?limit=20');
       if (!tasks.length) {
-        taskList.innerHTML = '<p class="text-slate-600 text-sm">暂无任务</p>';
+        taskList.innerHTML = '<div class="upload-empty-state">还没有摄入任务。先从上面任意一个入口开始。</div>';
+        clearInterval(pollTimer);
+        refreshStats();
         return;
       }
 
-      taskList.innerHTML = tasks.map(t => {
-        const name = t.source_name || t.source_id.slice(0, 8) + '…';
-        const time = new Date(t.created_at).toLocaleTimeString();
+      taskList.innerHTML = tasks.map(task => {
+        const name = escapeHtml(task.source_name || `${task.source_id.slice(0, 8)}…`);
+        const time = new Date(task.created_at).toLocaleString();
+        const progress = taskProgress(task.status);
+        const lastLog = task.log ? escapeHtml(task.log.trim().split('\n').filter(Boolean).pop() || '') : '';
         return `
-          <div class="bg-slate-900 rounded-lg px-4 py-3 text-sm">
-            <div class="flex items-center justify-between">
-              <span class="text-slate-300 truncate max-w-[200px]" title="${name}">${name}</span>
-              <div class="flex items-center gap-3 flex-shrink-0">
-                <span class="text-slate-500 text-xs">${time}</span>
-                ${statusBadge(t.status)}
+          <article class="upload-task-card">
+            <div class="upload-task-head">
+              <div>
+                <div class="upload-task-name" title="${name}">${name}</div>
+                <div class="upload-task-sub">${time}</div>
               </div>
+              ${taskStatusBadge(task.status)}
             </div>
-            ${t.error ? `<p class="text-red-400 text-xs mt-1 truncate" title="${t.error}">${t.error}</p>` : ''}
-            ${progressBar(t.status)}
-          </div>
+            ${lastLog ? `<div class="upload-task-line">${lastLog}</div>` : ''}
+            ${task.error ? `<div class="upload-task-error">${escapeHtml(task.error)}</div>` : ''}
+            <div class="upload-progress-track ${progress.className}">
+              <div class="upload-progress-bar ${progress.extra}" style="width:${progress.width};"></div>
+            </div>
+          </article>
         `;
       }).join('');
 
-      // Append new log lines
-      tasks.forEach(t => {
-        if (t.log) appendLog(t.id, t.source_name, t.log);
+      tasks.forEach(task => {
+        if (!task.log) return;
+        try {
+          appendLog(task.id, task.source_name, task.log);
+        } catch (error) {
+          console.warn('[upload] appendLog failed', error);
+        }
       });
 
-      const hasPending = tasks.some(t => t.status === 'pending' || t.status === 'processing');
+      const hasPending = tasks.some(task => task.status === 'pending' || task.status === 'processing');
       clearInterval(pollTimer);
-      if (hasPending) {
-        pollTimer = setInterval(loadTasks, 2000);
-      } else {
-        refreshStats();
-      }
-    } catch {}
+      if (hasPending) pollTimer = setInterval(loadTasks, 2000);
+      else refreshStats();
+    } catch {
+      taskList.innerHTML = '<div class="upload-empty-state">无法加载任务列表，请检查后端连接。</div>';
+    }
   }
 
   document.getElementById('btn-refresh-tasks').addEventListener('click', loadTasks);
-  document.addEventListener('tab:shown', e => { if (e.detail === 'upload') loadTasks(); });
+  document.addEventListener('tab:shown', event => {
+    if (event.detail === 'upload') loadTasks();
+  });
+
+  setMode(activeMode);
   loadTasks();
 })();

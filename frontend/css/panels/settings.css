@@ -1,0 +1,153 @@
+/* ─── Settings Panel ────────────────────────────────────────── */
+
+.settings-shell {
+  padding-bottom: 10px;
+}
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(280px, 0.9fr);
+  gap: 18px;
+}
+
+.settings-form-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.settings-field.is-disabled {
+  opacity: 0.62;
+}
+
+.settings-key-input {
+  font-family: var(--font-mono);
+}
+
+.settings-provider-note {
+  line-height: 1.65;
+}
+
+.settings-save-row,
+.settings-inline-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.settings-flash {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--c-ok-t);
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+}
+
+.settings-flash.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.settings-textarea {
+  width: 100%;
+  min-height: 180px;
+  padding: 15px 16px;
+  border-radius: 20px;
+  border: 1px solid var(--bd-default);
+  background: var(--bg-surface);
+  color: var(--t-primary);
+  font: 13px/1.75 var(--font-mono);
+  resize: vertical;
+}
+
+.settings-textarea:focus {
+  outline: none;
+  border-color: var(--accent-bd);
+  box-shadow: 0 0 0 4px var(--accent-bg);
+}
+
+.settings-runtime-card {
+  position: sticky;
+  top: 24px;
+}
+
+.settings-summary-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.settings-model-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.settings-model-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  padding: 18px;
+  border-radius: 22px;
+  border: 1px solid var(--bd-subtle);
+  background: var(--bg-elevated);
+}
+
+.settings-model-title {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--t-primary);
+}
+
+.settings-model-copy {
+  margin-top: 5px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--t-tertiary);
+}
+
+.settings-model-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.settings-model-status {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--t-secondary);
+}
+
+.settings-model-status.is-ready {
+  color: var(--c-ok-t);
+}
+
+.settings-model-status.is-pending {
+  color: var(--c-warn);
+}
+
+.settings-model-status.is-error {
+  color: var(--c-err);
+}
+
+@media (max-width: 1024px) {
+  .settings-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-runtime-card {
+    position: static;
+  }
+}
+
+@media (max-width: 760px) {
+  .settings-form-grid,
+  .settings-summary-grid,
+  .settings-model-card {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-model-actions {
+    justify-content: flex-start;
+  }
+}

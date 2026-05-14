@@ -85,20 +85,21 @@ async def init_vector_store() -> None:
 
 async def upsert_chunks(chunks: list[ChunkDoc]) -> None:
     client = get_client()
-    points = [
-        PointStruct(
+    points = []
+    for chunk in chunks:
+        vectors: dict = {
+            DENSE_VECTOR: chunk.dense_vector,
+        }
+        if chunk.sparse_indices and chunk.sparse_values:
+            vectors[SPARSE_VECTOR] = SparseVector(
+                indices=chunk.sparse_indices,
+                values=chunk.sparse_values,
+            )
+        points.append(PointStruct(
             id=chunk.id,
-            vector={
-                DENSE_VECTOR: chunk.dense_vector,
-                SPARSE_VECTOR: SparseVector(
-                    indices=chunk.sparse_indices,
-                    values=chunk.sparse_values,
-                ),
-            },
+            vector=vectors,
             payload={"content": chunk.content, **chunk.metadata},
-        )
-        for chunk in chunks
-    ]
+        ))
     await client.upsert(collection_name=settings.qdrant_collection, points=points)
 
 

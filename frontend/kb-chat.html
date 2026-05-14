@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title id="page-title">OmniKB Chat</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <link rel="stylesheet" href="css/main.css"/>
+  <link rel="stylesheet" href="css/panels/kb-chat.css"/>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style id="custom-css"></style>
+</head>
+<body class="kbchat-body">
+  <div class="kbchat-shell">
+    <header class="kbchat-header">
+      <div class="kbchat-brand">
+        <span id="scenario-template" class="kbchat-template-badge">Knowledge Q&amp;A</span>
+        <div class="kbchat-heading">
+          <h1 id="scenario-title">Knowledge Base Chat</h1>
+          <p id="scenario-desc">Ask questions about your data</p>
+        </div>
+      </div>
+
+      <div class="kbchat-actions">
+        <label class="kbchat-key-wrap">
+          <span class="kbchat-key-label">API Key</span>
+          <input id="api-key-input" class="kbchat-key-input" type="password" placeholder="API Key (sk-...)" />
+        </label>
+        <button id="btn-clear-chat" class="kbchat-clear-btn" type="button">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>
+          清空
+        </button>
+      </div>
+    </header>
+
+    <main id="chat-messages" class="kbchat-messages">
+      <section id="welcome-message" class="kbchat-welcome">
+        <div class="kbchat-welcome-mark">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
+            <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
+          </svg>
+        </div>
+        <span id="welcome-kicker" class="kbchat-welcome-kicker">Knowledge Q&amp;A</span>
+        <h2 id="welcome-heading" class="kbchat-welcome-title">直接提问，按资料回答</h2>
+        <p id="welcome-text" class="kbchat-welcome-text">Ask any question to search the knowledge base context.</p>
+        <div id="welcome-hints" class="kbchat-hint-row">
+          <span class="kbchat-hint-pill">基于资料回答</span>
+          <span class="kbchat-hint-pill">支持长文本问答</span>
+          <span class="kbchat-hint-pill">保留引用链路</span>
+        </div>
+      </section>
+    </main>
+
+    <footer class="kbchat-footer">
+      <div class="kbchat-composer-shell">
+        <textarea id="chat-input" rows="1" class="kbchat-input" placeholder="Ask a question..."></textarea>
+        <button id="btn-send" class="kbchat-send-btn" type="button" aria-label="发送问题">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
+        </button>
+      </div>
+      <p id="chat-disclaimer" class="kbchat-disclaimer">AI may make mistakes. Verify important information.</p>
+    </footer>
+  </div>
+
+  <script src="js/citation-chain.js"></script>
+  <script src="js/kb-chat.js"></script>
+</body>
+</html>

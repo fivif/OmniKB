@@ -1,0 +1,179 @@
+"""KB tools exposed to the chat agent.
+
+These are LangChain ``@tool`` functions the chat-side LLM can call to:
+* search the vector store (``search_kb``)
+* explore the source catalogue (``list_sources`` / ``list_tags``)
+* read full chunks of a known source (``get_source_chunks``)
+* fetch a fresh URL on-the-fly without ingesting it (``fetch_url_preview``)
+
+Each tool returns LLM-friendly text. ``search_kb`` ALSO mutates a shared
+``ChatContext`` so the outer streaming loop can build accurate citations
+from chunks the LLM actually retrieved.
+"""
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+from dataclasses import dataclass, field
+from typing import Any
+
+from langchain_core.tools import tool as _lc_tool
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ChatContext:
+    """Shared state between the chat agent loop and its tools.
+
+    The loop hands a single instance to every tool factory at construction time
+    so the tools can register the chunks they returned. The outer SSE renderer
+    then walks ``retrieved_chunks`` to emit citations.
+    """
+    kb_filter: dict[str, str] | None = None
+    retrieved_chunks: list[dict] = field(default_factory=list)
+    """Chunks returned across all search_kb calls, deduped by id."""
+    fetched_urls: list[str] = field(default_factory=list)
+    """URLs the agent pulled in-session (for transparency in the UI)."""
+
+    def register_chunks(self, chunks: list[dict]) -> None:
+        seen = {c["id"] for c in self.retrieved_chunks}
+        for c in chunks:
+            if c["id"] not in seen:
+                self.retrieved_chunks.append(c)
+                seen.add(c["id"])
+
+
+def _fmt_chunk(idx: int, c: dict, max_chars: int = 600) -> str:
+    src = c["metadata"].get("source_name") or c["metadata"].get("source_url") or "unknown"
+    body = (c.get("content") or "")[:max_chars]
+    return f"[{idx}] Source: {src}\nID: {c['id']}\n{body}"
+
+
+def build_chat_tools(ctx: ChatContext):
+    """Build a list of LangChain tools wired to *ctx*.
+
+    Returns a list of ``@tool``-decorated functions that share the same
+    context state. Construct fresh per-request — never reuse across users.
+    """
+
+    @_lc_tool
+    async def search_kb(query: str, top_k: int = 5) -> str:
+        """Search the user's personal knowledge base via hybrid (dense + sparse) retrieval.
+
+        Returns up to ``top_k`` chunks formatted as numbered excerpts with
+        their source name and chunk ID. Call this whenever the user's
+        question might be answered from existing materials.
+        """
+        from pipeline.embedder import embed_dense, embed_sparse
+        from storage.vector_store import hybrid_search
+        try:
+            dense = (await embed_dense([query]))[0]
+        except Exception as exc:
+            return f"[search_kb: embedding failed — {exc}]"
+        try:
+            sparse = embed_sparse([query])[0]
+            si, sv = sparse[0], sparse[1]
+        except Exception:
+            si, sv = [], []
+        try:
+            chunks = await hybrid_search(
+                query_dense=dense,
+                query_sparse_indices=si,
+                query_sparse_values=sv,
+                top_k=top_k,
+                filters=ctx.kb_filter,
+            )
+        except Exception as exc:
+            return f"[search_kb: search failed — {exc}]"
+        if not chunks:
+            return "[search_kb: no matching chunks]"
+        ctx.register_chunks(chunks)
+        # Number relative to the cumulative retrieved set so cite markers
+        # the LLM emits in its final answer line up with the citations payload.
+        start = len(ctx.retrieved_chunks) - len(chunks) + 1
+        parts = [_fmt_chunk(start + i, c) for i, c in enumerate(chunks)]
+        return "\n\n---\n\n".join(parts)
+
+    @_lc_tool
+    async def list_sources(tag: str = "", limit: int = 20) -> str:
+        """List ingested sources, optionally filtered by tag.
+
+        Returns a JSON array of ``{id, name, source_type, tags, created_at}``.
+        Use to discover available materials before deeper exploration.
+        """
+        from storage.metadata_db import list_sources as _list_sources
+        try:
+            rows = await _list_sources(limit=max(1, min(limit, 50)), filter_tag=tag or None)
+        except Exception as exc:
+            return f"[list_sources error: {exc}]"
+        compact = [
+            {
+                "id": r.get("id"),
+                "name": r.get("name") or r.get("source_url") or "(untitled)",
+                "source_type": r.get("source_type"),
+                "tags": r.get("tags") or [],
+                "created_at": r.get("created_at"),
+            }
+            for r in rows
+        ]
+        return json.dumps(compact, ensure_ascii=False)
+
+    @_lc_tool
+    async def list_tags() -> str:
+        """Return the full set of tags used across the knowledge base."""
+        from storage.metadata_db import get_all_tags
+        try:
+            tags = await get_all_tags()
+        except Exception as exc:
+            return f"[list_tags error: {exc}]"
+        return json.dumps(tags, ensure_ascii=False)
+
+    @_lc_tool
+    async def get_source_chunks(source_id: str, limit: int = 5) -> str:
+        """Read the leading chunks of a known source verbatim.
+
+        Use after ``list_sources`` to drill into a specific document instead
+        of relying on semantic search.
+        """
+        from storage.metadata_db import list_chunks_by_source
+        try:
+            chunks = await list_chunks_by_source(source_id, limit=max(1, min(limit, 20)))
+        except Exception as exc:
+            return f"[get_source_chunks error: {exc}]"
+        if not chunks:
+            return "[get_source_chunks: empty source or unknown id]"
+        ctx.register_chunks(chunks)
+        start = len(ctx.retrieved_chunks) - len(chunks) + 1
+        parts = [_fmt_chunk(start + i, c, max_chars=800) for i, c in enumerate(chunks)]
+        return "\n\n---\n\n".join(parts)
+
+    @_lc_tool
+    async def fetch_url_preview(url: str, intent: str = "") -> str:
+        """Fetch a fresh URL right now (without ingesting it) and return its text.
+
+        Use for transient look-ups where the user wants a one-off answer
+        from a live web page they have not yet added to the KB.
+        Cookies / auth not supported here — for that, ask the user to ingest.
+        """
+        try:
+            from agents.web_agent import fetch_url as _fetch_url
+        except Exception as exc:
+            return f"[fetch_url_preview unavailable: {exc}]"
+        try:
+            doc = await asyncio.wait_for(
+                _fetch_url(url=url, mode="auto", intent=intent or "general look-up"),
+                timeout=30.0,
+            )
+        except asyncio.TimeoutError:
+            return f"[fetch_url_preview: timeout on {url}]"
+        except ValueError as exc:
+            return f"[fetch_url_preview rejected: {exc}]"
+        except Exception as exc:
+            return f"[fetch_url_preview error: {exc}]"
+        ctx.fetched_urls.append(url)
+        body = (doc.content or "")[:4000]
+        return f"# Fetched: {url}\n\n{body}"
+
+    return [search_kb, list_sources, list_tags, get_source_chunks, fetch_url_preview]

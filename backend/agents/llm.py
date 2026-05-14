@@ -151,7 +151,14 @@ def get_llm(temperature: float = 0, max_tokens: int | None = None):
 
     if settings.llm_provider == "ollama":
         from langchain_ollama import ChatOllama
-        return ChatOllama(model=settings.llm_model, temperature=temperature)
+        kwargs: dict[str, Any] = {
+            "model": settings.llm_model,
+            "base_url": settings.ollama_base_url,
+            "temperature": temperature,
+        }
+        if max_tokens:
+            kwargs["num_predict"] = max_tokens
+        return ChatOllama(**kwargs)
 
     _install_reasoning_patches()
 

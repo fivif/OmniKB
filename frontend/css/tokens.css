@@ -1,0 +1,271 @@
+/* ═══════════════════════════════════════════════════════════════
+   OmniKB Design Tokens v4 — macOS × Linear × Raycast
+   Light by default; [data-theme="dark"] overrides; @media respects OS.
+   ═══════════════════════════════════════════════════════════════ */
+
+:root {
+  /* ─── Background ─── */
+  --bg-canvas: #f3ede2;
+  --bg-surface: #fffdf7;
+  --bg-elevated: #ffffff;
+  --bg-overlay: rgba(255, 252, 245, 0.88);
+  --bg-muted: #efe6d8;
+  --bg-hover: #e6dccd;
+  --bg-active: #ddd1bf;
+  --bg-glass: rgba(255, 252, 245, 0.76);
+  --sidebar-bg: #ebe1d1;
+  --topbar-bg: rgba(247, 241, 231, 0.82);
+
+  /* ─── Text ─── */
+  --t-primary: #15120f;
+  --t-secondary: #4d433b;
+  --t-tertiary: #7b6f65;
+  --t-quaternary: #aa9d91;
+  --t-inverse: #ffffff;
+
+  /* ─── Border ─── */
+  --bd-subtle: #e5d9c7;
+  --bd-default: #d3c4ae;
+  --bd-strong: #baa993;
+  --bd-focus: rgba(21, 94, 239, 0.26);
+
+  /* ─── Accent (Linear blue-purple) ─── */
+  --accent: #155eef;
+  --accent-hover: #0f51cc;
+  --accent-active: #0b45ae;
+  --accent-bg: rgba(21, 94, 239, 0.11);
+  --accent-bd: rgba(21, 94, 239, 0.24);
+  --accent-fg: #ffffff;
+
+  /* ─── Status ─── */
+  --success: #26c281;
+  --success-bg: #e8f8f0;
+  --success-t: #167a4f;
+  --warning: #f2ac4a;
+  --warning-bg: #fdf3e3;
+  --warning-t: #8a5a16;
+  --danger: #e5484d;
+  --danger-bg: #fdedee;
+  --danger-t: #a52126;
+  --info: #3b82f6;
+  --info-bg: #e8f1fd;
+  --info-t: #1d4ed8;
+
+  /* ─── Fonts ─── */
+  --font-sans: 'Manrope', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif;
+  --font-display: 'Space Grotesk', 'Manrope', -apple-system, 'SF Pro Display', sans-serif;
+  --font-mono: 'IBM Plex Mono', 'SF Mono', 'JetBrains Mono', Consolas, monospace;
+
+  /* ─── Type scale ─── */
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-md: 13px;
+  --fs-base: 14px;
+  --fs-lg: 16px;
+  --fs-xl: 18px;
+  --fs-2xl: 22px;
+  --fs-3xl: 28px;
+  --fs-4xl: 36px;
+
+  /* ─── Line heights ─── */
+  --lh-tight: 1.25;
+  --lh-normal: 1.5;
+  --lh-relaxed: 1.7;
+
+  /* ─── Spacing (8pt grid + 4 base) ─── */
+  --sp-0: 0;
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+  --sp-7: 48px;
+  --sp-8: 64px;
+
+  /* ─── Radius ─── */
+  --r-xs: 4px;
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 14px;
+  --r-xl: 20px;
+  --r-full: 9999px;
+
+  /* ─── Shadow (light) ─── */
+  --sh-xs: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --sh-sm: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --sh-md: 0 4px 10px rgba(0, 0, 0, 0.06), 0 2px 4px rgba(0, 0, 0, 0.04);
+  --sh-lg: 0 10px 28px rgba(0, 0, 0, 0.09), 0 4px 8px rgba(0, 0, 0, 0.05);
+  --sh-xl: 0 24px 48px rgba(0, 0, 0, 0.14), 0 8px 16px rgba(0, 0, 0, 0.08);
+  --sh-glow: 0 0 0 3px var(--bd-focus);
+
+  /* ─── Blur ─── */
+  --blur-sm: blur(8px) saturate(160%);
+  --blur-md: blur(16px) saturate(180%);
+  --blur-lg: blur(24px) saturate(200%);
+
+  /* ─── Motion ─── */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --dur-fast: 120ms;
+  --dur-base: 180ms;
+  --dur-slow: 280ms;
+
+  /* ─── Z-index ─── */
+  --z-base: 1;
+  --z-dropdown: 100;
+  --z-sticky: 200;
+  --z-fixed: 300;
+  --z-modal-backdrop: 400;
+  --z-modal: 410;
+  --z-popover: 500;
+  --z-toast: 600;
+  --z-command: 700;
+
+  /* ─── JS compatibility aliases (legacy inline styles) ─── */
+  --t1: var(--t-primary);
+  --t2: var(--t-secondary);
+  --t3: var(--t-tertiary);
+  --t4: var(--t-quaternary);
+  --bd: var(--bd-default);
+  --r: var(--r-md);
+  --font: var(--font-sans);
+  --mono: var(--font-mono);
+  --ft: var(--dur-fast);
+  --sl: var(--sh-md);
+  --bg-card: var(--bg-surface);
+  --bg-body: var(--bg-canvas);
+  --c-err: var(--danger);
+  --c-err-t: var(--danger-t);
+  --c-ok: var(--success);
+  --c-ok-t: var(--success-t);
+  --c-warn: var(--warning);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Dark mode — explicit
+   ═══════════════════════════════════════════════════════════════ */
+[data-theme="dark"] {
+  --bg-canvas: #111213;
+  --bg-surface: #181a1d;
+  --bg-elevated: #212429;
+  --bg-overlay: rgba(17, 18, 19, 0.86);
+  --bg-muted: #1d2025;
+  --bg-hover: #272c33;
+  --bg-active: #313843;
+  --bg-glass: rgba(24, 26, 29, 0.76);
+  --sidebar-bg: #16181b;
+  --topbar-bg: rgba(18, 19, 21, 0.82);
+
+  --t-primary: #f2f2f6;
+  --t-secondary: #b8b8c2;
+  --t-tertiary: #888894;
+  --t-quaternary: #58585f;
+
+  --bd-subtle: #22222a;
+  --bd-default: #2e2e36;
+  --bd-strong: #3e3e48;
+  --bd-focus: rgba(111, 125, 232, 0.5);
+
+  --accent: #5b8cff;
+  --accent-hover: #79a0ff;
+  --accent-active: #4a75d9;
+  --accent-bg: rgba(91, 140, 255, 0.16);
+  --accent-bd: rgba(91, 140, 255, 0.34);
+
+  --success-bg: rgba(38, 194, 129, 0.14);
+  --success-t: #5bd9a0;
+  --warning-bg: rgba(242, 172, 74, 0.14);
+  --warning-t: #f5c275;
+  --danger-bg: rgba(229, 72, 77, 0.14);
+  --danger-t: #f26f73;
+  --info-bg: rgba(59, 130, 246, 0.14);
+  --info-t: #6ca3f8;
+
+  --sh-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --sh-sm: 0 1px 3px rgba(0, 0, 0, 0.5);
+  --sh-md: 0 4px 10px rgba(0, 0, 0, 0.55);
+  --sh-lg: 0 10px 28px rgba(0, 0, 0, 0.6);
+  --sh-xl: 0 24px 48px rgba(0, 0, 0, 0.7);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   System mode — when no explicit data-theme, follow OS
+   ═══════════════════════════════════════════════════════════════ */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg-canvas: #111213;
+    --bg-surface: #181a1d;
+    --bg-elevated: #212429;
+    --bg-overlay: rgba(17, 18, 19, 0.86);
+    --bg-muted: #1d2025;
+    --bg-hover: #272c33;
+    --bg-active: #313843;
+    --bg-glass: rgba(24, 26, 29, 0.76);
+    --sidebar-bg: #16181b;
+    --topbar-bg: rgba(18, 19, 21, 0.82);
+
+    --t-primary: #f2f2f6;
+    --t-secondary: #b8b8c2;
+    --t-tertiary: #888894;
+    --t-quaternary: #58585f;
+
+    --bd-subtle: #22222a;
+    --bd-default: #2e2e36;
+    --bd-strong: #3e3e48;
+    --bd-focus: rgba(111, 125, 232, 0.5);
+
+    --accent: #5b8cff;
+    --accent-hover: #79a0ff;
+    --accent-active: #4a75d9;
+    --accent-bg: rgba(91, 140, 255, 0.16);
+    --accent-bd: rgba(91, 140, 255, 0.34);
+
+    --success-bg: rgba(38, 194, 129, 0.14);
+    --success-t: #5bd9a0;
+    --warning-bg: rgba(242, 172, 74, 0.14);
+    --warning-t: #f5c275;
+    --danger-bg: rgba(229, 72, 77, 0.14);
+    --danger-t: #f26f73;
+    --info-bg: rgba(59, 130, 246, 0.14);
+    --info-t: #6ca3f8;
+
+    --sh-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --sh-sm: 0 1px 3px rgba(0, 0, 0, 0.5);
+    --sh-md: 0 4px 10px rgba(0, 0, 0, 0.55);
+    --sh-lg: 0 10px 28px rgba(0, 0, 0, 0.6);
+    --sh-xl: 0 24px 48px rgba(0, 0, 0, 0.7);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Dark mode — form element overrides (browser defaults are light)
+   ═══════════════════════════════════════════════════════════════ */
+[data-theme="dark"] input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="color"]):not([type="range"]),
+[data-theme="dark"] textarea,
+[data-theme="dark"] select {
+  background: var(--bg-surface);
+  color: var(--t-primary);
+  border: 1px solid var(--bd-default);
+  border-radius: var(--r-sm);
+}
+[data-theme="dark"] input::placeholder,
+[data-theme="dark"] textarea::placeholder {
+  color: var(--t-quaternary);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="color"]):not([type="range"]),
+  :root:not([data-theme="light"]) textarea,
+  :root:not([data-theme="light"]) select {
+    background: var(--bg-surface);
+    color: var(--t-primary);
+    border: 1px solid var(--bd-default);
+    border-radius: var(--r-sm);
+  }
+  :root:not([data-theme="light"]) input::placeholder,
+  :root:not([data-theme="light"]) textarea::placeholder {
+    color: var(--t-quaternary);
+  }
+}

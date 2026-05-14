@@ -1,16 +1,49 @@
 /* ── Global app state & utilities ──────────────────────────── */
 
-const API_BASE = (() => {
-  const s = localStorage.getItem('omnikb_settings');
-  if (s) {
-    try { return JSON.parse(s).api_base || 'http://localhost:8000'; } catch {}
+function getApiBase() {
+  try {
+    const s = JSON.parse(localStorage.getItem('omnikb_settings') || '{}');
+    return s.api_base || 'http://localhost:8000';
+  } catch {
+    return 'http://localhost:8000';
   }
-  return 'http://localhost:8000';
-})();
+}
+const API_BASE = getApiBase();
+
+const TAB_META = {
+  upload: {
+    title: '上传 & 摄入',
+    subtitle: '向知识库添加文件、网页和文本内容',
+  },
+  search: {
+    title: '检索工作台',
+    subtitle: '混合语义检索、重排序与结果复核都在这里完成',
+  },
+  chat: {
+    title: 'RAG 对话',
+    subtitle: '围绕知识库上下文进行多轮问答，并保留引用链路',
+  },
+  kb: {
+    title: '知识库管理',
+    subtitle: '查看来源、标签、片段规模，并执行批量管理',
+  },
+  scenarios: {
+    title: '问答发布',
+    subtitle: '配置公共场景、API 密钥和对外问答体验',
+  },
+  settings: {
+    title: '运行设置',
+    subtitle: '管理连接、代理、模型下载和对话默认配置',
+  },
+};
 
 // ── Settings store ──────────────────────────────────────────
 function loadSettings() {
-  try { return JSON.parse(localStorage.getItem('omnikb_settings') || '{}'); } catch { return {}; }
+  try {
+    return JSON.parse(localStorage.getItem('omnikb_settings') || '{}');
+  } catch {
+    return {};
+  }
 }
 function saveSettings(obj) {
   const cur = loadSettings();
@@ -46,30 +79,50 @@ async function apiJson(path, options = {}) {
 function toast(msg, type = 'info') {
   const container = document.getElementById('toast-container');
   const el = document.createElement('div');
-  const colors = { info: 'bg-slate-700', error: 'bg-red-900/80', success: 'bg-green-900/80' };
-  el.className = `pointer-events-auto px-4 py-3 rounded-lg text-sm shadow-xl ${colors[type] || colors.info} text-white max-w-xs`;
-  el.textContent = msg;
+  el.className = 'toast ' + type;
+  el.innerHTML = msg;
   container.appendChild(el);
-  setTimeout(() => el.remove(), 4000);
+  setTimeout(() => {
+    el.style.opacity = '0';
+    el.style.transform = 'translateY(-8px)';
+    el.style.transition = 'all 200ms ease';
+    setTimeout(() => el.remove(), 200);
+  }, 4000);
+}
+
+function setTopbarState(name) {
+  const meta = TAB_META[name] || { title: name, subtitle: '' };
+  const title = document.getElementById('topbar-breadcrumb');
+  const subtitle = document.getElementById('topbar-subtitle');
+  const sidebarLabel = document.getElementById('sidebar-current-tab');
+
+  if (title) title.textContent = meta.title;
+  if (subtitle) subtitle.textContent = meta.subtitle;
+  if (sidebarLabel) sidebarLabel.textContent = meta.title;
+  document.title = `OmniKB · ${meta.title}`;
 }
 
 // ── Tab routing ──────────────────────────────────────────────
 function showTab(name) {
-  document.querySelectorAll('.tab-panel').forEach(p => {
-    p.classList.add('hidden');
-    p.classList.remove('flex');
+  document.querySelectorAll('.tab-panel').forEach(panel => {
+    panel.classList.add('hidden');
+    panel.classList.remove('flex');
+    panel.style.display = '';
   });
-  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(button => button.classList.remove('active'));
 
   const panel = document.getElementById(`tab-${name}`);
   if (panel) {
     panel.classList.remove('hidden');
-    if (panel.dataset.flex) panel.classList.add('flex');
+    if (panel.classList.contains('tab-panel-flex')) {
+      panel.style.display = 'flex';
+    }
   }
   const btn = document.querySelector(`[data-tab="${name}"]`);
   if (btn) btn.classList.add('active');
 
   window.location.hash = name;
+  setTopbarState(name);
   document.dispatchEvent(new CustomEvent('tab:shown', { detail: name }));
 }
 
@@ -77,8 +130,9 @@ document.querySelectorAll('.nav-btn').forEach(btn => {
   btn.addEventListener('click', () => showTab(btn.dataset.tab));
 });
 
-// Chat panel uses flex layout
+// Chat & Scenarios panels use flex layout
 document.getElementById('tab-chat').dataset.flex = '1';
+document.getElementById('tab-scenarios').dataset.flex = '1';
 
 // Route on load
 const initialTab = window.location.hash.replace('#', '') || 'upload';
@@ -94,8 +148,86 @@ async function refreshStats() {
 }
 refreshStats();
 
+let backendStatusTimer = null;
+
+async function refreshBackendStatus(forceToast = false) {
+  const pill = document.getElementById('topbar-status-pill');
+  const label = document.getElementById('topbar-status-label');
+  const base = loadSettings().api_base || 'http://localhost:8000';
+  if (!pill || !label) return false;
+
+  pill.classList.remove('is-online', 'is-offline', 'is-warning');
+  pill.classList.add('is-warning');
+  label.textContent = '检测中';
+
+  try {
+    const res = await fetch(`${base}/health`, { cache: 'no-store' });
+    if (!res.ok) throw new Error(res.statusText || 'health check failed');
+    const data = await res.json().catch(() => ({}));
+    pill.classList.remove('is-warning');
+    pill.classList.add('is-online');
+    label.textContent = `在线 · ${data.version || 'unknown'}`;
+    pill.dataset.tooltip = `后端在线：${base}`;
+    return true;
+  } catch (error) {
+    pill.classList.remove('is-warning');
+    pill.classList.add('is-offline');
+    label.textContent = '连接失败';
+    pill.dataset.tooltip = `无法连接后端：${base}`;
+    if (forceToast) {
+      toast(`后端连接失败：${error.message}`, 'error');
+    }
+    return false;
+  }
+}
+
+function startBackendStatusPolling() {
+  clearInterval(backendStatusTimer);
+  refreshBackendStatus(false);
+  backendStatusTimer = setInterval(() => refreshBackendStatus(false), 30000);
+}
+startBackendStatusPolling();
+
 // ── Status badge helper ──────────────────────────────────────
 function statusBadge(status) {
   const statusMap = { pending: '待处理', processing: '处理中', done: '已完成', error: '失败' };
   return `<span class="badge-${status} text-xs px-2 py-0.5 rounded-full font-medium">${statusMap[status] || status}</span>`;
 }
+
+/* ─── UI.1: v2 protocol detection + Lucide bootstrap ─────────── */
+window.__omnikb_protocol_v2 = false;
+
+async function detectOmnikbV2() {
+  try {
+    const base = loadSettings().api_base || 'http://localhost:8000';
+    const r = await fetch(base + '/agent/v2/events?probe=1', { method: 'HEAD' });
+    window.__omnikb_protocol_v2 = r.ok;
+  } catch {
+    window.__omnikb_protocol_v2 = false;
+  }
+  console.debug('[OmniKB] v2 protocol available:', window.__omnikb_protocol_v2);
+}
+
+function bootstrapLucide() {
+  if (window.lucide && typeof window.lucide.createIcons === 'function') {
+    window.lucide.createIcons();
+  }
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => {
+    detectOmnikbV2();
+    bootstrapLucide();
+  });
+} else {
+  detectOmnikbV2();
+  bootstrapLucide();
+}
+
+window.OmniKBApp = {
+  refreshBackendStatus,
+  refreshStats,
+  showTab,
+  loadSettings,
+  saveSettings,
+};

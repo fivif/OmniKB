@@ -1,10 +1,9 @@
-"""WebAgent — fetch and crawl web pages.
+"""WebAgent — fetch web pages.
 
 Layer 1: scrapling static Fetcher (if installed)
 Layer 2: scrapling PlayWrightFetcher (dynamic SPA / stealth anti-bot, if installed)
 Fallback: httpx + BeautifulSoup
 
-Site crawl: BFS with robots.txt compliance and concurrency limiter.
 Cookie injection supported for authenticated pages.
 """
 from __future__ import annotations
@@ -13,9 +12,7 @@ import asyncio
 import logging
 import os
 import re
-import shutil
-from urllib.parse import urljoin, urlparse
-from urllib.robotparser import RobotFileParser
+from urllib.parse import urlparse
 
 import httpx
 from bs4 import BeautifulSoup
@@ -37,6 +34,7 @@ CookieJar = dict[str, str] | list[dict]
 
 
 # ── Single-page fetch ─────────────────────────────────────────
+
 
 async def fetch_url(
     url: str,
@@ -66,64 +64,118 @@ async def fetch_url(
         Free-text description of what the user wants to collect, used by the
         LLM judge to evaluate page relevance. Empty = general / accept all.
     """
-    # ── Smart mode: LLM tool-calling agent ───────────────────────────────
-    if mode == "smart":
+    # ── Smart mode: agentic loop via agents.web.loop.run_agent ──────────
+    # Cookies are currently not threaded through the new agent path; if the
+    # caller really needs auth we fall back to the static path below.
+    if mode == "smart" and not cookies:
         try:
-            from agents.smart_fetcher import smart_fetch
-            # Optional: attach a lightweight type hint (metadata only — not binding)
-            analysis = None
-            try:
-                from agents.url_analyst import analyze_url
-                analysis = await analyze_url(url, intent=intent)
-            except Exception:
-                pass
-            return await smart_fetch(url, intent=intent, cookies=cookies, analysis=analysis)
+            from agents.web.loop import run_agent as _smart_run_agent
+            doc = await _smart_run_agent(url=url, intent=intent, task_id=None)
+            return await _apply_quality_gates(doc, url, intent)
+        except ContentTooShortError as exc:
+            # Agent finished but didn't extract anything useful. Don't fail
+            # the whole ingest — fall through to the layer-1/2/3 fetchers.
+            logger.warning(
+                "smart agent produced no usable content for %s (%s); "
+                "falling back to static fetch",
+                url, exc,
+            )
+            mode = "auto"
+        except ValueError as exc:
+            # LLM judge rejected the smart-mode output. The user picked
+            # smart mode because they want a best-effort result — give the
+            # cheaper fetchers a chance before giving up entirely.
+            # The final layer's quality gate will catch real spam.
+            logger.warning(
+                "smart agent output rejected by LLM judge (%s) — "
+                "retrying via static/dynamic fetchers",
+                exc,
+            )
+            mode = "auto"
         except Exception as exc:
-            logger.warning("url_fetch_agent failed for %s: %s — falling back to static", url, exc)
-            # Fall through to static scrape
+            logger.warning(
+                "web/loop.run_agent crashed for %s: %s — falling back to static",
+                url, exc,
+            )
+            mode = "auto"
+    elif mode == "smart" and cookies:
+        logger.info(
+            "smart mode + cookies not yet supported in unified path; using stealth fallback for %s",
+            url,
+        )
+        mode = "stealth"
 
+    doc = None
     if mode in ("auto", "static"):
         try:
-            return await _scrapling_static(url, cookies=cookies)
+            doc = await _scrapling_static(url, cookies=cookies)
         except Exception as e:
             logger.debug("scrapling static failed for %s: %s", url, e)
     elif mode == "dynamic":
         try:
-            return await _scrapling_dynamic(url, cookies=cookies)
+            doc = await _scrapling_dynamic(url, cookies=cookies)
         except Exception as e:
             logger.debug("scrapling dynamic failed for %s: %s", url, e)
     elif mode == "stealth":
         try:
-            return await _scrapling_stealth(url, cookies=cookies)
+            doc = await _scrapling_stealth(url, cookies=cookies)
         except Exception as e:
             logger.debug("scrapling stealth failed for %s: %s", url, e)
     elif mode == "agent_browser":
         try:
-            return await _agent_browser_fetch(url, cookies=cookies)
+            doc = await _agent_browser_fetch(url, cookies=cookies)
         except Exception as e:
             logger.debug("agent_browser failed for %s: %s", url, e)
     elif mode == "jshook":
         try:
-            return await _jshook_fetch(url, cookies=cookies)
+            doc = await _jshook_fetch(url, cookies=cookies)
         except Exception as e:
             logger.debug("jshook failed for %s: %s", url, e)
 
-    doc = await _httpx_fetch(url, cookies=cookies)
-    # ── LLM page judge ────────────────────────────────────────────
+    if doc is None:
+        doc = await _httpx_fetch(url, cookies=cookies)
+
+    return await _apply_quality_gates(doc, url, intent)
+
+
+class ContentTooShortError(ValueError):
+    """Fetched document has no usable body.
+
+    Subclass of ``ValueError`` so callers that only `except ValueError` still
+    catch it, but a dedicated type lets smart-mode distinguish recoverable
+    length failures from terminal LLM-judge rejections.
+    """
+
+
+async def _apply_quality_gates(doc: RawDocument, url: str, intent: str) -> RawDocument:
+    """Run LLM quality judge on a fetched document.
+
+    Raises:
+        ContentTooShortError: body is empty / below the minimum-length gate.
+            Smart mode treats this as recoverable and falls back to static.
+        ValueError: LLM judge rejected the page. Terminal — respect verdict.
+    """
+    stripped = doc.content.strip()
+    if len(stripped) < 100:
+        raise ContentTooShortError(
+            f"Content too short ({len(stripped)} chars) — {url}"
+        )
+
     from config import settings as _cfg
-    if _cfg.web_judge_enabled:
-        from agents.web_judge import judge_page
-        verdict = await judge_page(url, doc.content, intent=intent)
-        logger.info("web_judge [%d/10] %s — %s", verdict.score, url, verdict.reason)
-        doc.metadata["judge_score"] = verdict.score
-        doc.metadata["judge_reason"] = verdict.reason
-        if verdict.summary:
-            doc.metadata["llm_summary"] = verdict.summary
-        if not verdict.keep or verdict.score < _cfg.web_judge_min_score:
-            from agents.doc_agent import RawDocument as _RD
-            raise ValueError(
-                f"Page rejected by LLM judge (score={verdict.score}/10): {verdict.reason}"
-            )
+    if not _cfg.web_judge_enabled:
+        return doc
+
+    from agents.web_judge import judge_page
+    verdict = await judge_page(url, stripped, intent=intent)
+    logger.info("web_judge [%d/10] %s — %s", verdict.score, url, verdict.reason)
+    doc.metadata["judge_score"] = verdict.score
+    doc.metadata["judge_reason"] = verdict.reason
+    if verdict.summary:
+        doc.metadata["llm_summary"] = verdict.summary
+    if not verdict.keep or verdict.score < _cfg.web_judge_min_score:
+        raise ValueError(
+            f"Page rejected by LLM judge (score={verdict.score}/10): {verdict.reason}"
+        )
     return doc
 
 
@@ -250,136 +302,6 @@ async def _jshook_fetch(url: str, cookies: CookieJar | None = None) -> RawDocume
         metadata={"file_type": "url", "source_url": url, "fetch_mode": "jshook"},
     )
 
-# ── BFS site crawl ────────────────────────────────────────────
-
-async def crawl_site(
-    start_url: str,
-    max_pages: int = 50,
-    max_depth: int = 3,
-    mode: str = "auto",
-    log_cb=None,
-    cookies: CookieJar | None = None,
-    intent: str = "",
-) -> list[RawDocument]:
-    """BFS crawl starting from *start_url*.
-
-    Respects robots.txt, stays within the same domain, limits concurrency
-    to 5 simultaneous fetches.  When ``web_judge_enabled=true``, the LLM
-    scores each page before storage and filters candidate links to stay
-    on-topic with *intent*.
-
-    Parameters
-    ----------
-    log_cb:
-        Optional async callable(msg: str) for streaming progress logs.
-    cookies:
-        Optional session cookies for authenticated crawls.
-    intent:
-        Free-text description of what the user is trying to collect.
-        Used by the LLM judge for page scoring and link filtering.
-
-    Returns
-    -------
-    list[RawDocument]
-        One entry per successfully fetched page (content > 100 chars,
-        passing the LLM judge when enabled).
-    """
-    async def _log(msg: str):
-        if log_cb:
-            await log_cb(msg)
-
-    can_fetch = _build_robots_checker(start_url)
-    visited: set[str] = set()
-    queue: list[tuple[str, int]] = [(start_url, 0)]
-    results: list[RawDocument] = []
-    sem = asyncio.Semaphore(5)
-
-    while queue and len(results) < max_pages:
-        url, depth = queue.pop(0)
-        if url in visited or depth > max_depth:
-            continue
-        if not can_fetch(url):
-            await _log(f"⛔ robots.txt 禁止：{url}")
-            continue
-        visited.add(url)
-
-        async with sem:
-            try:
-                # Use fetch_url for stealth/dynamic modes; plain httpx for auto/static (faster)
-                if mode in ("stealth", "dynamic"):
-                    doc = await fetch_url(url, mode=mode, cookies=cookies)
-                    html_for_links: str | None = None  # can't re-extract links without raw html
-                else:
-                    httpx_cookies = cookies if isinstance(cookies, dict) else None
-                    async with httpx.AsyncClient(
-                        follow_redirects=True, timeout=20, headers=_HEADERS,
-                        cookies=httpx_cookies or {},
-                    ) as client:
-                        resp = await client.get(url)
-
-                    if not resp.is_success:
-                        await _log(f"⚠️ HTTP {resp.status_code}，跳过：{url}")
-                        continue
-
-                    ct = resp.headers.get("content-type", "")
-                    if "html" not in ct and "text" not in ct:
-                        await _log(f"⏭️ 非HTML内容({ct[:30]})，跳过：{url}")
-                        continue
-
-                    html_for_links = resp.text
-                    doc = parse_url_content(html_for_links, url)
-
-                content_len = len(doc.content.strip())
-                if content_len <= 100:
-                    await _log(f"⏭️ 内容过短({content_len}字)，跳过：{url}")
-                else:
-                    # ── LLM page judge ─────────────────────────────────────
-                    from config import settings as _cfg
-                    if _cfg.web_judge_enabled:
-                        from agents.web_judge import judge_page
-                        verdict = await judge_page(url, doc.content, intent=intent)
-                        doc.metadata["judge_score"] = verdict.score
-                        doc.metadata["judge_reason"] = verdict.reason
-                        if verdict.summary:
-                            doc.metadata["llm_summary"] = verdict.summary
-                        if not verdict.keep or verdict.score < _cfg.web_judge_min_score:
-                            await _log(
-                                f"🚫 LLM判定丢弃 [评分{verdict.score}/10]：{verdict.reason}｜{url}"
-                            )
-                        else:
-                            results.append(doc)
-                            await _log(
-                                f"✅ 已抓取 [评分{verdict.score}/10, {content_len}字] "
-                                f"[{len(results)}/{max_pages}]：{url}"
-                            )
-                    else:
-                        results.append(doc)
-                        await _log(f"✅ 已抓取（{content_len}字）[{len(results)}/{max_pages}]：{url}")
-
-                if depth < max_depth and html_for_links is not None:
-                    raw_links = [lk for lk in _extract_links(html_for_links, url)
-                                 if lk not in visited]
-                    # ── LLM link filter ─────────────────────────────────────
-                    from config import settings as _cfg
-                    if _cfg.web_judge_enabled and raw_links:
-                        from agents.web_judge import score_links
-                        before = len(raw_links)
-                        raw_links = await score_links(raw_links, url, intent=intent)
-                        after = len(raw_links)
-                        if before != after:
-                            await _log(f"🔍 LLM链接过滤：{before} → {after} 条")
-                    for link in raw_links:
-                        if link not in visited:
-                            queue.append((link, depth + 1))
-            except Exception as exc:
-                await _log(f"❌ 抓取失败：{url} — {exc}")
-                logger.debug("crawl_site error for %s: %s", url, exc, exc_info=True)
-                continue
-
-    await _log(f"🏁 爬取结束，共获取 {len(results)} 页")
-    return results
-
-
 # ── Helpers ───────────────────────────────────────────────────
 
 def _clean_html(html: str) -> str:
@@ -388,42 +310,6 @@ def _clean_html(html: str) -> str:
         tag.decompose()
     text = soup.get_text(separator="\n", strip=True)
     return re.sub(r"\n{3,}", "\n\n", text)
-
-
-def _extract_links(html: str, base_url: str) -> list[str]:
-    soup = BeautifulSoup(html, "html.parser")
-    links: list[str] = []
-    for a in soup.find_all("a", href=True):
-        href = a["href"].split("#")[0].strip()
-        if not href:
-            continue
-        full = urljoin(base_url, href)
-        parsed = urlparse(full)
-        if parsed.scheme in ("http", "https") and _same_domain(full, base_url):
-            links.append(full)
-    return list(dict.fromkeys(links))  # preserve order, dedupe
-
-
-def _same_domain(url: str, base_url: str) -> bool:
-    return urlparse(url).netloc == urlparse(base_url).netloc
-
-
-def _build_robots_checker(start_url: str):
-    """Return a callable(url) -> bool that checks robots.txt allowance."""
-    parsed = urlparse(start_url)
-    robots_url = f"{parsed.scheme}://{parsed.netloc}/robots.txt"
-    rp = RobotFileParser(robots_url)
-    try:
-        import urllib.request
-        with urllib.request.urlopen(robots_url, timeout=5) as f:
-            rp.parse(f.read().decode("utf-8", errors="ignore").splitlines())
-    except Exception:
-        pass  # no robots.txt → allow all
-
-    def can_fetch(url: str) -> bool:
-        return rp.can_fetch("*", url)
-
-    return can_fetch
 
 
 def _normalize_cookies(url: str, cookies: CookieJar | None) -> list[dict] | None:

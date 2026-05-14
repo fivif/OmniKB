@@ -9,6 +9,44 @@ os.environ.setdefault("USE_TF", "0")
 os.environ.setdefault("USE_JAX", "0")
 
 import time
+
+from config import settings
+
+# HuggingFace mirror — must be set before any fastembed / huggingface_hub import
+if settings.hf_endpoint:
+    os.environ["HF_ENDPOINT"] = settings.hf_endpoint
+
+# Persistent fastembed cache. Without this, fastembed defaults to
+# tempfile.gettempdir() / "fastembed_cache" — on macOS this resolves to
+# $TMPDIR (/var/folders/...), which is purged periodically by launchd, and
+# on Linux containers /tmp is wiped on every restart. The result is that
+# BM25/sparse models redownload every cold start. Anchor the cache to the
+# user's persistent ~/.cache/fastembed/ unless the operator overrode it.
+from pathlib import Path as _Path
+_fastembed_cache_default = str(_Path.home() / ".cache" / "fastembed")
+os.environ.setdefault(
+    "FASTEMBED_CACHE_PATH",
+    settings.fastembed_cache_path or _fastembed_cache_default,
+)
+try:
+    _Path(os.environ["FASTEMBED_CACHE_PATH"]).mkdir(parents=True, exist_ok=True)
+except Exception:
+    pass
+
+
+def apply_proxy(proxy_url: str) -> None:
+    """Set HTTP_PROXY / HTTPS_PROXY in os.environ so httpx/aiohttp use it."""
+    if proxy_url:
+        os.environ["HTTP_PROXY"] = proxy_url
+        os.environ["HTTPS_PROXY"] = proxy_url
+        os.environ["ALL_PROXY"] = proxy_url
+    else:
+        for k in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"):
+            os.environ.pop(k, None)
+
+
+apply_proxy(settings.http_proxy)
+
 from collections import defaultdict
 from contextlib import asynccontextmanager
 
@@ -18,13 +56,16 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from config import settings
 from storage.file_store import init_file_store
 from storage.metadata_db import init_db
 from storage.vector_store import init_vector_store
 from api import ingest, search, chat, kb
+from api import kb_api
 from api import mcp_logs
 from api import agent_stream
+from api import metrics
+from api import scenarios
+from api import settings as settings_api
 from mcp_server.server import create_mcp_app
 
 # ── Logging setup ─────────────────────────────────────────────
@@ -75,6 +116,14 @@ async def lifespan(app: FastAPI):
     await init_vector_store()
     init_file_store()
 
+    # Global typed-event stream (PC.1) — one shared EventStream for all agent runs.
+    # Producers (agent_core.run_loop) publish here; subscribers
+    # (GET /agent/v2/events) consume.
+    from agent_core.events import EventStream, set_event_stream
+    stream = EventStream(max_queue=2000)
+    app.state.event_stream = stream
+    set_event_stream(stream)
+
     from agents.web import pool as _pool_mod
     from agents.web.pool import JsHookPool, PlaywrightPool
     app.state.jshook_pool = JsHookPool(size=settings.jshook_pool_size)
@@ -108,6 +157,20 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("seed skill load failed (non-fatal): %s", exc)
 
+    # Crash recovery: re-queue tasks that were still pending / processing in
+    # the database when the previous process exited unexpectedly. Without this
+    # zombie tasks would stay "processing" forever after a restart.
+    try:
+        from api.ingest import resume_pending_tasks
+        report = await resume_pending_tasks()
+        if report.get("resumed") or report.get("failed"):
+            logger.info(
+                "Crash recovery: resumed=%d failed=%d",
+                report["resumed"], report["failed"],
+            )
+    except Exception as exc:
+        logger.warning("task recovery failed (non-fatal): %s", exc)
+
     logger.info("OmniKB startup complete")
     yield
 
@@ -140,12 +203,26 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Dev: disable caching for static assets so CSS/JS edits take effect immediately
+@app.middleware("http")
+async def _no_cache_static(request: Request, call_next):
+    resp = await call_next(request)
+    if request.url.path.endswith((".css", ".js", ".html")) or request.url.path == "/":
+        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        resp.headers["Pragma"] = "no-cache"
+        resp.headers["Expires"] = "0"
+    return resp
+
 app.include_router(ingest.router,   prefix="/ingest",    tags=["ingest"])
 app.include_router(search.router,   prefix="/search",    tags=["search"])
 app.include_router(chat.router,     prefix="/chat",      tags=["chat"])
 app.include_router(kb.router,       prefix="/kb",        tags=["kb"])
 app.include_router(mcp_logs.router,    prefix="/mcp/logs",  tags=["mcp"])
 app.include_router(agent_stream.router, prefix="/agent",     tags=["agent"])
+app.include_router(metrics.router,      prefix="/metrics",   tags=["metrics"])
+app.include_router(settings_api.router, prefix="/settings",  tags=["settings"])
+app.include_router(scenarios.router,  prefix="/scenarios", tags=["scenarios"])
+app.include_router(kb_api.router,    prefix="/kb-api",   tags=["kb-api"])
 
 # MCP SSE endpoint (authenticated)
 app.mount("/mcp", create_mcp_app())
@@ -156,7 +233,7 @@ async def global_exception_handler(request: Request, exc: Exception):
     logger.error("Unhandled exception on %s %s: %s", request.method, request.url.path, exc, exc_info=True)
     return JSONResponse(
         status_code=500,
-        content={"detail": "Internal server error", "error": str(exc)},
+        content={"detail": "Internal server error"},
     )
 
 
@@ -168,9 +245,18 @@ async def health():
 # Serve frontend if present (production mode)
 _frontend = os.path.join(os.path.dirname(__file__), "..", "frontend")
 if os.path.isdir(_frontend):
+    from fastapi.responses import FileResponse
+
+    @app.get("/admin", tags=["system"])
+    async def admin_spa():
+        """Serve the management SPA at /admin."""
+        return FileResponse(os.path.join(_frontend, "index.html"))
+
     app.mount("/", StaticFiles(directory=_frontend, html=True), name="frontend")
 
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    host = os.environ.get("OMNIKB_HOST", "0.0.0.0")
+    port = int(os.environ.get("OMNIKB_PORT", "8000"))
+    uvicorn.run(app, host=host, port=port)

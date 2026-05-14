@@ -22,10 +22,23 @@ logger = logging.getLogger(__name__)
 ALLOWED_PREFIXES: tuple[str, ...] = (
     "page_", "network_", "stealth_", "browser_", "cdp_",
 )
+# Meta-tools jshookmcp exposes by default. These are how an agent discovers
+# and activates the 388+ specialised tools (search → activate → call).
+# Without these in the registry, the agent has no entry point into jshookmcp.
+META_TOOLS: frozenset[str] = frozenset({
+    "search_tools",      # find tools by keyword/description
+    "describe_tool",     # show a tool's full schema before calling it
+    "activate_tools",    # activate one or more tools by name
+    "activate_domain",   # activate an entire domain at once
+    "call_tool",         # invoke an activated tool
+})
 TOOL_LIMIT: int = 50
 SKIP: frozenset[str] = frozenset({
     "browser_launch", "browser_close",
     "page_screenshot",
+    # Skip these meta-tools the agent rarely needs and we want to avoid
+    # destabilising the toolset mid-run.
+    "deactivate_tools", "route_tool",
 })
 
 _PRIM_TYPES: dict[str, type] = {
@@ -133,7 +146,9 @@ async def discover_jshook_tools(pool=None, allowed_prefixes=ALLOWED_PREFIXES, li
         name = m.get("name", "")
         if not name or name in seen or name in SKIP:
             continue
-        if not name.startswith(allowed_prefixes):
+        # Accept either a meta-tool (always-on entrypoints) or a domain tool
+        # whose name carries an allowed prefix.
+        if name not in META_TOOLS and not name.startswith(allowed_prefixes):
             continue
         seen.add(name)
         selected.append(m)

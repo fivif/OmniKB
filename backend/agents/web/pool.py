@@ -17,6 +17,11 @@ class JsHookPool:
         self._all: list = []
         self._started = False
 
+    # Domains whose tools the langchain agent can call directly (jshook__<name>).
+    # These map to the ALLOWED_PREFIXES in jshook_dynamic.py:
+    #   page_, network_, stealth_, browser_, cdp_
+    _AUTO_DOMAINS = ("page", "network", "stealth", "browser", "cdp")
+
     async def start(self) -> None:
         from agents.jshook_client import JsHookMcpClient
         self._available = asyncio.Queue()
@@ -24,6 +29,13 @@ class JsHookPool:
             try:
                 c = JsHookMcpClient(profile=self._profile)
                 await c.start()
+                # Pre-activate common domains so langchain tools (jshook__page_evaluate
+                # etc.) are callable without the agent manually running search→activate→call.
+                for domain in self._AUTO_DOMAINS:
+                    try:
+                        await c.activate_domain(domain)
+                    except Exception:
+                        pass
                 self._all.append(c)
                 await self._available.put(c)
             except Exception as exc:
@@ -61,6 +73,11 @@ class JsHookPool:
                 from agents.jshook_client import JsHookMcpClient
                 client = JsHookMcpClient(profile=self._profile)
                 await client.start()
+                for domain in self._AUTO_DOMAINS:
+                    try:
+                        await client.activate_domain(domain)
+                    except Exception:
+                        pass
                 self._all.append(client)
             yield client
         finally:

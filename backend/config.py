@@ -42,7 +42,7 @@ class Settings(BaseSettings):
 
     # Default LLM
     llm_provider: Literal["openai", "anthropic", "ollama", "custom"] = "custom"
-    llm_model: str = "deepseek-ai/DeepSeek-V3"
+    llm_model: str = "deepseek-v4-pro"
 
     # Embedding — SiliconFlow BGE-M3 (OpenAI-compatible)
     embedding_provider: Literal["openai", "siliconflow"] = "siliconflow"
@@ -96,19 +96,63 @@ class Settings(BaseSettings):
     vision_pdf_ocr_threshold: int = 80
 
     # ── Web Judge (LLM-powered content intelligence for web ingestion) ──
-    # When enabled, every fetched page is scored by the LLM before being stored.
-    # Pages with score < web_judge_min_score are discarded.
-    # For site crawl, link lists are also LLM-filtered to stay on-topic.
-    # Uses the default LLM (llm_provider / llm_model). Costs ~100-300 tokens/page.
     web_judge_enabled: bool = False
     # Pages with LLM score below this threshold are dropped (0-10 scale).
     web_judge_min_score: int = 4
+
+    # ── HuggingFace (model downloads) ─────────────────────────────
+    # Mirror endpoint for downloading models (e.g. https://hf-mirror.com).
+    # Leave empty to use the default huggingface.co.
+    hf_endpoint: str = ""
+
+    # Persistent directory for fastembed-managed models (BM25 / sparse).
+    # When empty, ``main.py`` anchors fastembed to ``~/.cache/fastembed``
+    # so the BM25 model survives reboots instead of being repeatedly
+    # redownloaded from $TMPDIR (which macOS / containers purge).
+    fastembed_cache_path: str = ""
+
+    # ── Chat ─────────────────────────────────────────────────
+    # System prompt for RAG chat. Overridable at runtime via settings API.
+    rag_system_prompt: str = (
+        "You are OmniKB, a knowledgeable AI assistant. "
+        "When relevant reference material from the user's knowledge base is provided, "
+        "use it to supplement and enrich your answer. "
+        "You are NOT limited to the provided context — draw on your own knowledge freely. "
+        "Cite knowledge-base sources inline as [1], [2], etc. only when you actually use them. "
+        "Never refuse to answer just because the context is limited."
+    )
+
+    # ── Network proxy ──────────────────────────────────────────
+    # HTTP(S) proxy for all outbound calls (LLM, embeddings, web scraping,
+    # model downloads). Format: http://host:port or socks5://host:port.
+    # Leave empty for direct connection.
+    http_proxy: str = ""
 
     # ── Web agent pools (P0) ──────────────────────────────────────
     # JsHookMcpClient instance count to keep alive in app lifespan
     jshook_pool_size: int = 2
     # patchright/playwright browser count (0 = disable)
     playwright_pool_size: int = 1
+
+    # ── Web agent budget caps (BudgetTracker defaults) ─────────────
+    # Soft caps enforced by agent_core.budget.BudgetTracker. Set to 0 to
+    # disable a specific cap. Triggered run terminates cleanly with
+    # final_status="budget_exceeded" and snapshot in the agent_end event.
+    web_agent_max_input_tokens: int = 200_000
+    web_agent_max_output_tokens: int = 50_000
+    web_agent_max_seconds: float = 300.0
+    web_agent_max_tool_calls: int = 0  # 0 = disabled
+    # Inject a reflection prompt every N tool calls so the agent reviews
+    # progress and re-plans — replaces hard tool-call caps. 0 = disabled.
+    web_agent_reflection_interval: int = 8
+
+    # ── Chat agent (agentic chat with KB tools) ────────────────────
+    # When true, /chat routes through an agent loop that can call
+    # search_kb / list_sources / fetch_url. Falls back to the legacy
+    # streaming-RAG path on agent failure.
+    chat_agent_enabled: bool = True
+    chat_agent_max_turns: int = 6
+    chat_agent_max_tool_calls: int = 10
 
 
 settings = Settings()

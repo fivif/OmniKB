@@ -1,5 +1,7 @@
 from __future__ import annotations
 import asyncio
+import logging
+import os
 import uuid
 
 from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, UploadFile
@@ -13,10 +15,13 @@ from storage.metadata_db import (
     get_task,
     insert_source,
     insert_task,
+    list_resumable_tasks,
     list_tasks,
     update_source_status,
     update_task,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -31,21 +36,7 @@ class UrlIngestRequest(BaseModel):
     url: str
     title: str | None = None
     tags: list[str] = []
-    mode: str = "smart"  # smart | auto | static | dynamic | stealth | agent_browser | jshook
     cookies: dict[str, str] | None = None  # {name: value} for authenticated pages
-    # Free-text description of what to collect, used by the LLM judge.
-    # If empty, tags are joined as fallback intent.
-    intent: str = ""
-
-
-class SiteIngestRequest(BaseModel):
-    url: str
-    title: str | None = None
-    tags: list[str] = []
-    max_pages: int = 50
-    max_depth: int = 3
-    mode: str = "auto"  # auto | static | dynamic | stealth
-    cookies: dict[str, str] | None = None  # session cookies for authenticated sites
     # Free-text description of what to collect, used by the LLM judge.
     # If empty, tags are joined as fallback intent.
     intent: str = ""
@@ -92,102 +83,33 @@ async def _run_url_task(
     task_id: str,
     url: str,
     extra: dict,
-    mode: str = "auto",
     cookies: dict | None = None,
     intent: str = "",
 ) -> None:
-    await append_task_log(task_id, f"🌐 抓取 URL：{url}（模式：{mode}{'  意图：' + intent if intent else ''}）")
-    if mode == "smart":
-        from agents.web.loop import run_agent
-        try:
-            raw_doc = await run_agent(url=url, intent=intent, task_id=task_id)
-        except Exception as exc:
-            await append_task_log(task_id, f"❌ smart agent failed: {exc}")
-            await update_task(task_id, "error", error=str(exc))
-            await update_source_status(source_id, "error")
-            return
-    else:
-        from agents.web_agent import fetch_url
-        try:
-            raw_doc = await fetch_url(url, mode=mode, cookies=cookies, intent=intent)
-        except ValueError as exc:
-            await append_task_log(task_id, f"🚫 页面被 LLM 判定无价值，已跳过：{exc}")
-            await update_task(task_id, "done")
-            await update_source_status(source_id, "done")
-            return
-    await run_ingest_pipeline(source_id, task_id, raw_doc, extra_metadata=extra)
-
-
-async def _run_site_task(
-    source_id: str,
-    task_id: str,
-    url: str,
-    max_pages: int,
-    max_depth: int,
-    mode: str,
-    extra: dict,
-    cookies: dict | None = None,
-    intent: str = "",
-) -> None:
-    """BFS site crawl: each page becomes an individual source entry."""
-    from agents.web_agent import crawl_site
-    judge_hint = f"，意图：{intent}" if intent else ""
-    await append_task_log(task_id, f"🌐 整站爬取开始：{url}，最多 {max_pages} 页，深度 {max_depth}{judge_hint}")
-
-    async def _log(msg: str):
-        await append_task_log(task_id, msg)
-
+    await append_task_log(task_id, f"🌐 智能抓取：{url}{'  意图：' + intent if intent else ''}")
+    from agents.web.loop import run_agent
     try:
-        docs = await crawl_site(
-            url,
-            max_pages=max_pages,
-            max_depth=max_depth,
-            mode=mode,
-            log_cb=_log,
-            cookies=cookies,
-            intent=intent,
-        )
+        raw_doc = await run_agent(url=url, intent=intent, task_id=task_id)
     except Exception as exc:
-        await append_task_log(task_id, f"❌ 整站爬取异常：{exc}")
+        await append_task_log(task_id, f"❌ 智能抓取失败：{exc}")
         await update_task(task_id, "error", error=str(exc))
         await update_source_status(source_id, "error")
         return
-
-    if not docs:
+    # Apply quality gates (web_judge) to agent output
+    try:
+        from agents.web_agent import _apply_quality_gates
+        raw_doc = await _apply_quality_gates(raw_doc, url, intent)
+    except ValueError as exc:
+        await append_task_log(task_id, f"🚫 Agent 输出被 LLM 判定无价值，已跳过：{exc}")
         await update_task(task_id, "done")
         await update_source_status(source_id, "done")
         return
-
-    for doc in docs:
-        page_url = doc.metadata.get("source_url", url)
-        page_src_id = str(uuid.uuid4())
-        page_task_id = str(uuid.uuid4())
-        page_extra = {
-            **extra,
-            "source_name": page_url,
-            "source_url": page_url,
-            "parent_site": url,
-        }
-        await insert_source({
-            "id": page_src_id,
-            "name": page_url,
-            "type": "url",
-            "url": page_url,
-            "tags": extra.get("tags", []),
-        })
-        await insert_task({"id": page_task_id, "source_id": page_src_id, "status": "pending"})
-        try:
-            await run_ingest_pipeline(page_src_id, page_task_id, doc, extra_metadata=page_extra)
-        except Exception as _page_err:
-            import logging as _lg
-            _lg.getLogger(__name__).warning("page ingest failed for %s: %s", page_url, _page_err)
-
-    # Mark the parent "site" source as done
-    await update_task(task_id, "done")
-    await update_source_status(source_id, "done")
+    await run_ingest_pipeline(source_id, task_id, raw_doc, extra_metadata=extra)
 
 
-# ── Endpoints ─────────────────────────────────────────────────
+# `_run_site_task` schedules per-page ingest via `insert_task` directly inside
+# the crawler. Those follow-up tasks share the same site-level URL params, so
+# they are also resumable as long as we record the source_url on the task row.
 
 @router.post("/file")
 async def ingest_file(
@@ -210,7 +132,15 @@ async def ingest_file(
         await insert_source(
             {"id": source_id, "name": filename, "type": ext, "url": None, "tags": tag_list}
         )
-        await insert_task({"id": task_id, "source_id": source_id, "status": "pending"})
+        await insert_task({
+            "id": task_id, "source_id": source_id, "status": "pending",
+            "params": {
+                "kind": "file",
+                "file_path": str(saved_path),
+                "file_type": ext,
+                "extra": {"source_name": filename, "tags": tag_list},
+            },
+        })
 
         background_tasks.add_task(
             _run_file_task,
@@ -230,7 +160,14 @@ async def ingest_text(req: TextIngestRequest, background_tasks: BackgroundTasks)
     await insert_source(
         {"id": source_id, "name": req.title, "type": "text", "url": None, "tags": req.tags}
     )
-    await insert_task({"id": task_id, "source_id": source_id, "status": "pending"})
+    await insert_task({
+        "id": task_id, "source_id": source_id, "status": "pending",
+        "params": {
+            "kind": "text",
+            "content": req.content,
+            "extra": {"source_name": req.title, "tags": req.tags},
+        },
+    })
 
     background_tasks.add_task(
         _run_text_task,
@@ -249,46 +186,28 @@ async def ingest_url(req: UrlIngestRequest, background_tasks: BackgroundTasks):
     await insert_source(
         {"id": source_id, "name": title, "type": "url", "url": req.url, "tags": req.tags}
     )
-    await insert_task({"id": task_id, "source_id": source_id, "status": "pending"})
+    await insert_task({
+        "id": task_id, "source_id": source_id, "status": "pending",
+        "params": {
+            "kind": "url",
+            "url": req.url,
+            "extra": {"source_name": title, "source_url": req.url, "tags": req.tags},
+            "cookies": req.cookies,
+            "intent": req.intent or ", ".join(req.tags),
+        },
+    })
 
     background_tasks.add_task(
         _run_url_task,
         source_id, task_id, req.url,
         {"source_name": title, "source_url": req.url, "tags": req.tags},
-        req.mode,
         req.cookies,
         req.intent or ", ".join(req.tags),
     )
     return {"source_id": source_id, "task_id": task_id}
 
 
-@router.post("/site")
-async def ingest_site(req: SiteIngestRequest, background_tasks: BackgroundTasks):
-    """Start a BFS site crawl. Each page becomes a separate source entry."""
-    source_id = str(uuid.uuid4())
-    task_id = str(uuid.uuid4())
-    title = req.title or f"Site: {req.url}"
-
-    await insert_source(
-        {"id": source_id, "name": title, "type": "site", "url": req.url, "tags": req.tags}
-    )
-    await insert_task({"id": task_id, "source_id": source_id, "status": "pending"})
-
-    background_tasks.add_task(
-        _run_site_task,
-        source_id, task_id, req.url,
-        req.max_pages, req.max_depth, req.mode,
-        {"source_name": title, "source_url": req.url, "tags": req.tags},
-        req.cookies,
-        req.intent or ", ".join(req.tags),
-    )
-    return {
-        "source_id": source_id,
-        "task_id": task_id,
-        "message": f"整站爬取已开始，最多 {req.max_pages} 页，深度 {req.max_depth}",
-    }
-
-
+# ── Endpoints ─────────────────────────────────────────────────
 @router.get("/tasks")
 async def get_tasks(limit: int = 50, offset: int = 0):
     return await list_tasks(limit=limit, offset=offset)
@@ -300,3 +219,93 @@ async def get_task_status(task_id: str):
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
     return task
+
+
+# ── Crash recovery ────────────────────────────────────────────
+
+
+async def resume_pending_tasks() -> dict:
+    """Re-queue tasks that were left in ``pending`` / ``processing`` state by a
+    previous process crash. Called from the FastAPI lifespan startup hook.
+
+    Strategy
+    --------
+    For each resumable task we read ``params_json``:
+
+    - ``file``: re-run only when the saved file still exists on disk; otherwise
+      mark the task as ``error`` so users can re-upload.
+    - ``text`` / ``url``: schedule the corresponding ``_run_*_task``
+      coroutine on the running event loop.
+    - Older tasks without recorded ``params`` cannot be safely re-run; we mark
+      them as ``error`` with a descriptive message so they stop showing as
+      "processing" forever.
+    """
+    rows = await list_resumable_tasks()
+    resumed = 0
+    failed = 0
+    skipped = 0
+
+    for t in rows:
+        task_id = t["id"]
+        source_id = t["source_id"]
+        params = t.get("params") or {}
+        kind = params.get("kind")
+
+        if not kind:
+            await append_task_log(task_id, "🧯 启动检测：缺少重放参数，标记为 error")
+            await update_task(task_id, "error", error="missing params after restart")
+            await update_source_status(source_id, "error")
+            failed += 1
+            continue
+
+        try:
+            if kind == "file":
+                fp = params.get("file_path")
+                if not fp or not os.path.exists(fp):
+                    await append_task_log(task_id, f"🧯 启动检测：源文件不存在，标记为 error ({fp})")
+                    await update_task(task_id, "error", error="source file missing after restart")
+                    await update_source_status(source_id, "error")
+                    failed += 1
+                    continue
+                await append_task_log(task_id, "🔁 启动重放：file")
+                asyncio.create_task(_run_file_task(
+                    source_id, task_id, fp,
+                    params.get("file_type", "txt"),
+                    params.get("extra") or {},
+                ))
+            elif kind == "text":
+                content = params.get("content") or ""
+                if not content:
+                    await append_task_log(task_id, "🧯 启动检测：文本为空，标记为 error")
+                    await update_task(task_id, "error", error="empty text after restart")
+                    await update_source_status(source_id, "error")
+                    failed += 1
+                    continue
+                await append_task_log(task_id, "🔁 启动重放：text")
+                asyncio.create_task(_run_text_task(
+                    source_id, task_id, content, params.get("extra") or {},
+                ))
+            elif kind == "url":
+                await append_task_log(task_id, "🔁 启动重放：url")
+                asyncio.create_task(_run_url_task(
+                    source_id, task_id, params.get("url", ""),
+                    params.get("extra") or {},
+                    params.get("cookies"),
+                    params.get("intent") or "",
+                ))
+            else:
+                await append_task_log(task_id, f"🧯 启动检测：未知 kind={kind}，标记为 error")
+                await update_task(task_id, "error", error=f"unknown task kind: {kind}")
+                await update_source_status(source_id, "error")
+                failed += 1
+                continue
+            resumed += 1
+        except Exception as exc:
+            logger.warning("resume task %s failed: %s", task_id, exc)
+            await update_task(task_id, "error", error=f"resume failed: {exc}")
+            await update_source_status(source_id, "error")
+            failed += 1
+
+    if resumed or failed:
+        logger.info("Task recovery: resumed=%d failed=%d skipped=%d", resumed, failed, skipped)
+    return {"resumed": resumed, "failed": failed, "skipped": skipped}

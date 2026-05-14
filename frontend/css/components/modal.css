@@ -1,0 +1,75 @@
+/* ─── Modal ─────────────────────────────────────────────────── */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal-backdrop);
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: var(--blur-sm);
+  -webkit-backdrop-filter: var(--blur-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-5);
+  opacity: 0;
+  animation: modalFadeIn var(--dur-base) var(--ease-out) forwards;
+}
+.modal-backdrop.closing { animation: modalFadeOut var(--dur-base) var(--ease-out) forwards; }
+
+.modal-container {
+  background: var(--bg-elevated);
+  border: 1px solid var(--bd-default);
+  border-radius: var(--r-xl);
+  box-shadow: var(--sh-xl);
+  width: 100%;
+  max-width: 500px;
+  max-height: 85vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transform: scale(0.96) translateY(-8px);
+  opacity: 0;
+  animation: modalIn var(--dur-base) var(--ease-out) 40ms forwards;
+  z-index: var(--z-modal);
+}
+.modal-container.modal-md { max-width: 700px; }
+.modal-container.modal-lg { max-width: 900px; }
+
+.modal-header {
+  padding: var(--sp-4) var(--sp-5);
+  border-bottom: 1px solid var(--bd-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+}
+.modal-title { font-size: var(--fs-lg); font-weight: 600; color: var(--t-primary); }
+
+.modal-body { padding: var(--sp-5); overflow-y: auto; flex: 1; color: var(--t-secondary); line-height: var(--lh-relaxed); }
+
+.modal-footer {
+  padding: var(--sp-3) var(--sp-5);
+  border-top: 1px solid var(--bd-subtle);
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+  background: var(--bg-muted);
+}
+
+.modal-close {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--r-sm);
+  color: var(--t-tertiary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--dur-fast) var(--ease-out);
+}
+.modal-close:hover { background: var(--bg-hover); color: var(--t-primary); }
+
+@keyframes modalFadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes modalFadeOut { to { opacity: 0; } }
+@keyframes modalIn {
+  to { transform: scale(1) translateY(0); opacity: 1; }
+}

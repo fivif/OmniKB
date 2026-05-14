@@ -20,16 +20,29 @@ async def _do_search(
     top_k: int = 10,
     filter_source: str | None = None,
 ) -> list[dict]:
-    dense = (await embed_dense([query]))[0]
-    sparse = embed_sparse([query])[0]
+    import logging as _lg
+    try:
+        dense = (await embed_dense([query]))[0]
+    except Exception as exc:
+        _lg.getLogger(__name__).warning("Dense embedding failed, cannot search: %s", exc)
+        return []
+    try:
+        sparse = embed_sparse([query])[0]
+    except Exception as exc:
+        _lg.getLogger(__name__).warning("Sparse embedding failed, using dense-only: %s", exc)
+        sparse = ([], [])
     filters = {"source_id": filter_source} if filter_source else None
-    return await hybrid_search(
-        query_dense=dense,
-        query_sparse_indices=sparse[0],
-        query_sparse_values=sparse[1],
-        top_k=top_k,
-        filters=filters,
-    )
+    try:
+        return await hybrid_search(
+            query_dense=dense,
+            query_sparse_indices=sparse[0],
+            query_sparse_values=sparse[1],
+            top_k=top_k,
+            filters=filters,
+        )
+    except Exception as exc:
+        _lg.getLogger(__name__).warning("Hybrid search failed: %s", exc)
+        return []
 
 
 # ── Call logging helper ───────────────────────────────────────
@@ -86,15 +99,10 @@ async def ask_kb(question: str, context_k: int = 5) -> dict:
             base_url=settings.llm_base_url or None,
             temperature=0,
         )
+        from api.chat import get_rag_system_prompt
+
         resp = await llm.ainvoke([
-            SystemMessage(
-                content=(
-                    "You are a knowledge base assistant. "
-                    "Answer the question using the provided context. "
-                    "Cite sources as [1], [2], etc. "
-                    "If the context is insufficient, say so."
-                )
-            ),
+            SystemMessage(content=get_rag_system_prompt()),
             HumanMessage(content=f"Context:\n{context}\n\nQuestion: {question}"),
         ])
         answer = resp.content
@@ -111,7 +119,7 @@ async def ask_kb(question: str, context_k: int = 5) -> dict:
     return result
 
 
-async def ingest_url_tool(url: str, tags: list[str] | None = None, mode: str = "auto") -> dict:
+async def ingest_url_tool(url: str, tags: list[str] | None = None, mode: str = "smart") -> dict:
     """Fetch and ingest a URL into the knowledge base.
 
     Parameters

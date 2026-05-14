@@ -1,0 +1,115 @@
+/* ─── Agent Console (bottom) ────────────────────────────────── */
+
+.agent-console-header {
+  height: 44px;
+  padding: 0 var(--sp-4);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  border-bottom: 1px solid var(--bd-subtle);
+  cursor: pointer;
+  user-select: none;
+  background: var(--bg-elevated);
+}
+
+.agent-console-title {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--t-primary);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.agent-console-status {
+  font-size: var(--fs-xs);
+  color: var(--t-tertiary);
+}
+
+.agent-console-toggle {
+  margin-left: auto;
+  color: var(--t-tertiary);
+  transition: transform var(--dur-base) var(--ease-out);
+  width: 16px;
+  height: 16px;
+}
+.omni-agent-console.expanded .agent-console-toggle { transform: rotate(180deg); }
+
+.agent-console-body {
+  padding: var(--sp-3) var(--sp-4);
+  overflow-y: auto;
+  height: calc(100% - 44px);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.omni-agent-console.collapsed .agent-console-body { display: none; }
+
+.console-event {
+  padding: var(--sp-2) var(--sp-3);
+  border-left: 2px solid var(--bd-default);
+  background: var(--bg-muted);
+  border-radius: var(--r-sm);
+  font-size: var(--fs-sm);
+  color: var(--t-secondary);
+  font-family: var(--font-mono);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.console-event.event-thinking {
+  border-left-color: var(--info);
+  background: var(--info-bg);
+  color: var(--info-t);
+}
+.console-event.event-tool-call {
+  border-left-color: var(--accent);
+  background: var(--accent-bg);
+  color: var(--t-primary);
+}
+.console-event.event-tool-result {
+  border-left-color: var(--success);
+  background: var(--success-bg);
+  color: var(--success-t);
+}
+.console-event.event-error {
+  border-left-color: var(--danger);
+  background: var(--danger-bg);
+  color: var(--danger-t);
+}
+.console-event.event-message { border-left-color: var(--t-tertiary); }
+.console-event.event-progress {
+  border-left-color: var(--warning);
+  background: var(--warning-bg);
+  color: var(--warning-t);
+}
+
+.console-event-header {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-1);
+  font-family: var(--font-sans);
+  font-size: var(--fs-xs);
+}
+.console-event-type {
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.console-event-time {
+  color: var(--t-tertiary);
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+.console-event-tool-args {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--t-tertiary);
+  margin-top: var(--sp-1);
+}
+.console-event details summary {
+  cursor: pointer;
+  color: var(--t-tertiary);
+  font-size: var(--fs-xs);
+  font-family: var(--font-sans);
+}

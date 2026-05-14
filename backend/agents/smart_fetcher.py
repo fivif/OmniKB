@@ -180,9 +180,15 @@ Make at least 2 more tool calls addressing the gaps you identified."""
 
 @tool
 async def http_get(url: str) -> str:
-    """Fetch any URL via fast static HTTP (httpx + scrapling). No JavaScript execution.
+    """Fetch any URL via fast static HTTP. No JavaScript execution.
     Returns cleaned plain text up to 20 000 characters.
-    Call API endpoints directly when you know them (GitHub API, arXiv API, PyPI JSON, etc.)."""
+    Call API endpoints directly when you know them (GitHub API, arXiv API, PyPI JSON, etc.).
+
+    Strategy: always go through ``httpx`` first so the ``Content-Type`` header
+    drives the parser. Only fall back to scrapling when the response is HTML
+    and the cleaned text is too thin — scrapling indiscriminately runs an HTML
+    parser, which would otherwise corrupt JSON / XML / PDF responses.
+    """
     import httpx
     from bs4 import BeautifulSoup
 
@@ -190,23 +196,28 @@ async def http_get(url: str) -> str:
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
     )
-    # Try scrapling first for better HTML rendering
-    try:
-        from agents.web_agent import _scrapling_static
-        doc = await _scrapling_static(url)
-        return doc.content[:20000]
-    except Exception:
-        pass
 
-    async with httpx.AsyncClient(
-        headers={"User-Agent": _UA}, timeout=25, follow_redirects=True
-    ) as client:
-        resp = await client.get(url)
-        resp.raise_for_status()
+    try:
+        async with httpx.AsyncClient(
+            headers={"User-Agent": _UA, "Accept": "*/*"},
+            timeout=25,
+            follow_redirects=True,
+        ) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+    except Exception as exc:
+        # Fall back to scrapling for sites that reject our default UA / TLS
+        try:
+            from agents.web_agent import _scrapling_static
+            doc = await _scrapling_static(url)
+            return doc.content[:20000]
+        except Exception:
+            return f"[http_get error: {exc}]"
 
     ct = resp.headers.get("content-type", "").lower()
+    body_lstrip = resp.text.lstrip() if resp.text else ""
 
-    # PDF
+    # PDF — binary path, do not look at resp.text
     if "pdf" in ct or url.lower().endswith(".pdf"):
         try:
             import io, pdfplumber
@@ -221,11 +232,15 @@ async def http_get(url: str) -> str:
             return f"[PDF extraction failed: {exc}]"
 
     # JSON — return raw (LLM can parse it directly)
-    if "json" in ct or resp.text.lstrip().startswith("{") or resp.text.lstrip().startswith("["):
+    if "json" in ct or body_lstrip.startswith(("{", "[")):
         return resp.text[:20000]
 
-    # XML — return raw (arXiv Atom feed, sitemaps, etc.)
-    if "xml" in ct or resp.text.lstrip().startswith("<?xml"):
+    # XML — return raw (arXiv Atom feed, sitemaps, RSS, etc.)
+    if "xml" in ct or body_lstrip.startswith("<?xml"):
+        return resp.text[:20000]
+
+    # Plain text / Markdown — return verbatim
+    if ct.startswith("text/plain") or ct.startswith("text/markdown"):
         return resp.text[:20000]
 
     # HTML — clean
@@ -235,6 +250,18 @@ async def http_get(url: str) -> str:
     title = soup.title.get_text(strip=True) if soup.title else ""
     body = re.sub(r"\n{3,}", "\n\n", soup.get_text(separator="\n", strip=True))
     result = f"# {title}\n\n{body}" if title else body
+
+    # If the cleaned HTML is suspiciously thin, give scrapling a shot — it
+    # handles a few quirky sites (custom rendering, partial blocks) better.
+    if len(result.strip()) < 300:
+        try:
+            from agents.web_agent import _scrapling_static
+            doc = await _scrapling_static(url)
+            if len(doc.content.strip()) > len(result.strip()):
+                return doc.content[:20000]
+        except Exception:
+            pass
+
     return result[:20000]
 
 
@@ -260,7 +287,7 @@ async def cdp_get(url: str) -> str:
 
 
 @tool
-async def get_links(url: str, max_links: int = 40) -> str:
+async def get_links(url: str, max_links: int = 60) -> str:
     """Extract hyperlinks from a page. Returns JSON list of {url, text} objects (up to max_links).
     Use this to understand a site's structure before deciding which sub-pages to fetch.
     Only returns same-domain links (internal navigation)."""
@@ -389,158 +416,25 @@ def _emit_progress(msg: str) -> None:
 async def smart_fetch(
     url: str,
     intent: str = "",
-    cookies=None,
-    analysis=None,  # optional URLAnalysis hint — informational only
+    cookies=None,  # noqa: ARG001 — accepted for backward compatibility
+    analysis=None,  # noqa: ARG001 — accepted for backward compatibility
 ) -> RawDocument:
-    """Run the URL fetch agent. LLM decides which URLs to fetch and which tools to use.
+    """DEPRECATED — delegates to :func:`agents.web.loop.run_agent`.
 
-    Falls back to plain static fetch if the agent itself raises.
+    The legacy ReAct loop that lived here was replaced by the unified
+    ``agent_core.run_loop``-driven agent in ``agents/web/loop.py`` (with
+    plan/execute/verify phases, skill memory, research-state tracking,
+    BudgetTracker, and steering support). This shim is retained so external
+    callers don't break.
     """
-    llm = _get_llm()
-    llm_with_tools = llm.bind_tools(_TOOLS)
-
-    hint = ""
-    if analysis and getattr(analysis, "site_type", None) and analysis.site_type not in ("unknown", "general_webpage"):
-        hint = f"Hint (not binding): this URL looks like a {analysis.site_type}.\n"
-
-    messages = [
-        SystemMessage(content=_SYSTEM),
-        HumanMessage(content=(
-            f"URL: {url}\n"
-            f"User intent: {intent or 'general — extract as much useful information as possible'}\n"
-            + hint
-        )),
-    ]
-
-    _emit_progress(f"🤖 URL Agent 启动: {url[:80]}")
-    logger.info("url_fetch_agent  url=%s  intent=%r", url, intent)
-
-    _MAX_ITER = 15
-    _MIN_TOOL_CALLS = 5       # force exploration before allowing final answer
-    _REFLECT_AT = 4           # inject reflection prompt after this many tool calls
-
-    total_tool_calls = 0
-    reflection_injected = False
-
-    try:
-        for iteration in range(_MAX_ITER):
-            response: AIMessage = await llm_with_tools.ainvoke(messages)
-            messages.append(response)
-
-            tool_calls = getattr(response, "tool_calls", None) or []
-
-            if not tool_calls:
-                # LLM wants to stop ── enforce minimum depth
-                if total_tool_calls < _MIN_TOOL_CALLS and iteration < (_MAX_ITER - 2):
-                    logger.info(
-                        "url_fetch_agent: early stop at %d tool calls (iter %d) — nudging",
-                        total_tool_calls, iteration + 1,
-                    )
-                    messages.append(HumanMessage(
-                        content=(
-                            f"You have only made {total_tool_calls} tool call(s). "
-                            "This is insufficient. You must:\n"
-                            "1. Try browser_get or cdp_get on the original URL if you only used http_get\n"
-                            "2. Call get_links on the main page to discover sub-pages\n"
-                            "3. Fetch at least 3 more sub-pages or related resources\n"
-                            "Do NOT write a final answer yet. Make more tool calls now."
-                        )
-                    ))
-                    continue
-
-                logger.info(
-                    "url_fetch_agent complete: %d tool calls, %d iterations  url=%s",
-                    total_tool_calls, iteration + 1, url,
-                )
-                break
-
-            # Inject reflection prompt mid-loop to force gap analysis
-            if not reflection_injected and total_tool_calls >= _REFLECT_AT:
-                reflection_injected = True
-                messages.append(HumanMessage(content=_REFLECTION_PROMPT))
-                logger.info("url_fetch_agent: reflection injected at %d tool calls", total_tool_calls)
-                # Don't process tool calls from this message — get new response
-                continue
-
-            for tc in tool_calls:
-                tool_name = tc["name"]
-                tool_args = tc.get("args", {})
-                tool_call_id = tc["id"]
-
-                called_url = tool_args.get("url", "")
-                _emit_progress(f"🔧 [{total_tool_calls + 1}] {tool_name}({called_url[:70]})")
-                logger.info("url_fetch_agent [%d] → %s  %s", total_tool_calls + 1, tool_name, called_url)
-
-                t = _TOOL_MAP.get(tool_name)
-                if t is None:
-                    result = f"[Unknown tool: {tool_name}]"
-                else:
-                    try:
-                        result = str(await t.ainvoke(tool_args))
-                    except Exception as exc:
-                        result = f"[{tool_name} error: {exc}]"
-                        logger.warning("url_fetch_agent tool error  tool=%s  err=%s", tool_name, exc)
-
-                # Auto-escalate: if result is thin and we haven't tried browser_get yet
-                if (
-                    tool_name == "http_get"
-                    and len(result.strip()) < 400
-                    and not result.startswith("[")  # not an error marker
-                    and called_url
-                ):
-                    logger.info(
-                        "url_fetch_agent: thin result from http_get (%d chars) for %s — "
-                        "appending browser_get escalation note",
-                        len(result.strip()), called_url,
-                    )
-                    result += (
-                        "\n\n[AGENT NOTE: This result is thin (<400 chars). "
-                        "You should retry this URL with browser_get to get the JS-rendered content.]"
-                    )
-
-                messages.append(ToolMessage(content=result, tool_call_id=tool_call_id))
-                total_tool_calls += 1
-
-                # Inject reflection after crossing threshold (only if not yet injected)
-                if not reflection_injected and total_tool_calls >= _REFLECT_AT:
-                    reflection_injected = True
-                    messages.append(HumanMessage(content=_REFLECTION_PROMPT))
-                    logger.info("url_fetch_agent: reflection injected after tool call %d", total_tool_calls)
-                    break  # break inner loop; outer loop will re-invoke LLM with reflection
-
-    except Exception as agent_exc:
-        logger.error("url_fetch_agent loop failed for %s: %s", url, agent_exc)
-
-    # Final AI answer (last AIMessage with no pending tool calls)
-    final_content = ""
-    for msg in reversed(messages):
-        if isinstance(msg, AIMessage) and not (getattr(msg, "tool_calls", None) or []):
-            final_content = msg.content or ""
-            break
-
-    # Fallback: concatenate raw tool outputs
-    if not final_content:
-        tool_results = [m.content for m in messages if isinstance(m, ToolMessage)]
-        final_content = (
-            "\n\n---\n\n".join(tool_results)
-            if tool_results
-            else f"[URL Fetch Agent: no content retrieved from {url}]"
-        )
-
-    site_type = getattr(analysis, "site_type", "unknown") if analysis else "unknown"
-    tools_called = [
-        tc["name"]
-        for msg in messages if isinstance(msg, AIMessage)
-        for tc in (getattr(msg, "tool_calls", None) or [])
-    ]
-
-    return RawDocument(
-        content=final_content,
-        metadata={
-            "file_type": "url",
-            "source_url": url,
-            "site_type": site_type,
-            "fetch_mode": "smart",
-            "strategy_used": ", ".join(dict.fromkeys(tools_called)) or "none",
-        },
+    import warnings
+    warnings.warn(
+        "agents.smart_fetcher.smart_fetch is deprecated; "
+        "use agents.web.loop.run_agent instead.",
+        DeprecationWarning,
+        stacklevel=2,
     )
+    _emit_progress(f"🤖 (compat) smart_fetch → web/loop.run_agent: {url[:80]}")
+
+    from agents.web.loop import run_agent as _unified_run_agent
+    return await _unified_run_agent(url=url, intent=intent, task_id=None)

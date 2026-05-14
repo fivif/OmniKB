@@ -1,0 +1,61 @@
+/* ─── Tabs ──────────────────────────────────────────────────── */
+
+.tabs { display: flex; flex-direction: column; gap: var(--sp-4); }
+
+.tab-list {
+  display: flex;
+  gap: var(--sp-1);
+  padding: var(--sp-1);
+  background: var(--bg-muted);
+  border-radius: var(--r-md);
+  align-self: flex-start;
+}
+
+.tab-trigger {
+  padding: var(--sp-1) var(--sp-3);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--t-secondary);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: all var(--dur-fast) var(--ease-out);
+  white-space: nowrap;
+  font-family: inherit;
+}
+.tab-trigger:hover { color: var(--t-primary); }
+.tab-trigger.active {
+  background: var(--bg-surface);
+  color: var(--t-primary);
+  box-shadow: var(--sh-xs);
+}
+
+.tab-list.tabs-underline {
+  gap: var(--sp-4);
+  background: transparent;
+  padding: 0;
+  border-bottom: 1px solid var(--bd-subtle);
+  border-radius: 0;
+  align-self: stretch;
+}
+.tabs-underline .tab-trigger {
+  padding: var(--sp-2) 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  position: relative;
+}
+.tabs-underline .tab-trigger.active {
+  background: transparent;
+  box-shadow: none;
+  color: var(--accent);
+}
+.tabs-underline .tab-trigger.active::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--accent);
+  border-radius: var(--r-full);
+}

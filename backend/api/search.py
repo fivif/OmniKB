@@ -1,5 +1,6 @@
 from __future__ import annotations
 import asyncio
+import logging
 import re
 
 from fastapi import APIRouter, Query
@@ -9,6 +10,7 @@ from pipeline.embedder import embed_dense, embed_sparse
 from storage.vector_store import hybrid_search
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _diversify(results: list[dict], max_per_source: int = 3) -> list[dict]:
@@ -105,33 +107,46 @@ async def search(
     except ImportError:
         pass
 
-    dense_vec = (await embed_dense([q]))[0]
-    sparse = embed_sparse([q])[0]
+    try:
+        dense_vec = (await embed_dense([q]))[0]
+    except Exception as exc:
+        logger.warning("Dense embedding failed, cannot search: %s", exc)
+        return {"query": q, "mode": mode, "results": []}
 
-    if mode == "semantic":
-        results = await hybrid_search(
-            query_dense=dense_vec,
-            query_sparse_indices=[],
-            query_sparse_values=[],
-            top_k=top_k,
-            filters=filters or None,
-        )
-    elif mode == "bm25":
-        results = await hybrid_search(
-            query_dense=[0.0] * 1536,
-            query_sparse_indices=sparse[0],
-            query_sparse_values=sparse[1],
-            top_k=top_k,
-            filters=filters or None,
-        )
-    else:
-        results = await hybrid_search(
-            query_dense=dense_vec,
-            query_sparse_indices=sparse[0],
-            query_sparse_values=sparse[1],
-            top_k=top_k,
-            filters=filters or None,
-        )
+    try:
+        sparse = embed_sparse([q])[0]
+    except Exception as exc:
+        logger.warning("Sparse embedding failed, using dense-only: %s", exc)
+        sparse = ([], [])
+
+    try:
+        if mode == "semantic":
+            results = await hybrid_search(
+                query_dense=dense_vec,
+                query_sparse_indices=[],
+                query_sparse_values=[],
+                top_k=top_k,
+                filters=filters or None,
+            )
+        elif mode == "bm25":
+            results = await hybrid_search(
+                query_dense=[],
+                query_sparse_indices=sparse[0],
+                query_sparse_values=sparse[1],
+                top_k=top_k,
+                filters=filters or None,
+            )
+        else:
+            results = await hybrid_search(
+                query_dense=dense_vec,
+                query_sparse_indices=sparse[0],
+                query_sparse_values=sparse[1],
+                top_k=top_k,
+                filters=filters or None,
+            )
+    except Exception as exc:
+        logger.warning("Hybrid search failed: %s", exc)
+        return {"query": q, "mode": mode, "results": []}
 
     # Optional re-rank
     if rerank and results and settings.reranker_enabled:

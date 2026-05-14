@@ -236,6 +236,10 @@ class JsHookMcpClient:
         """Make specific tools available from the current profile tier."""
         await self.call_tool("activate_tools", {"tools": tool_names})
 
+    async def activate_domain(self, domain: str) -> None:
+        """Bulk-activate all tools in a domain (e.g. 'page', 'network', 'browser')."""
+        await self.call_tool("activate_domain", {"domain": domain})
+
     async def list_tools(self) -> list[dict]:
         """List all currently exposed MCP tools."""
         result = await self._request("tools/list", {})

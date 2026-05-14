@@ -78,35 +78,81 @@ async def update_tags(source_id: str, req: TagsUpdateRequest):
 
 @router.delete("/sources/{source_id}")
 async def delete_source_endpoint(source_id: str):
+    """Delete a source from Qdrant + SQLite + file store.
+
+    Order matters: we always remove the vectors first. If Qdrant deletion
+    fails, we abort *before* touching SQLite so the user can retry without
+    leaving orphan rows. The previous implementation silently swallowed
+    Qdrant failures, which produced "ghost" search results pointing at
+    chunks that no longer existed in metadata.
+    """
+    import logging as _lg
+
     src = await get_source(source_id)
     if not src:
         raise HTTPException(status_code=404, detail="Source not found")
 
-    await delete_by_source_id(source_id)
+    try:
+        await delete_by_source_id(source_id)
+    except Exception as exc:
+        _lg.getLogger(__name__).error(
+            "Qdrant delete failed for source %s: %s", source_id, exc,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=f"Vector store delete failed; source not deleted: {exc}",
+        ) from exc
+
     await delete_source(source_id)
-    delete_file(source_id)
+
+    # File-store cleanup is best-effort: at this point both Qdrant and SQLite
+    # are consistent. Leftover files are harmless and can be reaped offline.
+    try:
+        delete_file(source_id)
+    except Exception as exc:
+        _lg.getLogger(__name__).warning(
+            "file_store cleanup failed for %s (non-fatal): %s", source_id, exc,
+        )
 
     return {"status": "deleted", "source_id": source_id}
 
 
 @router.post("/sources/batch-delete")
 async def batch_delete(req: BatchDeleteRequest):
+    """Batch delete sources. Reports per-source failures so the caller can
+    retry the affected IDs instead of believing every ID was wiped."""
+    import logging as _lg
+    log = _lg.getLogger(__name__)
+
     if not req.ids:
         raise HTTPException(status_code=400, detail="ids must not be empty")
-    # Remove vectors for all
+
+    qdrant_failures: list[str] = []
+    safe_ids: list[str] = []
     for sid in req.ids:
         try:
             await delete_by_source_id(sid)
-        except Exception:
-            pass
-    count = await batch_delete_sources(req.ids)
-    # Best-effort file cleanup
-    for sid in req.ids:
+            safe_ids.append(sid)
+        except Exception as exc:
+            log.error("Qdrant delete failed for %s: %s", sid, exc)
+            qdrant_failures.append(sid)
+
+    count = await batch_delete_sources(safe_ids) if safe_ids else 0
+
+    file_failures: list[str] = []
+    for sid in safe_ids:
         try:
             delete_file(sid)
-        except Exception:
-            pass
-    return {"status": "deleted", "count": count}
+        except Exception as exc:
+            log.warning("file_store cleanup failed for %s: %s", sid, exc)
+            file_failures.append(sid)
+
+    return {
+        "status": "ok" if not qdrant_failures else "partial",
+        "count": count,
+        "qdrant_failures": qdrant_failures,
+        "file_failures": file_failures,
+    }
 
 
 @router.post("/sources/batch-tag")

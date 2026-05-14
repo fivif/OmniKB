@@ -40,15 +40,24 @@ async def http_get(url: str) -> str:
 
     Prefer this tool for: REST APIs (GitHub, arxiv, PyPI...), simple HTML pages, PDFs.
     """
+    import logging
     import httpx
 
+    _log = logging.getLogger(__name__)
+
+    # Layer 1: scrapling static (stealth-friendly, may bypass simple bot checks).
+    # Log the failure so users can diagnose proxy / TLS issues — silently
+    # falling through to httpx hides why scrapling didn't work.
     try:
         from agents.web_agent import _scrapling_static
         doc = await _scrapling_static(url)
-        return doc.content[:20000]
-    except Exception:
-        pass
+        if doc.content and doc.content.strip():
+            return doc.content[:20000]
+        _log.info("scrapling returned empty content for %s — trying httpx", url)
+    except Exception as exc:
+        _log.info("scrapling failed for %s (%s) — trying httpx", url, exc)
 
+    # Layer 2: plain httpx (honours HTTP_PROXY / HTTPS_PROXY env vars).
     async with httpx.AsyncClient(
         headers={"User-Agent": _UA}, timeout=25, follow_redirects=True
     ) as client:

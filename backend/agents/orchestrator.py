@@ -34,6 +34,13 @@ async def run_ingest_pipeline(
             meta.update(extra_metadata)
         meta["source_id"] = source_id
 
+        # Quality check for URL-fetched content
+        if meta.get("source_url") and len(raw_doc.content.strip()) < 100:
+            await append_task_log(task_id, f"🚫 内容过短（{len(raw_doc.content.strip())}字符）")
+            await update_task(task_id, "done")
+            await update_source_status(source_id, "done")
+            return 0
+
         # Auto-tag: call LLM to extract tags when none were provided
         from config import settings
         if settings.autotag_enabled and not meta.get("tags"):

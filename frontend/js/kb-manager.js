@@ -3,180 +3,368 @@
 (function initKbManager() {
   const panel = document.getElementById('tab-kb');
 
-  panel.innerHTML = `
-    <div class="max-w-6xl mx-auto space-y-4">
+  const TYPE_GROUPS = {
+    web: {
+      label: '网页',
+      icon: '🌐',
+      raw: ['url', 'html', 'htm'],
+    },
+    text: {
+      label: '文本',
+      icon: '✍️',
+      raw: ['text', 'txt', 'md', 'markdown'],
+    },
+    document: {
+      label: '文档',
+      icon: '📚',
+      raw: ['pdf', 'doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx', 'csv', 'json'],
+    },
+    media: {
+      label: '媒体',
+      icon: '🎞️',
+      raw: ['mp3', 'wav', 'm4a', 'ogg', 'flac', 'mp4', 'mov', 'mkv', 'avi', 'webm'],
+    },
+    image: {
+      label: '图片',
+      icon: '🖼️',
+      raw: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tiff', 'tif'],
+    },
+    other: {
+      label: '其他',
+      icon: '📁',
+      raw: [],
+    },
+  };
 
-      <!-- Header row -->
-      <div class="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 class="text-2xl font-bold text-white">知识库管理</h1>
-          <p class="text-slate-400 text-sm mt-0.5">浏览、批量管理来源，按类型或标签分类归纳</p>
+  const TYPE_ORDER = ['web', 'text', 'document', 'media', 'image', 'other'];
+  const TYPE_LOOKUP = Object.entries(TYPE_GROUPS).reduce((lookup, [key, value]) => {
+    value.raw.forEach(rawType => {
+      lookup[rawType] = key;
+    });
+    return lookup;
+  }, {});
+
+  panel.innerHTML = `
+    <div class="kb-shell">
+      <div class="kb-actions-row">
+        <div class="btn-group">
+          <button id="btn-view-list" class="view-btn active" type="button">列表</button>
+          <button id="btn-view-type" class="view-btn" type="button">按分类</button>
+          <button id="btn-view-tag" class="view-btn" type="button">按标签</button>
         </div>
-        <div class="flex items-center gap-2 flex-wrap">
-          <!-- View mode -->
-          <div class="flex bg-slate-800 rounded-lg p-0.5 text-xs">
-            <button id="btn-view-list"  class="view-btn active-view px-2.5 py-1 rounded-md transition-colors">列表</button>
-            <button id="btn-view-type"  class="view-btn px-2.5 py-1 rounded-md transition-colors">按类型</button>
-            <button id="btn-view-tag"   class="view-btn px-2.5 py-1 rounded-md transition-colors">按标签</button>
-          </div>
-          <!-- Filters -->
-          <input id="kb-search" type="text" placeholder="搜索名称…"
-            class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-slate-300 focus:outline-none focus:border-brand w-36" />
-          <select id="kb-tag-filter"
-            class="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-sm text-slate-300 focus:outline-none focus:border-brand w-32">
-            <option value="">所有标签</option>
-          </select>
-          <!-- Export -->
-          <div class="relative" id="export-wrap">
-            <button id="btn-export" class="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs px-3 py-1.5 rounded-lg transition-colors">导出 ▾</button>
-            <div id="export-menu" class="hidden absolute right-0 top-8 bg-slate-800 border border-slate-700 rounded-lg shadow-lg z-20 w-32 py-1">
-              <a id="export-json" href="#" class="block px-3 py-2 text-xs text-slate-300 hover:bg-slate-700">JSON</a>
-              <a id="export-csv"  href="#" class="block px-3 py-2 text-xs text-slate-300 hover:bg-slate-700">CSV (ZIP)</a>
-              <a id="export-zip"  href="#" class="block px-3 py-2 text-xs text-slate-300 hover:bg-slate-700">每源 ZIP</a>
+        <button id="btn-kb-refresh" class="btn btn-secondary btn-sm" type="button">刷新</button>
+      </div>
+
+      <div class="kb-stats-grid">
+        <div class="stat-card">
+          <div class="stat-value" id="kb-stat-sources">—</div>
+          <div class="stat-label">来源总数</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="kb-stat-chunks">—</div>
+          <div class="stat-label">片段总数</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="kb-stat-selected">0</div>
+          <div class="stat-label">当前选择</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="kb-stat-tags">—</div>
+          <div class="stat-label">标签数</div>
+        </div>
+      </div>
+
+      <div class="section-card kb-discovery-card">
+        <div class="section-card-body stack-md">
+          <div class="kb-filter-row">
+            <div class="input-group kb-search-wrap">
+              <span class="input-prefix kb-search-prefix">🔎</span>
+              <input id="kb-search" class="input kb-search-input" type="search" placeholder="搜索来源名称、URL 或标签…" />
+            </div>
+            <select id="kb-tag-filter" class="select kb-tag-select">
+              <option value="">所有标签</option>
+            </select>
+            <div class="kb-export-wrap" id="export-wrap">
+              <button id="btn-export" class="btn btn-secondary" type="button">导出</button>
+              <div id="export-menu" class="kb-export-menu hidden">
+                <a id="export-json" href="#">JSON</a>
+                <a id="export-csv" href="#">CSV (ZIP)</a>
+                <a id="export-zip" href="#">每源 ZIP</a>
+              </div>
             </div>
           </div>
-          <button id="btn-kb-refresh" class="text-slate-500 hover:text-slate-300 text-sm transition-colors">↺</button>
+
+          <div id="kb-category-strip" class="kb-category-strip"></div>
+          <div id="kb-result-meta" class="kb-result-meta"></div>
         </div>
       </div>
 
-      <!-- Stats -->
-      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div class="bg-slate-900 rounded-xl p-4">
-          <div class="text-2xl font-bold text-white" id="kb-stat-sources">—</div>
-          <div class="text-slate-500 text-xs mt-1">来源总数</div>
-        </div>
-        <div class="bg-slate-900 rounded-xl p-4">
-          <div class="text-2xl font-bold text-white" id="kb-stat-chunks">—</div>
-          <div class="text-slate-500 text-xs mt-1">片段总数</div>
-        </div>
-        <div class="bg-slate-900 rounded-xl p-4">
-          <div class="text-2xl font-bold text-white" id="kb-stat-selected">0</div>
-          <div class="text-slate-500 text-xs mt-1">已选中</div>
-        </div>
-        <div class="bg-slate-900 rounded-xl p-4">
-          <div class="text-2xl font-bold text-white" id="kb-stat-tags">—</div>
-          <div class="text-slate-500 text-xs mt-1">标签数</div>
-        </div>
+      <div id="batch-toolbar" class="hidden kb-batch-toolbar">
+        <span id="batch-count" class="kb-batch-count"></span>
+        <div class="kb-batch-spacer"></div>
+        <input id="batch-tag-input" class="input kb-batch-input" type="text" placeholder="标签（逗号分隔）" />
+        <button id="btn-batch-add-tag" class="btn btn-secondary btn-sm" type="button">追加标签</button>
+        <button id="btn-batch-replace-tag" class="btn btn-secondary btn-sm" type="button">替换标签</button>
+        <button id="btn-batch-remove-tag" class="btn btn-secondary btn-sm" type="button">移除标签</button>
+        <button id="btn-batch-delete" class="btn btn-danger btn-sm" type="button">批量删除</button>
+        <button id="btn-batch-clear" class="btn btn-ghost btn-sm" type="button">取消选择</button>
       </div>
 
-      <!-- Batch toolbar (hidden until selection) -->
-      <div id="batch-toolbar" class="hidden bg-brand/10 border border-brand/30 rounded-xl px-4 py-3 flex items-center gap-3 flex-wrap">
-        <span id="batch-count" class="text-brand text-sm font-medium"></span>
-        <div class="flex-1"></div>
-        <!-- Tag input for batch -->
-        <input id="batch-tag-input" type="text" placeholder="标签（逗号分隔）"
-          class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-slate-300 focus:outline-none focus:border-brand w-48" />
-        <button id="btn-batch-add-tag"    class="text-xs bg-slate-700 hover:bg-slate-600 text-slate-200 px-3 py-1.5 rounded-lg transition-colors">+ 追加标签</button>
-        <button id="btn-batch-replace-tag" class="text-xs bg-slate-700 hover:bg-slate-600 text-slate-200 px-3 py-1.5 rounded-lg transition-colors">= 替换标签</button>
-        <button id="btn-batch-remove-tag" class="text-xs bg-slate-700 hover:bg-slate-600 text-slate-200 px-3 py-1.5 rounded-lg transition-colors">− 移除标签</button>
-        <div class="w-px h-5 bg-slate-700"></div>
-        <button id="btn-batch-delete" class="text-xs bg-red-800 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg transition-colors">🗑 批量删除</button>
-        <button id="btn-batch-clear"  class="text-xs text-slate-500 hover:text-slate-300 px-2 py-1.5 transition-colors">取消选择</button>
-      </div>
-
-      <!-- Main content (list view) -->
-      <div id="kb-list-view">
-        <div class="bg-slate-900 rounded-xl overflow-hidden border border-slate-800">
-          <table class="w-full text-sm">
+      <div id="kb-list-view" class="kb-list-view">
+        <div class="table-card kb-table-shell">
+          <table class="table table-sticky-head kb-table">
             <thead>
-              <tr class="border-b border-slate-800 text-left text-xs text-slate-500 uppercase">
-                <th class="px-4 py-3 w-8">
-                  <input type="checkbox" id="chk-select-all" class="rounded border-slate-600 bg-slate-800 text-brand focus:ring-0 cursor-pointer" />
+              <tr>
+                <th style="width:36px;padding-left:16px;">
+                  <input type="checkbox" id="chk-select-all" style="accent-color:var(--accent);cursor:pointer;" />
                 </th>
-                <th class="px-4 py-3">名称</th>
-                <th class="px-4 py-3 hidden md:table-cell w-20">类型</th>
-                <th class="px-4 py-3 hidden lg:table-cell w-28">创建时间</th>
-                <th class="px-4 py-3 w-20">状态</th>
-                <th class="px-4 py-3 w-28">操作</th>
+                <th>来源</th>
+                <th style="width:140px;">分类</th>
+                <th style="width:110px;">创建时间</th>
+                <th style="width:104px;">状态</th>
+                <th style="width:152px;">操作</th>
               </tr>
             </thead>
             <tbody id="kb-tbody"></tbody>
           </table>
         </div>
-        <!-- Pagination -->
-        <div class="flex items-center justify-between text-sm mt-3">
-          <button id="kb-prev" class="text-slate-500 hover:text-slate-300 disabled:opacity-30 transition-colors" disabled>← 上一页</button>
-          <span id="kb-page-info" class="text-slate-500 text-xs"></span>
-          <button id="kb-next" class="text-slate-500 hover:text-slate-300 disabled:opacity-30 transition-colors">下一页 →</button>
+        <div class="kb-pagination-row">
+          <button id="kb-prev" class="btn btn-secondary btn-sm" type="button">← 上页</button>
+          <span id="kb-page-info" class="kb-page-info">第 1 页</span>
+          <button id="kb-next" class="btn btn-secondary btn-sm" type="button">下页 →</button>
         </div>
       </div>
 
-      <!-- Grouped views -->
-      <div id="kb-group-view" class="hidden space-y-4"></div>
-
+      <div id="kb-group-view" class="kb-group-view hidden"></div>
     </div>
 
-    <!-- Delete confirm modal -->
-    <div id="delete-modal" class="hidden fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-      <div class="bg-slate-900 border border-slate-700 rounded-2xl p-6 max-w-sm w-full mx-4 space-y-4">
-        <h3 class="font-semibold text-white" id="delete-modal-title">删除来源</h3>
-        <p class="text-slate-400 text-sm" id="delete-modal-desc">此操作将永久删除该来源及其所有片段，无法撤销。</p>
-        <div class="flex gap-3 justify-end">
-          <button id="btn-cancel-delete" class="px-4 py-2 text-sm text-slate-400 hover:text-slate-200 transition-colors">取消</button>
-          <button id="btn-confirm-delete" class="px-4 py-2 text-sm bg-red-700 hover:bg-red-600 text-white rounded-lg transition-colors">确认删除</button>
+    <div id="chunks-drawer" class="hidden" style="position:fixed;inset:0;z-index:var(--z-modal);display:flex;">
+      <div style="position:absolute;inset:0;background:rgba(0,0,0,.45);backdrop-filter:blur(4px);" id="drawer-backdrop"></div>
+      <div style="position:absolute;right:0;top:0;bottom:0;width:520px;max-width:100vw;background:var(--bg-surface);border-left:1px solid var(--bd-default);display:flex;flex-direction:column;box-shadow:var(--sh-xl);">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--bd-subtle);">
+          <h3 id="drawer-title" style="font-size:15px;font-weight:600;color:var(--t-primary);"></h3>
+          <button id="btn-close-drawer" style="width:28px;height:28px;display:flex;align-items:center;justify-content:center;border-radius:var(--r-sm);border:none;background:transparent;color:var(--t-tertiary);cursor:pointer;font-size:18px;transition:background var(--dur-fast);">&times;</button>
+        </div>
+        <div id="drawer-content" style="flex:1;overflow-y:auto;padding:16px 20px;"></div>
+      </div>
+    </div>
+
+    <div id="delete-modal" class="hidden" style="position:fixed;inset:0;z-index:var(--z-modal);display:flex;align-items:center;justify-content:center;">
+      <div style="position:absolute;inset:0;background:rgba(0,0,0,.45);backdrop-filter:blur(4px);"></div>
+      <div style="position:relative;background:var(--bg-surface);border:1px solid var(--bd-default);border-radius:var(--r-lg);box-shadow:var(--sh-xl);padding:24px;max-width:420px;width:90vw;">
+        <h3 id="delete-modal-title" style="font-size:15px;font-weight:600;color:var(--t-primary);margin-bottom:8px;">删除来源</h3>
+        <p id="delete-modal-desc" style="font-size:13px;color:var(--t-secondary);margin-bottom:20px;line-height:1.5;"></p>
+        <div style="display:flex;justify-content:flex-end;gap:8px;">
+          <button id="btn-cancel-delete" class="btn btn-secondary btn-sm" type="button">取消</button>
+          <button id="btn-confirm-delete" class="btn btn-danger btn-sm" type="button">确认删除</button>
         </div>
       </div>
     </div>
 
-    <!-- Chunks drawer -->
-    <div id="chunks-drawer" class="hidden fixed inset-y-0 right-0 w-full max-w-xl bg-slate-950 border-l border-slate-800 flex flex-col z-40">
-      <div class="flex items-center justify-between px-5 py-4 border-b border-slate-800">
-        <h3 class="font-semibold text-white text-sm truncate max-w-xs" id="drawer-title">片段列表</h3>
-        <button id="btn-close-drawer" class="text-slate-500 hover:text-slate-300 text-lg leading-none ml-4">✕</button>
-      </div>
-      <div id="drawer-content" class="flex-1 overflow-y-auto p-5 space-y-3"></div>
-    </div>
-
-    <!-- Tag edit drawer -->
-    <div id="tag-edit-modal" class="hidden fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-      <div class="bg-slate-900 border border-slate-700 rounded-2xl p-6 max-w-sm w-full mx-4 space-y-4">
-        <h3 class="font-semibold text-white text-sm">编辑标签</h3>
-        <p class="text-slate-500 text-xs" id="tag-edit-source-name"></p>
-        <input id="tag-edit-input" type="text" placeholder="标签（逗号分隔）"
-          class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-300 focus:outline-none focus:border-brand" />
-        <div class="flex gap-3 justify-end">
-          <button id="btn-cancel-tag-edit" class="px-4 py-2 text-sm text-slate-400 hover:text-slate-200 transition-colors">取消</button>
-          <button id="btn-confirm-tag-edit" class="px-4 py-2 text-sm bg-brand hover:bg-brand/80 text-white rounded-lg transition-colors">保存</button>
+    <div id="tag-edit-modal" class="hidden" style="position:fixed;inset:0;z-index:var(--z-modal);display:flex;align-items:center;justify-content:center;">
+      <div style="position:absolute;inset:0;background:rgba(0,0,0,.45);backdrop-filter:blur(4px);"></div>
+      <div style="position:relative;background:var(--bg-surface);border:1px solid var(--bd-default);border-radius:var(--r-lg);box-shadow:var(--sh-xl);padding:24px;max-width:420px;width:90vw;">
+        <h3 style="font-size:15px;font-weight:600;color:var(--t-primary);margin-bottom:4px;">编辑标签</h3>
+        <p id="tag-edit-source-name" style="font-size:13px;color:var(--t-secondary);margin-bottom:12px;"></p>
+        <input id="tag-edit-input" class="input" type="text" placeholder="标签（逗号分隔）" style="margin-bottom:16px;" />
+        <div style="display:flex;justify-content:flex-end;gap:8px;">
+          <button id="btn-cancel-tag-edit" class="btn btn-secondary btn-sm" type="button">取消</button>
+          <button id="btn-confirm-tag-edit" class="btn btn-primary btn-sm" type="button">确认</button>
         </div>
       </div>
     </div>
   `;
 
-  /* ── State ── */
   let page = 0;
-  const pageSize = 20;
-  let deleteTargetId = null;       // single delete
-  let deleteBatchMode = false;     // true when batch delete
+  const pageSize = 12;
+  let deleteTargetId = null;
+  let deleteBatchMode = false;
   let tagEditTargetId = null;
   let filterText = '';
   let filterTag = '';
-  let viewMode = 'list';           // list | type | tag
+  let viewMode = 'list';
+  let categoryKey = 'all';
   let selectedIds = new Set();
-  let allSources = [];             // current page sources (for select-all)
+  let catalogSources = [];
+  let currentPageSources = [];
 
-  /* ── Helpers ── */
-  function escapeHtml(s) {
-    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 
-  function parseTags(str) {
-    return str.split(',').map(t => t.trim()).filter(Boolean);
+  function parseTags(value) {
+    return String(value || '')
+      .split(',')
+      .map(tag => tag.trim())
+      .filter(Boolean);
   }
 
-  function typeColor(t) {
-    const map = { pdf: 'text-red-400', docx: 'text-blue-400', url: 'text-green-400',
-                  site: 'text-cyan-400', text: 'text-yellow-400', mp4: 'text-purple-400',
-                  mp3: 'text-purple-400' };
-    return map[t] || 'text-slate-400';
+  function normalizeTypeKey(type) {
+    const raw = String(type || '').trim().toLowerCase();
+    return TYPE_LOOKUP[raw] || 'other';
   }
 
-  function typeIcon(t) {
-    const map = { pdf: '📄', docx: '📝', url: '🌐', site: '🌍', text: '✏️',
-                  mp4: '🎬', mp3: '🎵', csv: '📊', json: '🗃' };
-    return map[t] || '📁';
+  function getTypeMeta(type) {
+    const raw = String(type || '').trim().toLowerCase();
+    const key = normalizeTypeKey(raw);
+    const group = TYPE_GROUPS[key];
+    return {
+      key,
+      label: group.label,
+      icon: group.icon,
+      raw,
+      rawLabel: raw ? raw.toUpperCase() : 'UNKNOWN',
+    };
   }
 
-  /* ── Selection management ── */
+  function formatDate(value) {
+    try {
+      return new Date(value).toLocaleDateString();
+    } catch {
+      return '—';
+    }
+  }
+
+  function getSourceSearchText(source) {
+    return [
+      source.name,
+      source.url,
+      source.type,
+      ...(Array.isArray(source.tags) ? source.tags : []),
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+  }
+
+  function getBaseFilteredSources() {
+    return catalogSources.filter(source => {
+      const matchesTag = !filterTag || (Array.isArray(source.tags) && source.tags.includes(filterTag));
+      const matchesText = !filterText || getSourceSearchText(source).includes(filterText);
+      return matchesTag && matchesText;
+    });
+  }
+
+  function getVisibleSources() {
+    const baseSources = getBaseFilteredSources();
+    if (categoryKey === 'all') return baseSources;
+    return baseSources.filter(source => getTypeMeta(source.type).key === categoryKey);
+  }
+
+  function getCategoryCounts(sources) {
+    const counts = { all: sources.length };
+    TYPE_ORDER.forEach(key => {
+      counts[key] = 0;
+    });
+    sources.forEach(source => {
+      counts[getTypeMeta(source.type).key] += 1;
+    });
+    return counts;
+  }
+
+  function getRawTypeSummary(sources) {
+    const counter = new Map();
+    sources.forEach(source => {
+      const raw = getTypeMeta(source.type).rawLabel;
+      counter.set(raw, (counter.get(raw) || 0) + 1);
+    });
+    return Array.from(counter.entries())
+      .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0], 'zh-CN'))
+      .slice(0, 3)
+      .map(([raw, count]) => `${escapeHtml(raw)} ${count}`)
+      .join(' · ');
+  }
+
+  function tableEmptyRow(title, detail) {
+    return `
+      <tr>
+        <td colspan="6" style="padding:0;">
+          <div class="kb-empty-state kb-empty-state--table">
+            <div class="kb-empty-emoji">🗂️</div>
+            <div class="kb-empty-title">${escapeHtml(title)}</div>
+            <div class="kb-empty-copy">${escapeHtml(detail)}</div>
+          </div>
+        </td>
+      </tr>
+    `;
+  }
+
+  function blockEmptyState(title, detail) {
+    return `
+      <div class="kb-empty-state">
+        <div class="kb-empty-emoji">🗂️</div>
+        <div class="kb-empty-title">${escapeHtml(title)}</div>
+        <div class="kb-empty-copy">${escapeHtml(detail)}</div>
+      </div>
+    `;
+  }
+
+  function renderCategoryStrip() {
+    const strip = document.getElementById('kb-category-strip');
+    const baseSources = getBaseFilteredSources();
+    const counts = getCategoryCounts(baseSources);
+
+    if (categoryKey !== 'all' && counts[categoryKey] === 0) {
+      categoryKey = 'all';
+    }
+
+    const chips = [
+      { key: 'all', icon: '🧠', label: '全部' },
+      ...TYPE_ORDER
+        .filter(key => counts[key] > 0)
+        .map(key => ({ key, icon: TYPE_GROUPS[key].icon, label: TYPE_GROUPS[key].label })),
+    ];
+
+    strip.innerHTML = chips.map(chip => `
+      <button class="kb-category-chip ${categoryKey === chip.key ? 'is-active' : ''}" data-category="${chip.key}" type="button">
+        <span class="kb-category-icon">${chip.icon}</span>
+        <span>${escapeHtml(chip.label)}</span>
+        <span class="kb-category-count">${counts[chip.key] || 0}</span>
+      </button>
+    `).join('');
+
+    strip.querySelectorAll('.kb-category-chip').forEach(button => {
+      button.addEventListener('click', () => {
+        categoryKey = button.dataset.category;
+        page = 0;
+        clearSelection();
+        render();
+      });
+    });
+  }
+
+  function renderResultMeta() {
+    const meta = document.getElementById('kb-result-meta');
+    const baseCount = getBaseFilteredSources().length;
+    const visibleCount = getVisibleSources().length;
+    const categoryLabel = categoryKey === 'all' ? '全部分类' : TYPE_GROUPS[categoryKey].label;
+    const viewLabel = viewMode === 'list' ? '列表模式' : viewMode === 'type' ? '按业务分类分组' : '按标签分组';
+    const extra = filterTag ? ` · 标签：${escapeHtml(filterTag)}` : '';
+    meta.innerHTML = `
+      <strong>${visibleCount}</strong> / ${baseCount} 条来源
+      <span>· ${escapeHtml(categoryLabel)}</span>
+      <span>· ${escapeHtml(viewLabel)}${extra}</span>
+    `;
+  }
+
+  function syncSelectAllCheckbox() {
+    const checkbox = document.getElementById('chk-select-all');
+    if (!checkbox) return;
+    if (!currentPageSources.length) {
+      checkbox.checked = false;
+      checkbox.indeterminate = false;
+      return;
+    }
+    const selectedCount = currentPageSources.filter(source => selectedIds.has(source.id)).length;
+    checkbox.checked = selectedCount === currentPageSources.length;
+    checkbox.indeterminate = selectedCount > 0 && selectedCount < currentPageSources.length;
+  }
+
   function updateSelectionUI() {
     document.getElementById('kb-stat-selected').textContent = selectedIds.size;
     const toolbar = document.getElementById('batch-toolbar');
@@ -187,6 +375,7 @@
     } else {
       toolbar.classList.add('hidden');
     }
+    syncSelectAllCheckbox();
   }
 
   function toggleSelect(id, checked) {
@@ -197,248 +386,344 @@
 
   function clearSelection() {
     selectedIds.clear();
-    document.querySelectorAll('.row-chk').forEach(c => c.checked = false);
-    document.getElementById('chk-select-all').checked = false;
+    document.querySelectorAll('.row-chk').forEach(checkbox => {
+      checkbox.checked = false;
+    });
     updateSelectionUI();
   }
 
-  /* ── Tag filter ── */
   async function loadTagFilter() {
     try {
       const data = await apiJson('/kb/tags');
-      const sel = document.getElementById('kb-tag-filter');
-      // Remove old options except first
-      while (sel.options.length > 1) sel.remove(1);
+      const select = document.getElementById('kb-tag-filter');
+      while (select.options.length > 1) select.remove(1);
       (data.tags || []).forEach(tag => {
-        const opt = document.createElement('option');
-        opt.value = tag; opt.textContent = tag;
-        sel.appendChild(opt);
+        const option = document.createElement('option');
+        option.value = tag;
+        option.textContent = tag;
+        select.appendChild(option);
       });
+      select.value = filterTag;
       document.getElementById('kb-stat-tags').textContent = (data.tags || []).length;
-    } catch {}
+    } catch {
+      document.getElementById('kb-stat-tags').textContent = '—';
+    }
   }
 
-  /* ── Stats ── */
   async function loadStats() {
     try {
       const data = await apiJson('/kb/stats');
       document.getElementById('kb-stat-sources').textContent = data.total_sources;
       document.getElementById('kb-stat-chunks').textContent = data.total_chunks;
-    } catch {}
-  }
-
-  /* ── Source row HTML ── */
-  function sourceRowHtml(s) {
-    const checked = selectedIds.has(s.id) ? 'checked' : '';
-    return `
-      <tr class="border-b border-slate-800 hover:bg-slate-800/40 transition-colors" data-id="${s.id}">
-        <td class="px-4 py-3">
-          <input type="checkbox" class="row-chk rounded border-slate-600 bg-slate-800 text-brand focus:ring-0 cursor-pointer"
-            data-id="${s.id}" ${checked} />
-        </td>
-        <td class="px-4 py-3 text-slate-200 max-w-[260px]">
-          <button class="btn-view-chunks text-left hover:text-brand transition-colors truncate block max-w-full text-sm"
-            data-id="${s.id}" data-name="${escapeHtml(s.name)}">${escapeHtml(s.name)}</button>
-          ${s.tags?.length ? `<div class="flex flex-wrap gap-1 mt-1">${s.tags.map(t =>
-            `<span class="tag-pill text-xs bg-slate-800 text-slate-400 px-1.5 rounded-full cursor-pointer hover:bg-slate-700"
-               data-tag="${escapeHtml(t)}">${escapeHtml(t)}</span>`).join('')}</div>` : ''}
-        </td>
-        <td class="px-4 py-3 hidden md:table-cell">
-          <span class="text-xs ${typeColor(s.type)} uppercase">${typeIcon(s.type)} ${s.type}</span>
-        </td>
-        <td class="px-4 py-3 hidden lg:table-cell text-slate-500 text-xs">
-          ${new Date(s.created_at).toLocaleDateString()}
-        </td>
-        <td class="px-4 py-3">${statusBadge(s.status)}</td>
-        <td class="px-4 py-3 flex items-center gap-2">
-          <button class="btn-edit-tags text-slate-500 hover:text-brand text-xs transition-colors" data-id="${s.id}" data-name="${escapeHtml(s.name)}" data-tags="${escapeHtml(JSON.stringify(s.tags||[]))}">标签</button>
-          <button class="btn-delete-source text-slate-600 hover:text-red-400 text-xs transition-colors" data-id="${s.id}">删除</button>
-        </td>
-      </tr>`;
-  }
-
-  /* ── List view ── */
-  async function loadSources() {
-    const tbody = document.getElementById('kb-tbody');
-    tbody.innerHTML = `<tr><td colspan="6" class="px-4 py-8 text-center text-slate-600 text-sm">加载中…</td></tr>`;
-    try {
-      const tagParam = filterTag ? `&filter_tag=${encodeURIComponent(filterTag)}` : '';
-      const data = await apiJson(`/kb/sources?limit=${pageSize}&offset=${page * pageSize}${tagParam}`);
-      allSources = data.sources || [];
-
-      document.getElementById('kb-prev').disabled = page === 0;
-      document.getElementById('kb-next').disabled = allSources.length < pageSize;
-      document.getElementById('kb-page-info').textContent = `第 ${page + 1} 页`;
-
-      const filtered = filterText
-        ? allSources.filter(s => s.name.toLowerCase().includes(filterText))
-        : allSources;
-
-      if (!filtered.length) {
-        tbody.innerHTML = `<tr><td colspan="6" class="px-4 py-8 text-center text-slate-600 text-sm">未找到来源</td></tr>`;
-        return;
-      }
-
-      tbody.innerHTML = filtered.map(sourceRowHtml).join('');
-      bindTableEvents(tbody);
-    } catch {}
-  }
-
-  /* ── Grouped view ── */
-  async function loadGroupView() {
-    const container = document.getElementById('kb-group-view');
-    container.innerHTML = '<p class="text-slate-600 text-sm">加载中…</p>';
-    try {
-      // Fetch all (up to 500 for grouping)
-      const tagParam = filterTag ? `&filter_tag=${encodeURIComponent(filterTag)}` : '';
-      const data = await apiJson(`/kb/sources?limit=500&offset=0${tagParam}`);
-      let sources = data.sources || [];
-      if (filterText) sources = sources.filter(s => s.name.toLowerCase().includes(filterText));
-
-      if (!sources.length) {
-        container.innerHTML = '<p class="text-slate-600 text-sm">未找到来源</p>';
-        return;
-      }
-
-      let groups = {};
-      if (viewMode === 'type') {
-        sources.forEach(s => {
-          const key = s.type || 'other';
-          if (!groups[key]) groups[key] = [];
-          groups[key].push(s);
-        });
-      } else {
-        // by tag
-        const untagged = [];
-        sources.forEach(s => {
-          if (!s.tags || !s.tags.length) { untagged.push(s); return; }
-          s.tags.forEach(t => {
-            if (!groups[t]) groups[t] = [];
-            groups[t].push(s);
-          });
-        });
-        if (untagged.length) groups['（未标签）'] = untagged;
-      }
-
-      // Sort group keys
-      const sortedKeys = Object.keys(groups).sort();
-      container.innerHTML = sortedKeys.map(key => {
-        const list = groups[key];
-        const label = viewMode === 'type'
-          ? `${typeIcon(key)} ${key.toUpperCase()} <span class="text-slate-500 font-normal">(${list.length})</span>`
-          : `🏷 ${escapeHtml(key)} <span class="text-slate-500 font-normal">(${list.length})</span>`;
-        return `
-          <div class="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden">
-            <div class="flex items-center justify-between px-4 py-2.5 border-b border-slate-800 cursor-pointer group-header"
-                 data-group="${escapeHtml(key)}">
-              <span class="text-sm font-semibold text-slate-200">${label}</span>
-              <button class="btn-select-group text-xs text-slate-500 hover:text-brand transition-colors" data-ids="${list.map(s=>s.id).join(',')}">全选该组</button>
-            </div>
-            <table class="w-full text-sm">
-              <tbody class="group-tbody" data-group="${escapeHtml(key)}">
-                ${list.map(sourceRowHtml).join('')}
-              </tbody>
-            </table>
-          </div>`;
-      }).join('');
-
-      container.querySelectorAll('tbody').forEach(tb => bindTableEvents(tb));
-      container.querySelectorAll('.btn-select-group').forEach(btn => {
-        btn.addEventListener('click', e => {
-          e.stopPropagation();
-          const ids = btn.dataset.ids.split(',').filter(Boolean);
-          ids.forEach(id => { selectedIds.add(id); });
-          container.querySelectorAll('.row-chk').forEach(c => {
-            if (ids.includes(c.dataset.id)) c.checked = true;
-          });
-          updateSelectionUI();
-        });
-      });
-
-    } catch(e) {
-      container.innerHTML = `<p class="text-red-400 text-sm">加载失败：${e.message}</p>`;
+    } catch {
+      document.getElementById('kb-stat-sources').textContent = '—';
+      document.getElementById('kb-stat-chunks').textContent = '—';
     }
   }
 
-  /* ── Bind table row events ── */
-  function bindTableEvents(tbody) {
-    tbody.querySelectorAll('.row-chk').forEach(chk => {
-      chk.addEventListener('change', e => toggleSelect(chk.dataset.id, e.target.checked));
+  async function loadCatalog() {
+    const data = await apiJson('/kb/sources?limit=500&offset=0');
+    catalogSources = data.sources || [];
+  }
+
+  function sourceRowHtml(source) {
+    const checked = selectedIds.has(source.id) ? 'checked' : '';
+    const typeMeta = getTypeMeta(source.type);
+    const tags = Array.isArray(source.tags) ? source.tags : [];
+    const tagsHtml = tags.length
+      ? `<div class="kb-tag-list">${tags.map(tag => `<span class="tag-pill" data-tag="${escapeHtml(tag)}">${escapeHtml(tag)}</span>`).join('')}</div>`
+      : '<span class="kb-tag-empty">未标签</span>';
+
+    return `
+      <tr class="kb-row" data-id="${escapeHtml(source.id)}">
+        <td class="kb-cell-select" style="padding-left:16px;">
+          <input type="checkbox" class="row-chk" data-id="${escapeHtml(source.id)}" ${checked}
+            style="accent-color:var(--accent);cursor:pointer;" />
+        </td>
+        <td class="kb-source-cell">
+          <div class="kb-source-main">
+            <button class="btn-view-chunks kb-source-link" data-id="${escapeHtml(source.id)}" data-name="${escapeHtml(source.name)}" type="button">${escapeHtml(source.name)}</button>
+            <div class="kb-source-meta">${escapeHtml(source.url || '本地来源')}</div>
+          </div>
+          ${tagsHtml}
+        </td>
+        <td>
+          <div class="kb-type-stack">
+            <span class="kb-type-pill kb-type-${typeMeta.key}">${typeMeta.icon} ${escapeHtml(typeMeta.label)}</span>
+            <span class="kb-type-raw">${escapeHtml(typeMeta.rawLabel)}</span>
+          </div>
+        </td>
+        <td class="kb-date-cell">${escapeHtml(formatDate(source.created_at))}</td>
+        <td>${statusBadge(source.status)}</td>
+        <td class="kb-cell-actions">
+          <div class="kb-row-actions">
+            <button class="btn-edit-tags kb-row-action" data-id="${escapeHtml(source.id)}" data-name="${escapeHtml(source.name)}" data-tags="${escapeHtml(JSON.stringify(tags))}" type="button">改标签</button>
+            <button class="btn-delete-source kb-row-action is-danger" data-id="${escapeHtml(source.id)}" type="button">删除</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }
+
+  function bindTableEvents(root) {
+    root.querySelectorAll('.row-chk').forEach(checkbox => {
+      checkbox.addEventListener('change', event => toggleSelect(checkbox.dataset.id, event.target.checked));
     });
-    tbody.querySelectorAll('.btn-view-chunks').forEach(btn => {
-      btn.addEventListener('click', () => openChunksDrawer(btn.dataset.id, btn.dataset.name));
+
+    root.querySelectorAll('.btn-view-chunks').forEach(button => {
+      button.addEventListener('click', () => openChunksDrawer(button.dataset.id, button.dataset.name));
     });
-    tbody.querySelectorAll('.btn-delete-source').forEach(btn => {
-      btn.addEventListener('click', () => openDeleteModal(btn.dataset.id));
+
+    root.querySelectorAll('.btn-delete-source').forEach(button => {
+      button.addEventListener('click', () => openDeleteModal(button.dataset.id));
     });
-    tbody.querySelectorAll('.btn-edit-tags').forEach(btn => {
-      btn.addEventListener('click', () => openTagEdit(btn.dataset.id, btn.dataset.name, btn.dataset.tags));
+
+    root.querySelectorAll('.btn-edit-tags').forEach(button => {
+      button.addEventListener('click', () => openTagEdit(button.dataset.id, button.dataset.name, button.dataset.tags));
     });
-    tbody.querySelectorAll('.tag-pill').forEach(pill => {
+
+    root.querySelectorAll('.tag-pill').forEach(pill => {
       pill.addEventListener('click', () => {
         document.getElementById('kb-tag-filter').value = pill.dataset.tag;
         filterTag = pill.dataset.tag;
         page = 0;
+        clearSelection();
         render();
       });
     });
   }
 
-  /* ── Render dispatcher ── */
+  function renderListView() {
+    const tbody = document.getElementById('kb-tbody');
+    const visibleSources = getVisibleSources();
+
+    if (!visibleSources.length) {
+      currentPageSources = [];
+      tbody.innerHTML = tableEmptyRow('当前筛选下没有来源', '换个标签、分类或关键词试试。');
+      document.getElementById('kb-prev').disabled = true;
+      document.getElementById('kb-next').disabled = true;
+      document.getElementById('kb-page-info').textContent = '无结果';
+      syncSelectAllCheckbox();
+      return;
+    }
+
+    const totalPages = Math.max(1, Math.ceil(visibleSources.length / pageSize));
+    if (page >= totalPages) page = totalPages - 1;
+    currentPageSources = visibleSources.slice(page * pageSize, page * pageSize + pageSize);
+
+    document.getElementById('kb-prev').disabled = page === 0;
+    document.getElementById('kb-next').disabled = page >= totalPages - 1;
+    document.getElementById('kb-page-info').textContent = `第 ${page + 1} / ${totalPages} 页 · 共 ${visibleSources.length} 条`;
+
+    tbody.innerHTML = currentPageSources.map(sourceRowHtml).join('');
+    bindTableEvents(tbody);
+    syncSelectAllCheckbox();
+  }
+
+  function buildTypeGroups(sources) {
+    const grouped = {};
+    sources.forEach(source => {
+      const key = getTypeMeta(source.type).key;
+      if (!grouped[key]) grouped[key] = [];
+      grouped[key].push(source);
+    });
+
+    return TYPE_ORDER
+      .filter(key => grouped[key] && grouped[key].length)
+      .map(key => ({
+        id: key,
+        label: TYPE_GROUPS[key].label,
+        icon: TYPE_GROUPS[key].icon,
+        kind: 'type',
+        sources: grouped[key],
+        summary: getRawTypeSummary(grouped[key]),
+      }));
+  }
+
+  function buildTagGroups(sources) {
+    const grouped = {};
+    const untagged = [];
+
+    sources.forEach(source => {
+      const tags = Array.isArray(source.tags) ? source.tags : [];
+      if (!tags.length) {
+        untagged.push(source);
+        return;
+      }
+      tags.forEach(tag => {
+        if (!grouped[tag]) grouped[tag] = [];
+        grouped[tag].push(source);
+      });
+    });
+
+    const groups = Object.entries(grouped)
+      .map(([label, entries]) => ({
+        id: label,
+        label,
+        icon: '🏷️',
+        kind: 'tag',
+        sources: entries,
+        summary: `包含 ${entries.length} 个来源`,
+      }))
+      .sort((left, right) => right.sources.length - left.sources.length || left.label.localeCompare(right.label, 'zh-CN'));
+
+    if (untagged.length) {
+      groups.push({
+        id: 'untagged',
+        label: '未标签',
+        icon: '🏷️',
+        kind: 'tag',
+        sources: untagged,
+        summary: `包含 ${untagged.length} 个来源`,
+      });
+    }
+
+    return groups;
+  }
+
+  function groupSectionHtml(group, index) {
+    const bodyId = `kb-group-body-${index}`;
+    const chipClass = group.kind === 'type' ? `kb-type-pill kb-type-${group.id}` : 'kb-group-tag';
+
+    return `
+      <section class="kb-group-card" data-group-card="${escapeHtml(group.id)}">
+        <div class="kb-group-head">
+          <div class="kb-group-copy">
+            <span class="${chipClass}">${group.icon} ${escapeHtml(group.label)}</span>
+            <div class="kb-group-summary">${group.summary}</div>
+          </div>
+          <div class="kb-group-actions">
+            <span class="kb-group-count">${group.sources.length} 项</span>
+            <button class="btn-select-group btn btn-secondary btn-xs" data-ids="${group.sources.map(source => source.id).join(',')}" type="button">全选该组</button>
+            <button class="btn-toggle-group kb-toggle-btn" data-target="${bodyId}" type="button" aria-label="折叠分组">▾</button>
+          </div>
+        </div>
+        <div id="${bodyId}" class="kb-group-body">
+          <div class="table-card kb-table-shell">
+            <table class="table kb-table">
+              <tbody class="group-tbody">
+                ${group.sources.map(sourceRowHtml).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    `;
+  }
+
+  function renderGroupView() {
+    const container = document.getElementById('kb-group-view');
+    const visibleSources = getVisibleSources();
+    currentPageSources = [];
+
+    if (!visibleSources.length) {
+      container.innerHTML = blockEmptyState('当前分组没有内容', '换个分类、标签或关键词，看看别的来源。');
+      return;
+    }
+
+    const groups = viewMode === 'type' ? buildTypeGroups(visibleSources) : buildTagGroups(visibleSources);
+    container.innerHTML = groups.map(groupSectionHtml).join('');
+
+    container.querySelectorAll('.group-tbody').forEach(tbody => bindTableEvents(tbody));
+
+    container.querySelectorAll('.btn-select-group').forEach(button => {
+      button.addEventListener('click', event => {
+        event.stopPropagation();
+        const ids = button.dataset.ids.split(',').filter(Boolean);
+        ids.forEach(id => selectedIds.add(id));
+        container.querySelectorAll('.row-chk').forEach(checkbox => {
+          if (ids.includes(checkbox.dataset.id)) {
+            checkbox.checked = true;
+          }
+        });
+        updateSelectionUI();
+      });
+    });
+
+    container.querySelectorAll('.btn-toggle-group').forEach(button => {
+      button.addEventListener('click', () => {
+        const body = document.getElementById(button.dataset.target);
+        const card = button.closest('.kb-group-card');
+        if (!body || !card) return;
+        const collapsed = card.classList.toggle('is-collapsed');
+        body.classList.toggle('hidden', collapsed);
+      });
+    });
+  }
+
   function render() {
-    clearSelection();
+    renderCategoryStrip();
+    renderResultMeta();
+
     const listView = document.getElementById('kb-list-view');
     const groupView = document.getElementById('kb-group-view');
-    const pagDiv = listView.querySelector('.flex.items-center.justify-between');
     if (viewMode === 'list') {
       listView.classList.remove('hidden');
       groupView.classList.add('hidden');
-      loadSources();
+      renderListView();
     } else {
       listView.classList.add('hidden');
       groupView.classList.remove('hidden');
-      loadGroupView();
+      renderGroupView();
     }
   }
 
-  /* ── View mode buttons ── */
-  document.querySelectorAll('.view-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('.view-btn').forEach(b => b.classList.remove('active-view', 'bg-slate-700', 'text-white'));
-      btn.classList.add('active-view', 'bg-slate-700', 'text-white');
-      viewMode = btn.id.replace('btn-view-', '');
+  async function refreshAll({ silent = false } = {}) {
+    try {
+      await Promise.all([loadStats(), loadTagFilter(), loadCatalog()]);
+      render();
+      if (!silent) toast('知识库列表已刷新', 'success');
+    } catch (error) {
+      document.getElementById('kb-tbody').innerHTML = tableEmptyRow('无法加载知识库列表', '请检查后端连接或数据文件。');
+      document.getElementById('kb-group-view').innerHTML = blockEmptyState('无法加载知识库列表', '请检查后端连接或数据文件。');
+      document.getElementById('kb-result-meta').textContent = `加载失败：${error.message}`;
+    }
+  }
+
+  document.querySelectorAll('.view-btn').forEach(button => {
+    button.addEventListener('click', () => {
+      document.querySelectorAll('.view-btn').forEach(entry => entry.classList.remove('active'));
+      button.classList.add('active');
+      viewMode = button.id.replace('btn-view-', '');
+      page = 0;
+      clearSelection();
       render();
     });
   });
-  // Init first active
-  document.getElementById('btn-view-list').classList.add('bg-slate-700', 'text-white');
 
-  /* ── Select all ── */
-  document.getElementById('chk-select-all').addEventListener('change', e => {
-    allSources.forEach(s => {
-      if (e.target.checked) selectedIds.add(s.id);
-      else selectedIds.delete(s.id);
+  document.getElementById('chk-select-all').addEventListener('change', event => {
+    currentPageSources.forEach(source => {
+      if (event.target.checked) selectedIds.add(source.id);
+      else selectedIds.delete(source.id);
     });
-    document.querySelectorAll('.row-chk').forEach(c => c.checked = e.target.checked);
+    document.querySelectorAll('#kb-tbody .row-chk').forEach(checkbox => {
+      checkbox.checked = event.target.checked;
+    });
     updateSelectionUI();
   });
 
-  /* ── Batch toolbar actions ── */
   async function batchTag(mode) {
     const input = document.getElementById('batch-tag-input').value.trim();
     const tags = parseTags(input);
-    if (mode !== 'remove' && !tags.length) { toast('请输入至少一个标签', 'error'); return; }
-    if (!selectedIds.size) { toast('请先选择来源', 'error'); return; }
+    if (mode !== 'remove' && !tags.length) {
+      toast('请输入至少一个标签', 'error');
+      return;
+    }
+    if (!selectedIds.size) {
+      toast('请先选择来源', 'error');
+      return;
+    }
     try {
       await apiJson('/kb/sources/batch-tag', {
         method: 'POST',
         body: JSON.stringify({ ids: [...selectedIds], tags, mode }),
       });
-      toast(`已${mode==='add'?'追加':mode==='replace'?'替换':'移除'} ${selectedIds.size} 个来源的标签`, 'success');
+      toast('批量标签操作已完成', 'success');
       clearSelection();
-      loadTagFilter();
-      render();
-    } catch(e) { toast('操作失败：' + e.message, 'error'); }
+      await refreshAll({ silent: true });
+    } catch (error) {
+      toast(`操作失败：${error.message}`, 'error');
+    }
   }
 
   document.getElementById('btn-batch-add-tag').addEventListener('click', () => batchTag('add'));
@@ -455,44 +740,47 @@
 
   document.getElementById('btn-batch-clear').addEventListener('click', clearSelection);
 
-  /* ── Chunks drawer ── */
   async function openChunksDrawer(sourceId, sourceName) {
     const drawer = document.getElementById('chunks-drawer');
     const content = document.getElementById('drawer-content');
     document.getElementById('drawer-title').textContent = sourceName;
-    content.innerHTML = '<p class="text-slate-600 text-sm">加载片段中…</p>';
+    content.innerHTML = '<p style="font-size:13px;color:var(--t4);">加载片段中…</p>';
     drawer.classList.remove('hidden');
     try {
       const data = await apiJson(`/kb/sources/${sourceId}/chunks?limit=50`);
       const chunks = data.chunks || [];
       if (!chunks.length) {
-        content.innerHTML = '<p class="text-slate-600 text-sm">未找到片段</p>';
+        content.innerHTML = '<p style="font-size:13px;color:var(--t4);">未找到片段</p>';
         return;
       }
-      content.innerHTML = chunks.map(c => `
-        <div class="bg-slate-900 rounded-lg p-3 border border-slate-800">
+      content.innerHTML = chunks.map(chunk => `
+        <div class="stat-card p-3">
           <div class="flex items-center justify-between mb-1.5">
-            <span class="text-xs text-slate-500">片段 #${c.chunk_index}</span>
-            <span class="text-xs font-mono text-slate-700">${c.id.slice(0, 8)}</span>
+            <span style="font-size:11.5px;color:var(--t3);">片段 #${chunk.chunk_index}</span>
+            <span style="font-size:11px;font-family:var(--font-mono);color:var(--t4);">${chunk.id.slice(0, 8)}</span>
           </div>
-          <p class="text-xs text-slate-300 leading-relaxed whitespace-pre-wrap">${escapeHtml(c.content.slice(0, 500))}${c.content.length > 500 ? '…' : ''}</p>
+          <p style="font-size:12.5px;color:var(--t2);line-height:1.6;white-space:pre-wrap;">${escapeHtml(chunk.content.slice(0, 500))}${chunk.content.length > 500 ? '…' : ''}</p>
         </div>
       `).join('');
     } catch {
-      content.innerHTML = '<p class="text-red-400 text-sm">加载片段失败</p>';
+      content.innerHTML = '<p style="font-size:13px;color:var(--c-err);">加载片段失败</p>';
     }
   }
 
-  document.getElementById('btn-close-drawer').addEventListener('click', () => {
+  function closeDrawer() {
     document.getElementById('chunks-drawer').classList.add('hidden');
-  });
+  }
 
-  /* ── Tag edit modal ── */
+  document.getElementById('btn-close-drawer').addEventListener('click', closeDrawer);
+  document.getElementById('drawer-backdrop').addEventListener('click', closeDrawer);
+
   function openTagEdit(id, name, tagsJson) {
     tagEditTargetId = id;
     document.getElementById('tag-edit-source-name').textContent = name;
     let tags = [];
-    try { tags = JSON.parse(tagsJson); } catch {}
+    try {
+      tags = JSON.parse(tagsJson);
+    } catch {}
     document.getElementById('tag-edit-input').value = tags.join(', ');
     document.getElementById('tag-edit-modal').classList.remove('hidden');
   }
@@ -513,12 +801,12 @@
       toast('标签已更新', 'success');
       document.getElementById('tag-edit-modal').classList.add('hidden');
       tagEditTargetId = null;
-      loadTagFilter();
-      render();
-    } catch { toast('更新标签失败', 'error'); }
+      await refreshAll({ silent: true });
+    } catch {
+      toast('更新标签失败', 'error');
+    }
   });
 
-  /* ── Delete modal ── */
   function openDeleteModal(sourceId) {
     deleteBatchMode = false;
     deleteTargetId = sourceId;
@@ -550,49 +838,69 @@
       }
       deleteTargetId = null;
       deleteBatchMode = false;
-      loadStats();
-      loadTagFilter();
-      render();
-      if (typeof refreshStats === 'function') refreshStats();
-    } catch { toast('删除失败', 'error'); }
+      await refreshAll({ silent: true });
+      if (window.OmniKBApp?.refreshStats) window.OmniKBApp.refreshStats();
+      else if (typeof refreshStats === 'function') refreshStats();
+    } catch {
+      toast('删除失败', 'error');
+    }
   });
 
-  /* ── Export dropdown ── */
   document.getElementById('btn-export').addEventListener('click', () => {
     document.getElementById('export-menu').classList.toggle('hidden');
   });
-  document.addEventListener('click', e => {
-    if (!document.getElementById('export-wrap').contains(e.target))
+
+  document.addEventListener('click', event => {
+    const wrap = document.getElementById('export-wrap');
+    if (wrap && !wrap.contains(event.target)) {
       document.getElementById('export-menu').classList.add('hidden');
+    }
   });
-  ['json','csv','zip'].forEach(fmt => {
-    document.getElementById(`export-${fmt}`).addEventListener('click', e => {
-      e.preventDefault();
-      const base = (typeof API_BASE !== 'undefined' ? API_BASE : 'http://localhost:8000');
-      window.open(`${base}/kb/export?fmt=${fmt}`, '_blank');
+
+  ['json', 'csv', 'zip'].forEach(format => {
+    document.getElementById(`export-${format}`).addEventListener('click', event => {
+      event.preventDefault();
+      const base = typeof getApiBase === 'function' ? getApiBase() : 'http://localhost:8000';
+      window.open(`${base}/kb/export?fmt=${format}`, '_blank');
       document.getElementById('export-menu').classList.add('hidden');
     });
   });
 
-  /* ── Filters ── */
-  document.getElementById('kb-prev').addEventListener('click', () => { page--; loadSources(); });
-  document.getElementById('kb-next').addEventListener('click', () => { page++; loadSources(); });
-  document.getElementById('btn-kb-refresh').addEventListener('click', () => { loadStats(); loadTagFilter(); render(); });
+  document.getElementById('kb-prev').addEventListener('click', () => {
+    if (page === 0) return;
+    page -= 1;
+    renderListView();
+  });
 
-  document.getElementById('kb-search').addEventListener('input', e => {
-    filterText = e.target.value.toLowerCase();
+  document.getElementById('kb-next').addEventListener('click', () => {
+    page += 1;
+    renderListView();
+  });
+
+  document.getElementById('btn-kb-refresh').addEventListener('click', () => {
+    clearSelection();
+    refreshAll();
+  });
+
+  document.getElementById('kb-search').addEventListener('input', event => {
+    filterText = event.target.value.trim().toLowerCase();
     page = 0;
+    clearSelection();
     render();
   });
 
-  document.getElementById('kb-tag-filter').addEventListener('change', e => {
-    filterTag = e.target.value;
+  document.getElementById('kb-tag-filter').addEventListener('change', event => {
+    filterTag = event.target.value;
     page = 0;
+    clearSelection();
     render();
   });
 
-  /* ── Tab switch ── */
-  document.addEventListener('tab:shown', e => {
-    if (e.detail === 'kb') { loadStats(); loadTagFilter(); render(); }
+  document.addEventListener('tab:shown', event => {
+    if (event.detail === 'kb') {
+      refreshAll({ silent: true });
+    }
   });
+
+  refreshAll({ silent: true });
 })();

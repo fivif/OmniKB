@@ -1,0 +1,26 @@
+/* ─── Chat Panel ──────────────────────────────────────────────
+   Layout is handled by Tailwind utilities + inline styles.
+   Bubbles, cursor, citations are defined in main.css.
+   ──────────────────────────────────────────────────────────── */
+
+.chat-shell {
+  display: flex;
+  height: 100%;
+}
+
+.chat-sessions {
+  width: 280px;
+  flex-shrink: 0;
+  background: var(--bg-card);
+  border-right: 1px solid var(--bd);
+  display: flex;
+  flex-direction: column;
+}
+
+.chat-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--bg-body);
+}
