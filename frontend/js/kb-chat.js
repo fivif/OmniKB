@@ -4,6 +4,7 @@
   // Parse scenario ID from URL
   const params = new URLSearchParams(window.location.search);
   const scenarioId = params.get('scenario');
+  const previewRequested = params.get('demo') === '1' || !scenarioId;
   const DEFAULT_TEMPLATE = 'assistant';
   const CHAT_TEMPLATES = {
     assistant: {
@@ -41,7 +42,21 @@
     },
   };
 
-  if (!scenarioId) {
+  const PREVIEW_SCENARIO = {
+    name: '知识资料问答',
+    description: '离线预览模式',
+    ui_config: {
+      template: 'assistant',
+      title: '知识资料问答',
+      subtitle: '离线预览模式',
+      welcome: '你好，我会优先基于当前知识库中的内容来回答你的问题。',
+      placeholder: '输入你的问题，开始检索与问答…',
+      disclaimer: '回答由 AI 基于资料生成，请对关键信息再次核验。',
+      color: '#5b8cff',
+    },
+  };
+
+  if (!scenarioId && !previewRequested) {
     document.body.innerHTML = `
       <div class="h-full flex items-center justify-center">
         <p style="color:var(--text-muted);">缺少场景 ID — 请在 URL 中添加 ?scenario=ID</p>
@@ -61,9 +76,10 @@
   let isStreaming = false;
   let scenarioMeta = null;
   let messageSeq = 0;
+  let previewMode = previewRequested;
 
   // Persist API key
-  const storageKey = `omnikb_kb_key_${scenarioId}`;
+  const storageKey = `omnikb_kb_key_${scenarioId || 'preview'}`;
   apiKeyInput.value = localStorage.getItem(storageKey) || '';
   apiKeyInput.addEventListener('change', () => {
     localStorage.setItem(storageKey, apiKeyInput.value.trim());
@@ -182,6 +198,11 @@
   // ── Load scenario info & apply UI config ───────────────────────
 
   async function loadScenario() {
+    if (previewMode) {
+      applyPreviewScenario('离线预览模式');
+      return;
+    }
+
     try {
       const res = await fetch(`${getApiBase()}/kb-api/${scenarioId}`);
       if (!res.ok) throw new Error('Scenario not found');
@@ -189,13 +210,20 @@
       scenarioMeta = sc;
       applyUiConfig(sc);
     } catch (e) {
-      document.getElementById('scenario-title').textContent = '场景未找到';
-      document.getElementById('scenario-desc').textContent = e.message;
-      document.getElementById('welcome-heading').textContent = '场景加载失败';
-      document.getElementById('welcome-text').textContent = '请检查场景 ID 或通过 ?api= 指定正确的后端地址。';
-      document.getElementById('scenario-template').textContent = 'Scenario Error';
-      document.getElementById('welcome-kicker').textContent = 'Scenario Error';
+      previewMode = true;
+      applyPreviewScenario('当前后端不可达，已切换到离线预览模式');
     }
+  }
+
+  function applyPreviewScenario(subtitle) {
+    scenarioMeta = {
+      ...PREVIEW_SCENARIO,
+      ui_config: {
+        ...PREVIEW_SCENARIO.ui_config,
+        subtitle,
+      },
+    };
+    applyUiConfig(scenarioMeta);
   }
 
   function applyUiConfig(sc) {
@@ -230,11 +258,32 @@
 
   // ── Markdown rendering ─────────────────────────────────────────
 
+  // Configure marked for safe, real-time rendering
+  if (typeof marked !== 'undefined') {
+    marked.setOptions({
+      breaks: true,
+      gfm: true,
+      silent: true, // ignore errors, keep rendering
+    });
+  }
+
   function renderMarkdown(text) {
+    if (!text) return '';
     if (typeof marked !== 'undefined') {
-      return marked.parse(text);
+      try {
+        return marked.parse(text);
+      } catch {
+        // Fall through to plain-text escape
+      }
     }
     return esc(text).replace(/\n/g, '<br>');
+  }
+
+  // Incremental render: compare raw text lengths, re-render only on change
+  function renderToElement(el, rawText, lastLength) {
+    if (rawText.length === lastLength) return lastLength;
+    el.innerHTML = renderMarkdown(rawText);
+    return rawText.length;
   }
 
   function resizeComposer() {
@@ -259,9 +308,8 @@
     el.className = `kbchat-message-row ${isUser ? 'is-user' : 'is-assistant'}`;
     el.innerHTML = `
       <div class="kbchat-message-author">${isUser ? '你' : 'AI 助手'}</div>
-      <div class="kbchat-message-bubble ${isUser ? 'bubble-user' : 'bubble-ai'} prose-light" id="${msgId}-content">
+      <div class="kbchat-message-bubble ${isUser ? 'bubble-user' : 'bubble-ai'}" id="${msgId}-content">
         ${isUser ? esc(content) : ''}
-        ${!isUser ? '<span class="typing-placeholder">&nbsp;</span>' : ''}
       </div>
     `;
     messagesEl.appendChild(el);
@@ -293,7 +341,7 @@
     if (!text) return;
 
     const apiKey = apiKeyInput.value.trim();
-    if (!apiKey) {
+    if (!previewMode && !apiKey) {
       alert('请先输入 API 密钥');
       return;
     }
@@ -312,18 +360,24 @@
     isStreaming = true;
     sendBtn.disabled = true;
 
+    if (previewMode) {
+      runPreviewAnswer(text, contentEl);
+      return;
+    }
+
     let fullText = '';
     let renderPending = false;
+    let lastRenderedLen = 0;
     function scheduleRender() {
       if (renderPending) return;
       renderPending = true;
       requestAnimationFrame(() => {
         renderPending = false;
-        const ph = contentEl.querySelector('.typing-placeholder');
-        if (ph) ph.remove();
-        contentEl.innerHTML = renderMarkdown(fullText);
-        const atBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 80;
-        if (atBottom) messagesEl.scrollTop = messagesEl.scrollHeight;
+        if (fullText.length !== lastRenderedLen) {
+          lastRenderedLen = renderToElement(contentEl, fullText, lastRenderedLen);
+          const atBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 80;
+          if (atBottom) messagesEl.scrollTop = messagesEl.scrollHeight;
+        }
       });
     }
 
@@ -386,12 +440,54 @@
   }
 
   function showCitations(citations, targetEl) {
-    if (!citations.length) return;
-    if (targetEl && window.OmnikbCitations) {
-      try {
-        window.OmnikbCitations.render(targetEl, citations);
-      } catch {}
-    }
+    if (!citations || !citations.length) return;
+    // Render citations inline below the answer
+    const existing = targetEl.querySelector('.kbchat-citation-list');
+    if (existing) existing.remove();
+    const block = document.createElement('div');
+    block.className = 'kbchat-citation-list';
+    block.innerHTML = `
+      <div class="kbchat-citation-divider"></div>
+      <ol class="kbchat-citation-items">
+        ${citations.map((c, i) => `
+          <li value="${c.index || i + 1}">
+            <span class="kbchat-citation-source">${esc(c.source || 'unknown')}</span>
+            ${c.score ? `<span class="kbchat-citation-score">${c.score.toFixed(2)}</span>` : ''}
+            <span class="kbchat-citation-text">${esc((c.content || '').substring(0, 200))}</span>
+          </li>
+        `).join('')}
+      </ol>`;
+    targetEl.appendChild(block);
+  }
+
+  function runPreviewAnswer(text, contentEl) {
+    const lines = [
+      `关于“${text}”，我会先给你一版简洁回答。`,
+      '先抓主线，确认这份资料主要在讲什么、解决什么问题。',
+      '再把关键概念、步骤和关系串起来，避免答案只停在零散片段上。',
+      '如果你继续追问，我可以再把它压缩成摘要、清单或新人入门版。',
+    ];
+
+    let fullText = '';
+    let index = 0;
+
+    const step = () => {
+      if (index < lines.length) {
+        fullText += `${index ? '\n\n' : ''}${lines[index]}`;
+        contentEl.innerHTML = renderMarkdown(fullText);
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+        index += 1;
+        window.setTimeout(step, 150);
+        return;
+      }
+
+      contentEl.classList.remove('typing-cursor');
+      chatHistory.push({ role: 'assistant', content: fullText });
+      isStreaming = false;
+      sendBtn.disabled = false;
+    };
+
+    step();
   }
 
   // Focus input on load

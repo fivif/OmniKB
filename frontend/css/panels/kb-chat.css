@@ -96,6 +96,217 @@
   color-scheme: dark;
 }
 
+/* ─── Markdown prose styling ──────────────────────────────────── */
+
+.bubble-ai > :first-child { margin-top: 0; }
+.bubble-ai > :last-child  { margin-bottom: 0; }
+
+.bubble-ai p {
+  margin: 0.6em 0;
+  line-height: 1.75;
+}
+.bubble-ai ul, .bubble-ai ol {
+  margin: 0.5em 0;
+  padding-left: 1.6em;
+  line-height: 1.7;
+}
+.bubble-ai ul { list-style: disc; }
+.bubble-ai ol { list-style: decimal; }
+.bubble-ai li { margin: 0.25em 0; }
+.bubble-ai li > ul, .bubble-ai li > ol { margin: 0.15em 0; }
+
+.bubble-ai h1, .bubble-ai h2, .bubble-ai h3,
+.bubble-ai h4, .bubble-ai h5, .bubble-ai h6 {
+  margin: 1em 0 0.4em;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--kbchat-text-strong);
+}
+.bubble-ai h1 { font-size: 1.5em; }
+.bubble-ai h2 { font-size: 1.3em; }
+.bubble-ai h3 { font-size: 1.15em; }
+.bubble-ai h4 { font-size: 1.05em; }
+
+.bubble-ai code {
+  font-family: var(--font-mono, 'SF Mono', 'Cascadia Code', monospace);
+  font-size: 0.875em;
+}
+.bubble-ai :not(pre) > code {
+  background: rgba(0, 0, 0, 0.06);
+  color: #c7254e;
+  padding: 0.1em 0.4em;
+  border-radius: 4px;
+}
+[data-kbchat-tone="dark"] .bubble-ai :not(pre) > code {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f78da7;
+}
+
+.bubble-ai pre {
+  margin: 0.75em 0;
+  padding: 1em 1.2em;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.05);
+  overflow-x: auto;
+  font-size: 0.85em;
+  line-height: 1.6;
+}
+[data-kbchat-tone="dark"] .bubble-ai pre {
+  background: rgba(255, 255, 255, 0.06);
+}
+.bubble-ai pre code {
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  font-size: 1em;
+}
+
+.bubble-ai blockquote {
+  margin: 0.6em 0;
+  padding: 0.4em 1em;
+  border-left: 3px solid var(--kbchat-brand-solid);
+  background: rgba(0, 0, 0, 0.02);
+  border-radius: 0 8px 8px 0;
+  color: var(--kbchat-text-muted);
+}
+[data-kbchat-tone="dark"] .bubble-ai blockquote {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.bubble-ai table {
+  width: 100%;
+  margin: 0.75em 0;
+  border-collapse: collapse;
+  font-size: 0.9em;
+}
+.bubble-ai th, .bubble-ai td {
+  padding: 0.55em 0.85em;
+  border: 1px solid var(--kbchat-surface-border);
+  text-align: left;
+}
+.bubble-ai th {
+  background: rgba(0, 0, 0, 0.03);
+  font-weight: 700;
+  color: var(--kbchat-text-strong);
+}
+[data-kbchat-tone="dark"] .bubble-ai th {
+  background: rgba(255, 255, 255, 0.04);
+}
+.bubble-ai tr:nth-child(even) td {
+  background: rgba(0, 0, 0, 0.01);
+}
+[data-kbchat-tone="dark"] .bubble-ai tr:nth-child(even) td {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.bubble-ai a {
+  color: var(--kbchat-brand-solid);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.bubble-ai a:hover { opacity: 0.8; }
+
+.bubble-ai hr {
+  margin: 1em 0;
+  border: none;
+  border-top: 1px solid var(--kbchat-surface-border);
+}
+
+.bubble-ai img {
+  max-width: 100%;
+  border-radius: 10px;
+  margin: 0.5em 0;
+}
+
+.bubble-ai strong { font-weight: 700; color: var(--kbchat-text-strong); }
+.bubble-ai em     { font-style: italic; }
+
+/* Inline task list */
+.bubble-ai input[type="checkbox"] {
+  margin-right: 0.4em;
+  accent-color: var(--kbchat-brand-solid);
+}
+
+/* ─── Citation list inside answer bubble ──────────────────────── */
+
+.kbchat-citation-list {
+  margin-top: 1em;
+}
+.kbchat-citation-divider {
+  height: 1px;
+  background: var(--kbchat-surface-border);
+  margin-bottom: 0.6em;
+}
+.kbchat-citation-items {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.kbchat-citation-items li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 0.78em;
+  line-height: 1.5;
+  color: var(--kbchat-text-muted);
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: rgba(0,0,0,0.02);
+}
+[data-kbchat-tone="dark"] .kbchat-citation-items li {
+  background: rgba(255,255,255,0.03);
+}
+.kbchat-citation-items li::before {
+  content: '[' counter(list-item) ']';
+  counter-increment: list-item;
+  font-weight: 700;
+  color: var(--kbchat-brand-solid);
+  flex-shrink: 0;
+  min-width: 1.4em;
+}
+.kbchat-citation-source {
+  font-weight: 700;
+  color: var(--kbchat-text-body);
+  flex-shrink: 0;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.kbchat-citation-score {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  color: var(--kbchat-text-subtle);
+  flex-shrink: 0;
+}
+.kbchat-citation-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ─── Typing cursor ───────────────────────────────────────────── */
+
+.bubble-ai.typing-cursor::after {
+  content: '';
+  display: inline-block;
+  width: 2px;
+  height: 1.1em;
+  background: var(--kbchat-brand-solid);
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  animation: kbCursorBlink 0.8s infinite;
+}
+@keyframes kbCursorBlink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+
 .kbchat-shell {
   min-height: 100vh;
   width: 100%;
