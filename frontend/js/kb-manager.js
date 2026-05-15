@@ -102,6 +102,10 @@
       <div id="batch-toolbar" class="hidden kb-batch-toolbar">
         <span id="batch-count" class="kb-batch-count"></span>
         <div class="kb-batch-spacer"></div>
+        <select id="kb-scenario-select" class="select kb-batch-input" style="min-width:180px;">
+          <option value="">选择场景</option>
+        </select>
+        <button id="btn-batch-add-scenario" class="btn btn-primary btn-sm" type="button">加入场景</button>
         <input id="batch-tag-input" class="input kb-batch-input" type="text" placeholder="标签（逗号分隔）" />
         <button id="btn-batch-add-tag" class="btn btn-secondary btn-sm" type="button">追加标签</button>
         <button id="btn-batch-replace-tag" class="btn btn-secondary btn-sm" type="button">替换标签</button>
@@ -187,6 +191,7 @@
   let selectedIds = new Set();
   let catalogSources = [];
   let currentPageSources = [];
+  let scenarioOptions = [];
 
   function escapeHtml(value) {
     return String(value ?? '')
@@ -369,12 +374,16 @@
     document.getElementById('kb-stat-selected').textContent = selectedIds.size;
     const toolbar = document.getElementById('batch-toolbar');
     const batchCount = document.getElementById('batch-count');
+    const scenarioSelect = document.getElementById('kb-scenario-select');
+    const addScenarioButton = document.getElementById('btn-batch-add-scenario');
     if (selectedIds.size > 0) {
       toolbar.classList.remove('hidden');
       batchCount.textContent = `已选 ${selectedIds.size} 项`;
     } else {
       toolbar.classList.add('hidden');
     }
+    scenarioSelect.disabled = !scenarioOptions.length;
+    addScenarioButton.disabled = !selectedIds.size || !scenarioOptions.length || !scenarioSelect.value;
     syncSelectAllCheckbox();
   }
 
@@ -408,6 +417,23 @@
     } catch {
       document.getElementById('kb-stat-tags').textContent = '—';
     }
+  }
+
+  async function loadScenarioOptions() {
+    try {
+      const data = await apiJson('/scenarios');
+      scenarioOptions = data.scenarios || [];
+    } catch {
+      scenarioOptions = [];
+    }
+
+    const select = document.getElementById('kb-scenario-select');
+    const currentValue = select.value;
+    select.innerHTML = '<option value="">选择场景</option>' + scenarioOptions.map(scenario => (
+      `<option value="${escapeHtml(scenario.id)}">${escapeHtml(scenario.name || scenario.id)}</option>`
+    )).join('');
+    select.value = scenarioOptions.some(scenario => scenario.id === currentValue) ? currentValue : '';
+    updateSelectionUI();
   }
 
   async function loadStats() {
@@ -670,7 +696,7 @@
 
   async function refreshAll({ silent = false } = {}) {
     try {
-      await Promise.all([loadStats(), loadTagFilter(), loadCatalog()]);
+      await Promise.all([loadStats(), loadTagFilter(), loadCatalog(), loadScenarioOptions()]);
       render();
       if (!silent) toast('知识库列表已刷新', 'success');
     } catch (error) {
@@ -729,6 +755,32 @@
   document.getElementById('btn-batch-add-tag').addEventListener('click', () => batchTag('add'));
   document.getElementById('btn-batch-replace-tag').addEventListener('click', () => batchTag('replace'));
   document.getElementById('btn-batch-remove-tag').addEventListener('click', () => batchTag('remove'));
+  document.getElementById('kb-scenario-select').addEventListener('change', updateSelectionUI);
+  document.getElementById('btn-batch-add-scenario').addEventListener('click', async () => {
+    const scenarioId = document.getElementById('kb-scenario-select').value;
+    if (!selectedIds.size) {
+      toast('请先选择来源', 'error');
+      return;
+    }
+    if (!scenarioId) {
+      toast('请先选择场景', 'error');
+      return;
+    }
+
+    try {
+      const data = await apiJson(`/scenarios/${scenarioId}/sources`, {
+        method: 'POST',
+        body: JSON.stringify({
+          entries: [...selectedIds].map(sourceId => ({ source_id: sourceId, chunk_id: '' })),
+          added_by: 'kb_manager',
+        }),
+      });
+      toast(`已将 ${data.added || 0} 个来源加入场景`, 'success');
+      clearSelection();
+    } catch (error) {
+      toast(`加入场景失败：${error.message}`, 'error');
+    }
+  });
 
   document.getElementById('btn-batch-delete').addEventListener('click', () => {
     if (!selectedIds.size) return;

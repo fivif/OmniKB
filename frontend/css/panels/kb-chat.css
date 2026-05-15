@@ -671,11 +671,11 @@
 
 @media (max-width: 900px) {
   .kbchat-header {
-    padding-inline: 18px;
+    padding: 16px 18px 14px;
   }
 
   .kbchat-heading h1 {
-    font-size: 28px;
+    font-size: clamp(22px, 4vw, 28px);
   }
 
   .kbchat-footer,
@@ -683,8 +683,16 @@
     padding-inline: 16px;
   }
 
+  .kbchat-messages {
+    gap: 14px;
+  }
+
   .kbchat-welcome {
     min-height: calc(100vh - 330px);
+  }
+
+  .kbchat-welcome-title {
+    font-size: clamp(32px, 5vw, 48px);
   }
 }
 
@@ -692,6 +700,7 @@
   .kbchat-header {
     flex-direction: column;
     align-items: stretch;
+    gap: 12px;
   }
 
   .kbchat-actions {
@@ -702,29 +711,216 @@
   .kbchat-key-wrap {
     min-width: 0;
   }
+
+  .kbchat-key-input {
+    font-size: 12px;
+    padding: 10px 12px;
+  }
+
+  .kbchat-clear-btn {
+    height: 40px;
+    font-size: 12px;
+    border-radius: 14px;
+  }
+
+  .kbchat-messages {
+    padding: 24px 14px 20px;
+  }
+
+  .kbchat-message-bubble {
+    max-width: 100%;
+    padding: 14px 16px;
+  }
+
+  .kbchat-footer {
+    padding: 14px 14px 16px;
+  }
+
+  .kbchat-input {
+    min-height: 56px;
+    padding: 14px 68px 14px 16px;
+    font-size: 14px;
+  }
+
+  .kbchat-send-btn {
+    width: 44px;
+    height: 40px;
+    right: 10px;
+    bottom: 10px;
+  }
 }
 
 @media (max-width: 640px) {
   .kbchat-brand {
     flex-direction: column;
-    gap: 10px;
+    gap: 8px;
+  }
+
+  .kbchat-template-badge {
+    height: 26px;
+    padding: 0 10px;
+    font-size: 9px;
+  }
+
+  .kbchat-heading p {
+    font-size: 12px;
+  }
+
+  .kbchat-welcome-mark {
+    width: 56px;
+    height: 56px;
+    border-radius: 18px;
   }
 
   .kbchat-welcome-title {
-    font-size: 42px;
+    font-size: clamp(30px, 6vw, 42px);
   }
 
   .kbchat-welcome-text {
     font-size: 14px;
+    max-width: 100%;
+  }
+
+  .kbchat-hint-row {
+    gap: 6px;
+  }
+
+  .kbchat-hint-pill {
+    height: 26px;
+    padding: 0 10px;
+    font-size: 11px;
+  }
+
+  .kbchat-messages {
+    padding: 18px 10px 16px;
+    gap: 10px;
+  }
+
+  .kbchat-message-author {
+    font-size: 10px;
+  }
+
+  .kbchat-message-bubble {
+    padding: 12px 14px;
+    font-size: 14px;
+    border-radius: 16px;
+  }
+
+  .kbchat-footer {
+    padding: 10px 10px 14px;
+  }
+
+  .kbchat-composer-shell {
+    width: 100%;
   }
 
   .kbchat-input {
-    min-height: 58px;
-    padding-right: 72px;
+    min-height: 52px;
+    padding: 12px 60px 12px 14px;
+    font-size: 13px;
+    border-radius: 20px;
   }
 
   .kbchat-send-btn {
-    width: 46px;
-    height: 42px;
+    width: 40px;
+    height: 36px;
+    right: 8px;
+    bottom: 8px;
+    border-radius: 14px;
+  }
+
+  .kbchat-disclaimer {
+    font-size: 11px;
+  }
+
+  .kbchat-citation-items li {
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 8px;
+  }
+
+  .kbchat-citation-source {
+    max-width: 120px;
+  }
+}
+
+@media (max-width: 480px) {
+  .kbchat-header {
+    padding: 12px 12px 10px;
+  }
+
+  .kbchat-heading h1 {
+    font-size: 20px;
+  }
+
+  .kbchat-heading p {
+    font-size: 11px;
+  }
+
+  .kbchat-welcome {
+    min-height: calc(100vh - 360px);
+    gap: 10px;
+  }
+
+  .kbchat-welcome-mark {
+    width: 48px;
+    height: 48px;
+    border-radius: 16px;
+  }
+
+  .kbchat-welcome-kicker {
+    font-size: 9px;
+  }
+
+  .kbchat-welcome-title {
+    font-size: 26px;
+  }
+
+  .kbchat-welcome-text {
+    font-size: 13px;
+  }
+
+  .kbchat-hint-pill {
+    height: 24px;
+    padding: 0 8px;
+    font-size: 10px;
+  }
+
+  .kbchat-messages {
+    padding: 14px 8px 12px;
+  }
+
+  .kbchat-message-bubble {
+    padding: 10px 12px;
+    font-size: 13px;
+    border-radius: 14px;
+  }
+
+  .kbchat-input {
+    min-height: 48px;
+    padding: 10px 52px 10px 12px;
+    font-size: 13px;
+    border-radius: 16px;
+  }
+
+  .kbchat-send-btn {
+    width: 36px;
+    height: 32px;
+    right: 6px;
+    bottom: 8px;
+    border-radius: 12px;
+  }
+
+  .kbchat-send-btn svg {
+    width: 12px;
+    height: 12px;
+  }
+
+  .kbchat-footer {
+    padding: 8px 8px 10px;
+  }
+
+  .kbchat-disclaimer {
+    font-size: 10px;
   }
 }

@@ -3,21 +3,19 @@
 External applications call ``POST /kb/{scenario_id}/chat`` with a Bearer token
 (one of the scenario's API keys) to get streaming RAG responses filtered to the
 scenario's selected chunks.
+
+The streaming logic is delegated to ``api/chat.py`` — only the knowledge base
+scope and auth differ from the internal chat panel.
 """
 
 from __future__ import annotations
 
-import asyncio
-import json
-from typing import AsyncGenerator
-
-from fastapi import APIRouter, Header, HTTPException, Request
+from fastapi import APIRouter, Header, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from qdrant_client.models import Filter, FieldCondition, MatchAny, HasIdCondition
 
 from config import settings
-from pipeline.retrieval import retrieve_chunks
 from storage.metadata_db import (
     get_scenario,
     list_scenario_sources,
@@ -35,58 +33,12 @@ class KbChatMessage(BaseModel):
 class KbChatRequest(BaseModel):
     messages: list[KbChatMessage]
     top_k: int = 8
-    agentic: bool = False
-    """When true, the LLM may call KB tools (search_kb, list_sources, etc.)
-    autonomously within the scenario scope instead of a single RAG pass."""
+    agentic: bool = True
+    """When true (default), the LLM may call KB tools within the scenario scope."""
 
 
-_RETRIEVAL_HISTORY_TURNS = 3
-_CTX_TEMPLATE = """\
-Use the following excerpts from the scenario knowledge base as your primary reference
-to answer the question comprehensively. Cite sources inline as [1], [2], etc.
-
-<context>
-{chunks}
-</context>
-
-User question: {question}"""
-
-_NO_CTX_TEMPLATE = """\
-The scenario knowledge base did not contain relevant evidence for this question.
-Answer based on your own knowledge, and be clear about what information comes from
-the KB versus your general knowledge. Provide a helpful and thorough response.
-
-User question: {question}"""
-
-
-_AGENTIC_SYSTEM_SUFFIX = """\
-
-## Available tools
-
-You may call these tools to ground your answers in the scenario knowledge base:
-
-* `search_kb(query, top_k=5)` — hybrid search within the scenario's documents.
-  Returns numbered chunks. Cite each chunk as `[n]` in your answer.
-* `list_sources(tag="", limit=20)` — list scenario documents.
-* `list_tags()` — list all tags in this scenario's knowledge base.
-* `get_source_chunks(source_id, limit=5)` — read a known source verbatim.
-* `fetch_url_preview(url, intent="")` — fetch a live URL (≤30s, no auth).
-
-Workflow:
-1. If the question can be answered from the KB, call `search_kb` with a focused query.
-2. If results are thin, try `list_sources` + `get_source_chunks` or refine your query.
-3. Use `fetch_url_preview` only for URLs not in the KB or live/current information.
-4. Once you have enough, stop calling tools and write the final answer.
-   Cite KB excerpts inline as `[1]`, `[2]`, etc. Never invent citations.
-
-Be terse. Do not narrate your tool plan in the final answer."""
-
-
-def _build_scenario_qdrant_filter(scenario_id: str, scenario_sources: list[dict]) -> object | None:
-    """Build a Qdrant Filter from scenario source/chunk bindings.
-
-    Returns None when the scenario has no bindings (empty KB scope).
-    """
+def _build_qdrant_filter(scenario_sources: list[dict]) -> object | None:
+    """Build a Qdrant Filter from scenario source/chunk bindings."""
     whole_source_ids = sorted({
         s["source_id"] for s in scenario_sources
         if s.get("source_id") and not s.get("chunk_id")
@@ -98,316 +50,14 @@ def _build_scenario_qdrant_filter(scenario_id: str, scenario_sources: list[dict]
 
     if not whole_source_ids and not specific_chunk_ids:
         return None
-
     if whole_source_ids and not specific_chunk_ids:
         return Filter(must=[FieldCondition(key="source_id", match=MatchAny(any=whole_source_ids))])
     elif specific_chunk_ids and not whole_source_ids:
         return Filter(must=[HasIdCondition(has_id=specific_chunk_ids)])
-    else:
-        return Filter(should=[
-            FieldCondition(key="source_id", match=MatchAny(any=whole_source_ids)),
-            HasIdCondition(has_id=specific_chunk_ids),
-        ])
-
-
-def _build_context(chunks: list[dict]) -> str:
-    parts = []
-    for i, c in enumerate(chunks, 1):
-        src = c["metadata"].get("source_name") or c["metadata"].get("source_url", "unknown")
-        parts.append(f"[{i}] Source: {src}\n{c['content']}")
-    return "\n\n---\n\n".join(parts)
-
-
-def _build_retrieval_query(messages: list[KbChatMessage], turns: int = _RETRIEVAL_HISTORY_TURNS) -> tuple[str, str]:
-    user_msgs = [m.content for m in messages if m.role == "user" and m.content]
-    if not user_msgs:
-        return "", ""
-    latest = user_msgs[-1]
-    if len(user_msgs) == 1 or turns <= 1:
-        return latest, latest
-    history = user_msgs[-turns:]
-    merged = "\n".join(history) + "\n" + latest
-    return merged, latest
-
-
-def _get_llm(provider: str, model: str, base_url: str, api_key: str):
-    from agents.llm import build_chat_model
-
-    return build_chat_model(
-        provider,
-        model,
-        api_key=api_key,
-        base_url=base_url,
-        streaming=True,
-    )
-
-
-async def _retrieve_chunks(query: str, scenario_id: str, top_k: int) -> list[dict]:
-    """Retrieve chunks from vector store, filtered to scenario's allowed chunks."""
-    scenario_sources = await list_scenario_sources(scenario_id)
-    whole_source_ids = sorted({
-        s["source_id"] for s in scenario_sources
-        if s.get("source_id") and not s.get("chunk_id")
-    })
-    specific_chunk_ids = sorted({
-        s["chunk_id"] for s in scenario_sources
-        if s.get("chunk_id")
-    })
-
-    if not whole_source_ids and not specific_chunk_ids:
-        return []
-
-    filters = None
-    scenario_filter = None
-    if whole_source_ids and not specific_chunk_ids:
-        filters = {"source_id__in": whole_source_ids}
-    elif specific_chunk_ids and not whole_source_ids:
-        filters = {"_point_ids": specific_chunk_ids}
-    else:
-        should_conditions = [
-            FieldCondition(key="source_id", match=MatchAny(any=whole_source_ids)),
-            HasIdCondition(has_id=specific_chunk_ids),
-        ]
-        scenario_filter = Filter(should=should_conditions)
-
-    retrieval = await retrieve_chunks(
-        query=query,
-        top_k=top_k,
-        filters=filters,
-        mode="hybrid",
-        rerank=True,
-        diversify=False,
-        expand=True,
-        fetch_k=max(top_k * 6, 30),
-        qdrant_filter=scenario_filter,
-    )
-    return retrieval.results
-
-
-async def _stream_kb_chat(
-    scenario_id: str,
-    req: KbChatRequest,
-    sc: dict,
-) -> AsyncGenerator[str, None]:
-    import logging as _lg
-
-    provider = sc.get("llm_provider") or settings.llm_provider
-    model = sc.get("llm_model") or settings.llm_model
-    base_url = sc.get("llm_base_url") or settings.llm_base_url
-    api_key = sc.get("llm_api_key") or settings.llm_api_key or "none"
-
-    retrieval_query, user_query = _build_retrieval_query(req.messages)
-
-    # Single generous retrieval pass — no pre-stream LLM calls
-    initial_k = max(req.top_k, 15)
-    all_chunks = await _retrieve_chunks(retrieval_query or user_query, scenario_id, initial_k)
-
-    from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-
-    system_prompt = (sc.get("system_prompt") or (
-        "You are a helpful knowledge base assistant. "
-        "Use the provided context to answer the user's question thoroughly and accurately. "
-        "Cite sources as [1], [2], etc. when using them."
-    )) + "\n\n" + (
-        "Treat retrieved KB excerpts as internal reference material. "
-        "Do not say the user provided these excerpts, do not mention how many chunks were retrieved, "
-        "and do not narrate your retrieval process. "
-        "Answer the question directly and comprehensively. Use the full context available. "
-        "Structure your answer with clear headings, lists, and tables where appropriate."
-    )
-
-    chunks = all_chunks[:max(req.top_k, 12)]
-
-    lc_msgs = [SystemMessage(content=system_prompt)]
-    for msg in req.messages[:-1]:
-        if msg.role == "user":
-            lc_msgs.append(HumanMessage(content=msg.content))
-        elif msg.role == "assistant":
-            lc_msgs.append(AIMessage(content=msg.content))
-
-    if chunks:
-        ctx_str = _build_context(chunks)
-        final_user = _CTX_TEMPLATE.format(chunks=ctx_str, question=user_query)
-    else:
-        final_user = _NO_CTX_TEMPLATE.format(question=user_query)
-
-    lc_msgs.append(HumanMessage(content=final_user))
-
-    # Stream immediately — no pre-stream LLM calls
-    llm = _get_llm(provider, model, base_url, api_key)
-    full_text = ""
-    async for chunk in llm.astream(lc_msgs):
-        token = chunk.content
-        if token:
-            full_text += token
-            yield f"data: {json.dumps({'type': 'token', 'content': token})}\n\n"
-
-    citations = [
-        {
-            "index": i + 1,
-            "chunk_id": c["id"],
-            "content": c["content"][:300],
-            "source": c["metadata"].get("source_name") or c["metadata"].get("source_url", ""),
-            "score": round(c.get("rerank_score", c.get("score", 0)), 4),
-        }
-        for i, c in enumerate(chunks)
-    ]
-    yield f"data: {json.dumps({'type': 'citations', 'citations': citations})}\n\n"
-    yield "data: [DONE]\n\n"
-
-
-def _build_agentic_llm(provider: str, model: str, base_url: str, api_key: str):
-    """Plain (non-streaming) LLM for tool-calling turns."""
-    from agents.llm import build_chat_model
-
-    return build_chat_model(
-        provider,
-        model,
-        api_key=api_key,
-        base_url=base_url,
-    )
-
-
-async def _stream_kb_agentic(
-    scenario_id: str,
-    req: KbChatRequest,
-    sc: dict,
-    scenario_sources: list[dict],
-) -> AsyncGenerator[str, None]:
-    """Agentic scenario chat: LLM may call KB tools scoped to the scenario."""
-    import logging as _lg
-    import uuid
-    from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
-
-    from api.chat_tools import ChatContext, build_chat_tools
-
-    provider = sc.get("llm_provider") or settings.llm_provider
-    model = sc.get("llm_model") or settings.llm_model
-    base_url = sc.get("llm_base_url") or settings.llm_base_url
-    api_key = sc.get("llm_api_key") or settings.llm_api_key or "none"
-
-    _, user_query = _build_retrieval_query(req.messages)
-
-    # Build scenario-scoped context
-    qdrant_filter = _build_scenario_qdrant_filter(scenario_id, scenario_sources)
-    whole_source_ids = sorted({
-        s["source_id"] for s in scenario_sources
-        if s.get("source_id") and not s.get("chunk_id")
-    })
-
-    ctx = ChatContext(
-        qdrant_filter=qdrant_filter,
-        scenario_source_ids=whole_source_ids or None,
-    )
-    tools = build_chat_tools(ctx)
-    tool_map = {t.name: t for t in tools}
-
-    base_system_prompt = sc.get("system_prompt") or (
-        "You are a helpful knowledge base assistant. "
-        "Use the provided context to answer the user's question accurately. "
-        "Cite sources as [1], [2], etc. when using them."
-    )
-    sys_prompt = base_system_prompt + _AGENTIC_SYSTEM_SUFFIX
-
-    lc_msgs: list = [SystemMessage(content=sys_prompt)]
-    for m in req.messages[:-1]:
-        if m.role == "user":
-            lc_msgs.append(HumanMessage(content=m.content))
-        elif m.role == "assistant":
-            lc_msgs.append(AIMessage(content=m.content))
-    lc_msgs.append(HumanMessage(content=user_query))
-
-    try:
-        llm = _build_agentic_llm(provider, model, base_url, api_key)
-        llm_with_tools = llm.bind_tools(tools)
-    except Exception as exc:
-        _lg.getLogger(__name__).warning(
-            "scenario agentic init failed (%s); falling back to legacy RAG", exc,
-        )
-        async for evt in _stream_kb_chat(scenario_id, req, sc):
-            yield evt
-        return
-
-    max_total_tool_calls = max(1, getattr(settings, "chat_agent_max_tool_calls", 10))
-    total_tool_calls = 0
-    final_text = ""
-
-    try:
-        for _ in range(max(1, getattr(settings, "chat_agent_max_turns", 6))):
-            resp: AIMessage = await llm_with_tools.ainvoke(lc_msgs)
-            lc_msgs.append(resp)
-
-            tool_calls = getattr(resp, "tool_calls", None) or []
-
-            if not tool_calls:
-                if resp.content:
-                    final_text = str(resp.content)
-                    yield f"data: {json.dumps({'type': 'token', 'content': final_text})}\n\n"
-                else:
-                    stream_llm = _get_llm(provider, model, base_url, api_key)
-                    async for chunk in stream_llm.astream(lc_msgs[:-1]):
-                        tok = getattr(chunk, "content", "") or ""
-                        if tok:
-                            final_text += tok
-                            yield f"data: {json.dumps({'type': 'token', 'content': tok})}\n\n"
-                break
-
-            for tc in tool_calls:
-                if total_tool_calls >= max_total_tool_calls:
-                    blocked = json.dumps({
-                        "type": "tool_result",
-                        "name": tc.get("name", "?"),
-                        "content": "[budget: chat tool-call cap reached]",
-                    })
-                    yield f"data: {blocked}\n\n"
-                    lc_msgs.append(ToolMessage(
-                        content="[budget: chat tool-call cap reached]",
-                        tool_call_id=tc.get("id", ""),
-                    ))
-                    continue
-
-                name = tc.get("name", "")
-                args = tc.get("args", {}) or {}
-                tcid = tc.get("id", "")
-                yield "data: " + json.dumps({
-                    "type": "tool_call",
-                    "name": name,
-                    "args": args,
-                }, ensure_ascii=False) + "\n\n"
-
-                t = tool_map.get(name)
-                if t is None:
-                    result = f"[unknown tool: {name}]"
-                else:
-                    try:
-                        result = await t.ainvoke(args)
-                    except Exception as exc:
-                        result = f"[{name} error: {exc}]"
-
-                total_tool_calls += 1
-                yield "data: " + json.dumps({
-                    "type": "tool_result",
-                    "name": name,
-                    "content": str(result)[:3000],
-                }, ensure_ascii=False) + "\n\n"
-                lc_msgs.append(ToolMessage(content=str(result), tool_call_id=tcid))
-
-    except Exception as exc:
-        _lg.getLogger(__name__).error("scenario agentic error: %s", exc, exc_info=True)
-        yield f"data: {json.dumps({'type': 'token', 'content': f'[Agent error: {exc}]'})}\n\n"
-
-    citations = [
-        {
-            "index": i + 1,
-            "chunk_id": c["id"],
-            "content": c["content"][:300],
-            "source": c["metadata"].get("source_name") or c["metadata"].get("source_url", ""),
-            "score": round(c.get("rerank_score", c.get("score", 0)), 4),
-        }
-        for i, c in enumerate(ctx.retrieved_chunks)
-    ]
-    yield f"data: {json.dumps({'type': 'citations', 'citations': citations})}\n\n"
-    yield "data: [DONE]\n\n"
+    return Filter(should=[
+        FieldCondition(key="source_id", match=MatchAny(any=whole_source_ids)),
+        HasIdCondition(has_id=specific_chunk_ids),
+    ])
 
 
 @router.get("/{scenario_id}")
@@ -442,22 +92,45 @@ async def kb_chat(
     if verified_scenario_id != scenario_id:
         raise HTTPException(status_code=403, detail="API key does not match scenario")
 
-    # Load scenario config
+    # Load scenario config and sources
     sc = await get_scenario(scenario_id)
     if not sc:
         raise HTTPException(status_code=404, detail="Scenario not found")
-
     scenario_sources = await list_scenario_sources(scenario_id)
 
-    if req.agentic:
+    # Build scenario-scoped filter
+    qdrant_filter = _build_qdrant_filter(scenario_sources)
+
+    # Scenario LLM overrides
+    provider = sc.get("llm_provider") or settings.llm_provider
+    model = sc.get("llm_model") or settings.llm_model
+    base_url = sc.get("llm_base_url") or settings.llm_base_url
+    api_key = sc.get("llm_api_key") or settings.llm_api_key or "none"
+    system_prompt = sc.get("system_prompt") or None
+
+    # Convert KbChatMessage list → chat.Message list
+    from api.chat import Message as ChatMsg, ChatRequest, _stream, _stream_agentic
+
+    chat_req = ChatRequest(
+        messages=[ChatMsg(role=m.role, content=m.content) for m in req.messages],
+        top_k=req.top_k,
+    )
+
+    if req.agentic is False:
         return StreamingResponse(
-            _stream_kb_agentic(scenario_id, req, sc, scenario_sources),
+            _stream(chat_req, system_prompt=system_prompt,
+                    provider=provider, model=model,
+                    base_url=base_url, api_key=api_key,
+                    qdrant_filter=qdrant_filter, skip_session=True),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
 
     return StreamingResponse(
-        _stream_kb_chat(scenario_id, req, sc),
+        _stream_agentic(chat_req, system_prompt=system_prompt,
+                        provider=provider, model=model,
+                        base_url=base_url, api_key=api_key,
+                        qdrant_filter=qdrant_filter),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

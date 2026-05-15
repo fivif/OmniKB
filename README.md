@@ -14,11 +14,9 @@ python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 
-# 3. 启动 Qdrant（需提前安装）
-# docker run -d -p 6333:6333 qdrant/qdrant
-# 或直接使用 Qdrant Cloud
-
-# 4. 启动
+# 3. 启动
+# 默认 QDRANT_MODE=local，无需单独启动 Qdrant 服务
+# 如需 remote 模式，可在项目根目录运行：docker compose up -d qdrant
 python main.py          # http://localhost:8000
 ```
 
@@ -56,7 +54,7 @@ python main.py          # http://localhost:8000
 
 - SSE 流式输出，引用溯源（chunk 级，含分数和来源 URL）
 - 迭代检索：LLM 判断上下文充分性，不足时自动补充（最多 2 轮）
-- 多轮会话持久化（SQLite），多 Provider 支持
+- 多轮会话持久化（SQLite），支持 DeepSeek 与第三方兼容网关
 - Agentic Chat 模式：Agent 可自主调用 search_kb / list_sources / fetch_url
 
 ### MCP Server
@@ -85,7 +83,7 @@ python main.py          # http://localhost:8000
 - **BudgetTracker 预算守卫**：input/output token、wall-clock 三重上限，超额优雅终止，附带完整快照
 - **反思检查点**：每 N 次工具调用注入自检提示，替代硬上限——Agent 自行总结进度、关闭子目标、调整方向
 - **消息压缩**：Token 感知自动摘要压缩（双触发：上下文窗口接近 + 绝对 token 阈值）
-- **提示缓存**：Anthropic / OpenAI 缓存适配，减少重复 Token 消耗
+- **提示缓存**：DeepSeek / OpenAI-compatible 缓存适配，减少重复 Token 消耗
 - **转向注入**：运行中可接收外部指令（中断 / 转向），支持真 human-in-the-loop
 - **技能记忆**：`recall_skill` → `save_skill` 闭环，常用 recipe 自动上浮
 - **工具输出截断**：超量自动溢出到磁盘，LLM 仅见预览
@@ -195,12 +193,12 @@ OmniKB/
     │   ├── media_agent.py         # 音视频转录（faster-whisper + ffmpeg）
     │   ├── web_agent.py           # 网页抓取（四层 fallback）
     │   ├── web_judge.py           # LLM 页面质量评分 0-10
-    │   ├── url_analyst.py         # 规则 + LLM 双层 URL 策略分析
-    │   ├── vision_agent.py        # 图片 OCR + 视频帧描述
-    │   ├── jshook_client.py       # JsHookMCP 客户端
-    │   ├── llm.py                 # LLM 工厂（多 Provider）
-    │   └── web/                   # Web Agent 子模块
-    │       ├── loop.py            # web_agent_loop 主循环
+     │   ├── url_analyst.py         # 规则 + LLM 双层 URL 策略分析
+     │   ├── vision_agent.py        # 图片 OCR + 视频帧描述
+     │   ├── jshook_client.py       # JsHookMCP 客户端
+     │   ├── llm.py                 # LLM 工厂（DeepSeek / 兼容网关）
+     │   └── web/                   # Web Agent 子模块
+     │       ├── loop.py            # web_agent_loop 主循环
     │       ├── handler.py         # 请求处理器 + 工具定义
     │       ├── prompts.py         # 系统提示词（Plan→Execute→Verify）
     │       ├── research_state.py  # 研究状态追踪
@@ -317,14 +315,12 @@ OmniKB/
 
 | 变量 | 说明 | 默认值 |
 |---|---|---|
-| `LLM_PROVIDER` | custom / openai / anthropic / ollama | `custom` |
+| `LLM_PROVIDER` | deepseek / custom | `deepseek` |
 | `LLM_MODEL` | 模型名称 | `deepseek-v4-pro` |
-| `LLM_BASE_URL` | API 地址 | — |
-| `LLM_API_KEY` | API 密钥 | — |
-| `LLM_EXTRA_BODY_JSON` | OpenAI extra_body（如 `{"enable_thinking": false}`） | — |
-| `OPENAI_API_KEY` | OpenAI 密钥 | — |
-| `ANTHROPIC_API_KEY` | Anthropic 密钥 | — |
-| `OLLAMA_BASE_URL` | Ollama 地址 | `http://localhost:11434` |
+| `LLM_BASE_URL` | DeepSeek 或第三方兼容网关地址（`deepseek` 可留空走官方默认） | — |
+| `LLM_API_KEY` | DeepSeek 或第三方兼容 API 密钥 | — |
+| `LLM_EXTRA_BODY_JSON` | OpenAI-compatible extra_body（如 `{"enable_thinking": false}`） | — |
+| `OPENAI_API_KEY` | 仅 embedding_provider=openai 或兼容旧配置时使用 | — |
 
 ### Embedding
 
@@ -355,7 +351,7 @@ OmniKB/
 | 变量 | 说明 | 默认值 |
 |---|---|---|
 | `VISION_ENABLED` | 视觉能力开关 | `false` |
-| `VISION_PROVIDER` | 视觉 LLM 提供商（空=继承 LLM_PROVIDER） | — |
+| `VISION_PROVIDER` | 视觉 LLM 提供商（空=继承 LLM_PROVIDER；支持 deepseek/custom） | — |
 | `VISION_MODEL` | 视觉模型名称 | `gpt-4o-mini` |
 | `VISION_API_KEY` | 视觉 API 密钥（空=继承） | — |
 | `VISION_BASE_URL` | 视觉 API 地址（空=继承） | — |

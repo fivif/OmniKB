@@ -1,6 +1,6 @@
 """VisionAgent — image description and OCR via multimodal cloud LLM.
 
-Supports OpenAI-compatible providers (incl. custom) and Anthropic.
+Supports DeepSeek and other OpenAI-compatible vision endpoints.
 
 Usage
 -----
@@ -38,8 +38,13 @@ def is_vision_enabled() -> bool:
 
 def _resolve_provider_and_model() -> tuple[str, str]:
     """Return (provider, model) for vision calls."""
+    from agents.llm import normalize_provider
     from config import settings
-    provider = settings.vision_provider or settings.llm_provider
+    provider = normalize_provider(
+        settings.vision_provider or settings.llm_provider,
+        model=settings.vision_model,
+        base_url=settings.vision_base_url or settings.llm_base_url,
+    )
     model = settings.vision_model
     return provider, model
 
@@ -73,32 +78,6 @@ async def _call_openai_compat(
     return str(result.content).strip()
 
 
-async def _call_anthropic(
-    image_bytes: bytes,
-    mime: MimeType,
-    prompt: str,
-    model: str,
-    api_key: str,
-) -> str:
-    from langchain_anthropic import ChatAnthropic
-    from langchain_core.messages import HumanMessage
-
-    llm = ChatAnthropic(model=model, api_key=api_key, max_tokens=2048)
-    msg = HumanMessage(content=[
-        {
-            "type": "image",
-            "source": {
-                "type": "base64",
-                "media_type": mime,
-                "data": _b64(image_bytes),
-            },
-        },
-        {"type": "text", "text": prompt},
-    ])
-    result = await llm.ainvoke([msg])
-    return str(result.content).strip()
-
-
 async def describe_image(
     image_bytes: bytes,
     mime: MimeType = "image/png",
@@ -118,24 +97,13 @@ async def describe_image(
 
     # Resolve API key and base URL: vision-specific > provider default
     try:
-        if provider == "anthropic":
-            api_key = settings.vision_api_key or settings.anthropic_api_key
-            return await _call_anthropic(image_bytes, mime, prompt, model, api_key)
-        elif provider in ("openai", "custom"):
-            api_key = settings.vision_api_key or (
-                settings.llm_api_key if provider == "custom" else settings.openai_api_key
-            )
-            base_url = settings.vision_base_url or (
-                settings.llm_base_url if provider == "custom" else None
-            ) or None
-            return await _call_openai_compat(
-                image_bytes, mime, prompt, model, api_key, base_url
-            )
-        else:
-            raise ValueError(
-                f"Vision is not supported for provider '{provider}'. "
-                "Set VISION_PROVIDER to openai, anthropic, or custom."
-            )
+        from agents.llm import resolve_base_url
+
+        api_key = settings.vision_api_key or settings.llm_api_key
+        base_url = resolve_base_url(provider, settings.vision_base_url or settings.llm_base_url)
+        return await _call_openai_compat(
+            image_bytes, mime, prompt, model, api_key, base_url
+        )
     except Exception as exc:
         logger.warning("vision_agent.describe_image failed: %s", exc)
         raise

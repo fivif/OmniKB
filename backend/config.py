@@ -23,25 +23,26 @@ class Settings(BaseSettings):
     qdrant_mode: str = "local"
     qdrant_local_path: str = "./data/qdrant"
 
-    # OpenAI (kept for backward compat)
+    # OpenAI key is still used by the optional embedding provider and old .env files.
     openai_api_key: str = ""
 
-    # Anthropic
+    # Legacy Anthropic key kept only so older .env files still parse cleanly.
     anthropic_api_key: str = ""
 
-    # Ollama
+    # Legacy Ollama base URL kept only so older .env files still parse.
     ollama_base_url: str = "http://localhost:11434"
 
-    # Custom / third-party OpenAI-compatible LLM
-    llm_base_url: str = ""   # e.g. https://api.siliconflow.cn/v1
-    llm_api_key: str = ""    # API key for the custom provider
-    # JSON object passed as extra_body to OpenAI-compatible LLM. Useful for
+    # DeepSeek or third-party OpenAI-compatible LLM
+    llm_base_url: str = ""   # e.g. https://api.deepseek.com/v1 or a third-party gateway
+    llm_api_key: str = ""    # API key for DeepSeek or the custom provider
+    # JSON object passed as extra_body to OpenAI-compatible chat clients. Useful for
     # provider-specific flags such as {"enable_thinking": false} on hybrid
     # thinking models. Empty string = no extra body.
     llm_extra_body_json: str = ""
 
-    # Default LLM
-    llm_provider: Literal["openai", "anthropic", "ollama", "custom"] = "custom"
+    # Normalized runtime providers: deepseek | custom.
+    # Older values like openai / anthropic / ollama are accepted and normalized later.
+    llm_provider: str = "deepseek"
     llm_model: str = "deepseek-v4-pro"
 
     # Embedding — SiliconFlow BGE-M3 (OpenAI-compatible)
@@ -82,9 +83,9 @@ class Settings(BaseSettings):
     # ── Vision (multimodal cloud LLM for OCR + video frame description) ──
     # Set vision_enabled=true to activate; vision_provider defaults to llm_provider
     vision_enabled: bool = False
-    # Provider: "" = inherit llm_provider | "openai" | "anthropic" | "custom"
+    # Provider: "" = inherit llm_provider | "deepseek" | "custom"
     vision_provider: str = ""
-    # Model: gpt-4o-mini (cheap), gpt-4o, claude-3-haiku-20240307, Qwen/Qwen2.5-VL-72B-Instruct …
+    # Model: deepseek-vl compatible endpoint or any OpenAI-compatible vision model
     vision_model: str = "gpt-4o-mini"
     # Independent API key for vision provider; falls back to provider's default key when empty
     vision_api_key: str = ""

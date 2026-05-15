@@ -13,6 +13,8 @@ from qdrant_client.models import (
     Filter,
     FieldCondition,
     MatchValue,
+    MatchAny,
+    HasIdCondition,
     Prefetch,
     FusionQuery,
     Fusion,
@@ -109,15 +111,19 @@ async def hybrid_search(
     query_sparse_values: list[float],
     top_k: int = 10,
     filters: dict[str, Any] | None = None,
+    qdrant_filter: Filter | None = None,
 ) -> list[dict]:
     client = get_client()
 
-    qdrant_filter: Filter | None = None
-    if filters:
+    if qdrant_filter is None and filters:
         conditions = [
-            FieldCondition(key=k, match=MatchValue(value=v))
+            HasIdCondition(has_id=[str(item) for item in v])
+            if k == "_point_ids" and isinstance(v, (list, tuple, set)) and v
+            else FieldCondition(key=k[:-4], match=MatchAny(any=list(v)))
+            if k.endswith("__in") and isinstance(v, (list, tuple, set)) and v
+            else FieldCondition(key=k, match=MatchValue(value=v))
             for k, v in filters.items()
-            if v is not None
+            if v is not None and (not isinstance(v, (list, tuple, set)) or len(v) > 0)
         ]
         if conditions:
             qdrant_filter = Filter(must=conditions)

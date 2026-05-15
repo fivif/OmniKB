@@ -35,7 +35,7 @@ class ScenarioCreate(BaseModel):
     name: str = "未命名场景"
     description: str = ""
     system_prompt: str = ""
-    llm_provider: str = "custom"
+    llm_provider: str = "deepseek"
     llm_model: str = ""
     llm_base_url: str = ""
     llm_api_key: str = ""
@@ -86,11 +86,24 @@ class AgentSearchRequest(BaseModel):
     top_k: int = 20
 
 
+def _normalize_scenario_llm_fields(data: dict) -> dict:
+    from agents.llm import normalize_provider
+
+    normalized = dict(data)
+    normalized["llm_provider"] = normalize_provider(
+        normalized.get("llm_provider"),
+        model=normalized.get("llm_model", ""),
+        base_url=normalized.get("llm_base_url", ""),
+    )
+    return normalized
+
+
 # ── Scenario CRUD ────────────────────────────────────────────────
 
 @router.get("")
 async def list_all_scenarios():
-    return {"scenarios": await list_scenarios()}
+    scenarios = [_normalize_scenario_llm_fields(sc) for sc in await list_scenarios()]
+    return {"scenarios": scenarios}
 
 
 @router.get("/{scenario_id}")
@@ -98,6 +111,7 @@ async def get_one_scenario(scenario_id: str):
     sc = await get_scenario(scenario_id)
     if not sc:
         raise HTTPException(status_code=404, detail="Scenario not found")
+    sc = _normalize_scenario_llm_fields(sc)
     sc["source_count"] = await count_scenario_sources(scenario_id)
     return sc
 
@@ -115,6 +129,7 @@ async def create_scenario(body: ScenarioCreate):
         "llm_api_key": body.llm_api_key,
         "ui_config": body.ui_config or {},
     }
+    sc = _normalize_scenario_llm_fields(sc)
     await insert_scenario(sc)
     sc["source_count"] = 0
     return sc
@@ -126,6 +141,9 @@ async def update_one_scenario(scenario_id: str, body: ScenarioUpdate):
     if not existing:
         raise HTTPException(status_code=404, detail="Scenario not found")
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    if {"llm_provider", "llm_model", "llm_base_url"} & set(updates):
+        merged = {**existing, **updates}
+        updates["llm_provider"] = _normalize_scenario_llm_fields(merged)["llm_provider"]
     if updates:
         await update_scenario(scenario_id, updates)
     return await get_one_scenario(scenario_id)
@@ -315,7 +333,7 @@ Available actions:
 - remove_chunks: {{"action":"remove_chunks","chunk_ids":["..."],"source_ids":["..."]}}
 - update_ui: {{"action":"update_ui","changes":{{"template":"assistant|guide|support","title":"...","subtitle":"...","welcome":"...","placeholder":"...","disclaimer":"...","color":"#hex","css":"..."}}}}
 - update_config: {{"action":"update_config","changes":{{"name":"...","description":"...","system_prompt":"..."}}}}
-- update_llm: {{"action":"update_llm","changes":{{"llm_provider":"...","llm_model":"...","llm_base_url":"...","llm_api_key":"..."}}}}
+- update_llm: {{"action":"update_llm","changes":{{"llm_provider":"deepseek|custom","llm_model":"...","llm_base_url":"...","llm_api_key":"..."}}}}
 
 Rules:
 - When the user wants a major visual redesign, prefer ONE update_ui action that first chooses the best template and then rewrites multiple UI fields together.
@@ -409,23 +427,19 @@ async def agent_assist(scenario_id: str, body: AgentAssistRequest):
     # Always use system LLM config
     provider = app_settings.llm_provider
     model = app_settings.llm_model
+    from agents.llm import build_chat_model, normalize_provider
 
-    if provider == "openai":
-        from langchain_openai import ChatOpenAI
-        llm = ChatOpenAI(model=model, api_key=app_settings.openai_api_key or "none")
-    elif provider == "anthropic":
-        from langchain_anthropic import ChatAnthropic
-        llm = ChatAnthropic(model=model, api_key=app_settings.anthropic_api_key or "none")
-    elif provider == "ollama":
-        from langchain_community.chat_models import ChatOllama
-        llm = ChatOllama(model=model, base_url=app_settings.ollama_base_url)
-    else:
-        from langchain_openai import ChatOpenAI
-        llm = ChatOpenAI(
-            model=model,
-            api_key=app_settings.llm_api_key or "none",
-            base_url=app_settings.llm_base_url or None,
-        )
+    normalized_provider = normalize_provider(
+        provider,
+        model=model,
+        base_url=app_settings.llm_base_url,
+    )
+    llm = build_chat_model(
+        normalized_provider,
+        model,
+        api_key=app_settings.llm_api_key,
+        base_url=app_settings.llm_base_url,
+    )
 
     try:
         resp = await llm.ainvoke([
@@ -533,6 +547,8 @@ async def agent_assist(scenario_id: str, body: AgentAssistRequest):
                 valid = {k: v for k, v in changes.items()
                          if k in ("llm_provider", "llm_model", "llm_base_url", "llm_api_key") and v is not None}
                 if valid:
+                    merged = {**sc, **valid}
+                    valid["llm_provider"] = _normalize_scenario_llm_fields(merged)["llm_provider"]
                     await update_scenario(scenario_id, valid)
                     performed.append(f"更新了 LLM: {', '.join(valid.keys())}")
 

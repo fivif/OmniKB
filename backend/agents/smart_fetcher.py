@@ -374,21 +374,18 @@ async def http_get_batch(urls: list) -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _get_llm():
+    from agents.llm import build_chat_model, normalize_provider
     from config import settings
-    if settings.llm_provider == "anthropic":
-        from langchain_anthropic import ChatAnthropic
-        return ChatAnthropic(
-            model=settings.llm_model, api_key=settings.anthropic_api_key,
-            temperature=0,
-        )
-    if settings.llm_provider == "ollama":
-        from langchain_ollama import ChatOllama
-        return ChatOllama(model=settings.llm_model, temperature=0)
-    from langchain_openai import ChatOpenAI
-    return ChatOpenAI(
+    provider = normalize_provider(
+        settings.llm_provider,
         model=settings.llm_model,
-        api_key=settings.llm_api_key or settings.openai_api_key or "none",
-        base_url=settings.llm_base_url or None,
+        base_url=settings.llm_base_url,
+    )
+    return build_chat_model(
+        provider,
+        settings.llm_model,
+        api_key=settings.llm_api_key,
+        base_url=settings.llm_base_url,
         temperature=0,
     )
 

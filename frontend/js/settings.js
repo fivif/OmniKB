@@ -25,21 +25,17 @@
                   <input id="s-proxy" class="input" type="text" placeholder="http://127.0.0.1:7890" />
                 </div>
                 <div class="stack-sm settings-field">
-                  <label class="form-label">LLM Provider</label>
-                  <select id="s-llm-provider" class="select">
-                    <option value="custom">OpenAI-compatible</option>
-                    <option value="openai">OpenAI</option>
-                    <option value="anthropic">Anthropic</option>
-                    <option value="ollama">Ollama</option>
-                  </select>
+                  <label class="form-label">LLM 接口</label>
+                  <input id="s-llm-provider" type="hidden" value="custom" />
+                  <input class="input" type="text" value="OpenAI-compatible 第三方接口" disabled />
                 </div>
                 <div class="stack-sm settings-field">
                   <label class="form-label">默认模型</label>
-                  <input id="s-llm-model" class="input" type="text" placeholder="deepseek-v4-pro" />
+                  <input id="s-llm-model" class="input" type="text" placeholder="例如：deepseek-chat" />
                 </div>
                 <div class="stack-sm settings-field" id="field-llm-base">
                   <label class="form-label">Base URL</label>
-                  <input id="s-llm-base" class="input" type="text" placeholder="https://api.siliconflow.cn/v1" />
+                  <input id="s-llm-base" class="input" type="text" placeholder="https://api.example.com/v1" />
                 </div>
                 <div class="stack-sm settings-field">
                   <label class="form-label">API Key</label>
@@ -129,12 +125,12 @@
                   <strong id="settings-summary-proxy" class="stats-value">直连</strong>
                 </div>
                 <div class="stats-card">
-                  <span class="stats-label">Provider</span>
-                  <strong id="settings-summary-provider" class="stats-value">custom</strong>
+                  <span class="stats-label">接口</span>
+                  <strong id="settings-summary-provider" class="stats-value">OpenAI-compatible</strong>
                 </div>
                 <div class="stats-card">
                   <span class="stats-label">模型</span>
-                  <strong id="settings-summary-model" class="stats-value">deepseek-v4-pro</strong>
+                  <strong id="settings-summary-model" class="stats-value">未设置</strong>
                 </div>
               </div>
 
@@ -144,8 +140,8 @@
 
           <section class="section-card">
             <div class="section-card-body stack-sm">
-              <div class="section-title">Provider 提示</div>
-              <div class="section-subtitle">OpenAI-compatible 适合 SiliconFlow、DeepSeek、OpenRouter、vLLM 等兼容 OpenAI API 的端点。Ollama 会直接把 Base URL 送给后端 ChatOllama。</div>
+              <div class="section-title">接口提示</div>
+              <div class="section-subtitle">前端固定按 OpenAI-compatible 第三方接口发送，你只需要手动填写模型、Base URL 和 API Key。</div>
             </div>
           </section>
         </aside>
@@ -179,10 +175,14 @@
     api_base: 'http://localhost:8000',
     http_proxy: '',
     llm_provider: 'custom',
-    llm_model: 'deepseek-v4-pro',
+    llm_model: '',
     llm_base_url: '',
     llm_api_key: '',
   };
+
+  function normalizeProvider(value) {
+    return 'custom';
+  }
 
   const modelStatusMeta = {
     loaded: { text: '已就绪', tone: 'is-ready', disable: true },
@@ -229,7 +229,7 @@
     return {
       api_base: saved.api_base || defaults.api_base,
       http_proxy: saved.http_proxy || '',
-      llm_provider: saved.llm_provider || '',
+      llm_provider: saved.llm_provider ? normalizeProvider(saved.llm_provider) : '',
       llm_model: saved.llm_model || '',
       llm_base_url: saved.llm_base_url || '',
       llm_api_key: saved.llm_api_key || '',
@@ -237,8 +237,8 @@
   }
 
   function collectRuntimeValues() {
-    const provider = refs.provider.value;
-    const baseUrl = provider === 'anthropic' ? '' : refs.baseUrl.value.trim();
+    const provider = normalizeProvider(refs.provider.value);
+    const baseUrl = refs.baseUrl.value.trim();
     return {
       api_base: getBase(),
       http_proxy: refs.proxy.value.trim(),
@@ -261,54 +261,30 @@
   function updateSummary(values) {
     refs.summaryBase.textContent = values.api_base;
     refs.summaryProxy.textContent = values.http_proxy || '直连';
-    refs.summaryProvider.textContent = values.llm_provider;
+    refs.summaryProvider.textContent = 'OpenAI-compatible';
     refs.summaryModel.textContent = values.llm_model || '未设置';
   }
 
   function updateProviderMeta() {
-    const provider = refs.provider.value;
     const meta = {
-      custom: {
-        note: 'OpenAI-compatible 模式会把 Base URL + API Key 直接送给后端 ChatOpenAI，适合 SiliconFlow、DeepSeek、OpenRouter、vLLM 等端点。',
-        placeholder: 'https://api.siliconflow.cn/v1',
-        keyPlaceholder: 'sk-... 或 provider token',
-      },
-      openai: {
-        note: 'OpenAI 模式仍走 OpenAI-compatible 客户端，但会把 API Key 同步到后端的 openai 配置，默认 Base URL 可留空或使用官方 https://api.openai.com/v1。',
-        placeholder: 'https://api.openai.com/v1',
-        keyPlaceholder: 'sk-...',
-      },
-      anthropic: {
-        note: 'Anthropic 目前以官方端点为主，所以这里禁用 Base URL，只保留模型名与 API Key。',
-        placeholder: '',
-        keyPlaceholder: 'sk-ant-...',
-        disableBase: true,
-      },
-      ollama: {
-        note: 'Ollama 模式会把 Base URL 直接传给后端 ChatOllama。默认本地地址是 http://localhost:11434，API Key 可留空。',
-        placeholder: 'http://localhost:11434',
-        keyPlaceholder: '本地 Ollama 通常不需要',
-      },
-    }[provider];
+      note: '前端固定使用 OpenAI-compatible 第三方模式，不再提供默认渠道下拉。请手动填写模型、Base URL 和 API Key。',
+      placeholder: 'https://api.example.com/v1',
+      keyPlaceholder: 'provider token / sk-...',
+    };
 
     refs.providerNote.textContent = meta.note;
     refs.baseUrl.placeholder = meta.placeholder;
     refs.apiKey.placeholder = meta.keyPlaceholder;
 
     const baseField = document.getElementById('field-llm-base');
-    const disableBase = Boolean(meta.disableBase);
-    refs.baseUrl.disabled = disableBase;
-    baseField.classList.toggle('is-disabled', disableBase);
-    if (provider === 'ollama' && !refs.baseUrl.value.trim()) {
-      refs.baseUrl.value = 'http://localhost:11434';
-    }
-    if (disableBase) refs.baseUrl.value = '';
+    refs.baseUrl.disabled = false;
+    baseField.classList.remove('is-disabled');
   }
 
   function applyRuntimeValues(values) {
     refs.apiBase.value = values.api_base || defaults.api_base;
     refs.proxy.value = values.http_proxy || '';
-    refs.provider.value = values.llm_provider || defaults.llm_provider;
+    refs.provider.value = normalizeProvider(values.llm_provider);
     refs.model.value = values.llm_model || defaults.llm_model;
     refs.baseUrl.value = values.llm_base_url || '';
     refs.apiKey.value = values.llm_api_key || '';
@@ -386,7 +362,7 @@
       applyRuntimeValues({
         api_base: local.api_base,
         http_proxy: local.http_proxy || proxy.proxy || '',
-        llm_provider: local.llm_provider || llm.provider || defaults.llm_provider,
+        llm_provider: normalizeProvider(local.llm_provider || llm.provider || defaults.llm_provider),
         llm_model: local.llm_model || llm.model || defaults.llm_model,
         llm_base_url: local.llm_base_url || llm.base_url || '',
         llm_api_key: local.llm_api_key || llm.api_key || '',
@@ -503,10 +479,6 @@
     }
   }
 
-  refs.provider.addEventListener('change', () => {
-    updateProviderMeta();
-    persistLocalDraft();
-  });
   [refs.apiBase, refs.proxy, refs.model, refs.baseUrl, refs.apiKey].forEach(node => {
     node.addEventListener('change', persistLocalDraft);
   });

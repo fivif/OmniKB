@@ -173,6 +173,7 @@
     const seed = [context.name, context.description, context.system_prompt, ui.welcome].filter(Boolean).join(' ');
     const template = CHAT_TEMPLATES[ui.template] ? ui.template : guessTemplateFromText(seed);
     const preset = getTemplateMeta(template);
+    const hints = Array.isArray(ui.hints) ? ui.hints : preset.hints;
     return {
       template,
       title: String(ui.title || ''),
@@ -180,6 +181,7 @@
       welcome: String(ui.welcome || preset.welcome),
       placeholder: String(ui.placeholder || preset.placeholder),
       disclaimer: String(ui.disclaimer || preset.disclaimer),
+      hints,
       color: normalizeHexColor(ui.color || preset.color, preset.color),
       css: String(ui.css || ''),
     };
@@ -244,7 +246,13 @@
     inputEl.placeholder = ui.placeholder;
     chatDisclaimer.textContent = ui.disclaimer;
     if (hintsEl) {
-      hintsEl.innerHTML = (preset.hints || []).map(hint => `<span class="kbchat-hint-pill">${esc(hint)}</span>`).join('');
+      if (ui.hints && ui.hints.length) {
+        hintsEl.innerHTML = ui.hints.map(hint => `<span class="kbchat-hint-pill">${esc(hint)}</span>`).join('');
+        hintsEl.style.display = '';
+      } else {
+        hintsEl.innerHTML = '';
+        hintsEl.style.display = 'none';
+      }
     }
 
     shell.dataset.kbchatTemplate = ui.template;
@@ -391,6 +399,7 @@
         body: JSON.stringify({
           messages: chatHistory,
           top_k: 5,
+          agentic: true,
         }),
       });
 

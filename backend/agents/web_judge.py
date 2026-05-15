@@ -83,26 +83,20 @@ class PageVerdict:
 # ── LLM client helper ─────────────────────────────────────────
 
 def _get_llm():
+    from agents.llm import build_chat_model, normalize_provider
     from config import settings
     from langchain_core.messages import HumanMessage, SystemMessage  # noqa
 
-    if settings.llm_provider == "anthropic":
-        from langchain_anthropic import ChatAnthropic
-        return ChatAnthropic(
-            model=settings.llm_model,
-            api_key=settings.anthropic_api_key,
-            max_tokens=512,
-            temperature=0,
-        )
-    if settings.llm_provider == "ollama":
-        from langchain_ollama import ChatOllama
-        return ChatOllama(model=settings.llm_model, temperature=0)
-    # openai / custom (default)
-    from langchain_openai import ChatOpenAI
-    return ChatOpenAI(
+    provider = normalize_provider(
+        settings.llm_provider,
         model=settings.llm_model,
-        api_key=settings.llm_api_key or settings.openai_api_key or "none",
-        base_url=settings.llm_base_url or None,
+        base_url=settings.llm_base_url,
+    )
+    return build_chat_model(
+        provider,
+        settings.llm_model,
+        api_key=settings.llm_api_key,
+        base_url=settings.llm_base_url,
         max_tokens=512,
         temperature=0,
     )

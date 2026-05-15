@@ -6,7 +6,25 @@
   let scenarios = [];
   let currentId = null;   // currently selected scenario ID
   let currentTab = 'info'; // info | chunks | keys
-  let chunkSearchResults = [];
+  let sourceCatalog = [];
+  let sourceTags = [];
+  let selectedScenarioSources = [];
+
+  const SOURCE_TYPE_GROUPS = {
+    web: { label: '网页', icon: '🌐', raw: ['url', 'html', 'htm'] },
+    text: { label: '文本', icon: '✍️', raw: ['text', 'txt', 'md', 'markdown'] },
+    document: { label: '文档', icon: '📚', raw: ['pdf', 'doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx', 'csv', 'json'] },
+    media: { label: '媒体', icon: '🎞️', raw: ['mp3', 'wav', 'm4a', 'ogg', 'flac', 'mp4', 'mov', 'mkv', 'avi', 'webm'] },
+    image: { label: '图片', icon: '🖼️', raw: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tiff', 'tif'] },
+    other: { label: '其他', icon: '📁', raw: [] },
+  };
+  const SOURCE_TYPE_ORDER = ['web', 'text', 'document', 'media', 'image', 'other'];
+  const SOURCE_TYPE_LOOKUP = Object.entries(SOURCE_TYPE_GROUPS).reduce((lookup, [key, value]) => {
+    value.raw.forEach(rawType => {
+      lookup[rawType] = key;
+    });
+    return lookup;
+  }, {});
 
   const DEFAULT_TEMPLATE = 'assistant';
   const TEMPLATE_PRESETS = {
@@ -107,6 +125,38 @@
     return TEMPLATE_PRESETS[key] || TEMPLATE_PRESETS[DEFAULT_TEMPLATE];
   }
 
+  function normalizeScenarioProvider(value) {
+    return 'custom';
+  }
+
+  function normalizeSourceTypeKey(type) {
+    const raw = String(type || '').trim().toLowerCase();
+    return SOURCE_TYPE_LOOKUP[raw] || 'other';
+  }
+
+  function getSourceTypeMeta(type) {
+    const raw = String(type || '').trim().toLowerCase();
+    const key = normalizeSourceTypeKey(raw);
+    return {
+      key,
+      label: SOURCE_TYPE_GROUPS[key].label,
+      icon: SOURCE_TYPE_GROUPS[key].icon,
+      raw,
+    };
+  }
+
+  function getSourceSearchText(source) {
+    return [
+      source.name,
+      source.url,
+      source.type,
+      ...(Array.isArray(source.tags) ? source.tags : []),
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+  }
+
   function guessTemplateFromText(text) {
     if (/(客服|支持|售后|工单|帮助|faq|FAQ|support)/i.test(text)) return 'support';
     if (/(讲解|课程|教学|教程|导览|故事|解读|说明|讲师|讲稿)/i.test(text)) return 'guide';
@@ -117,6 +167,7 @@
     const seed = [context.name, context.description, context.system_prompt, ui.welcome].filter(Boolean).join(' ');
     const template = TEMPLATE_PRESETS[ui.template] ? ui.template : guessTemplateFromText(seed);
     const preset = getTemplateMeta(template);
+    const hints = Array.isArray(ui.hints) ? ui.hints : preset.hints;
     return {
       template,
       title: String(ui.title || ''),
@@ -124,6 +175,7 @@
       welcome: String(ui.welcome || preset.welcome),
       placeholder: String(ui.placeholder || preset.placeholder),
       disclaimer: String(ui.disclaimer || preset.disclaimer),
+      hints,
       color: normalizeHexColor(ui.color || preset.color, preset.color),
       css: String(ui.css || ''),
     };
@@ -158,7 +210,7 @@
           <!-- Tabs -->
           <div class="sc-detail-tabs flex items-center gap-0 px-6 pt-4 pb-0 border-b" style="border-color:var(--bd);">
             <button data-sctab="info" class="sc-tab-btn px-4 py-2 text-xs font-medium rounded-t-lg transition-colors" style="color:var(--accent);background:var(--accent-bg);">基本信息</button>
-            <button data-sctab="chunks" class="sc-tab-btn px-4 py-2 text-xs font-medium rounded-t-lg transition-colors" style="color:var(--t2);">知识库片段</button>
+            <button data-sctab="chunks" class="sc-tab-btn px-4 py-2 text-xs font-medium rounded-t-lg transition-colors" style="color:var(--t2);">知识库</button>
             <button data-sctab="keys" class="sc-tab-btn px-4 py-2 text-xs font-medium rounded-t-lg transition-colors" style="color:var(--t2);">API 密钥</button>
             <button data-sctab="agent" class="sc-tab-btn px-4 py-2 text-xs font-medium rounded-t-lg transition-colors" style="color:var(--t2);">Agent 助手</button>
             <a id="sc-open-api-doc-tab" class="sc-tab-link px-4 py-2 text-xs font-medium rounded-t-lg transition-colors" href="#" target="_blank" rel="noreferrer">场景 API 接入</a>
@@ -197,22 +249,18 @@
                   <div class="sc-card-head">
                     <div>
                       <div class="sc-card-title">LLM 配置</div>
-                      <div class="sc-card-subtitle">这里决定公开问答页最终用哪套模型、网关和密钥。</div>
+                      <div class="sc-card-subtitle">前端固定按 OpenAI-compatible 第三方接口发送，你只需要填写模型、Base URL 和 API Key。</div>
                     </div>
                   </div>
                   <div class="sc-field-grid sc-field-grid--double">
                     <div class="sc-field-group">
-                      <label class="form-label">Provider</label>
-                      <select id="sc-llm-provider" class="select">
-                        <option value="custom">第三方兼容</option>
-                        <option value="openai">OpenAI</option>
-                        <option value="anthropic">Anthropic</option>
-                        <option value="ollama">Ollama</option>
-                      </select>
+                      <label class="form-label">接口类型</label>
+                      <input id="sc-llm-provider" type="hidden" value="custom" />
+                      <input type="text" class="input" value="OpenAI-compatible 第三方接口" disabled />
                     </div>
                     <div class="sc-field-group">
                       <label class="form-label">Model</label>
-                      <input id="sc-llm-model" type="text" class="input" placeholder="deepseek-v4-pro" />
+                      <input id="sc-llm-model" type="text" class="input" placeholder="例如：deepseek-chat" />
                     </div>
                     <div class="sc-field-group">
                       <label class="form-label">Base URL</label>
@@ -284,23 +332,38 @@
           </div>
 
           <!-- Tab: chunks -->
-          <div id="sc-panel-chunks" class="flex-1 flex flex-col hidden overflow-hidden">
-            <!-- Agent search bar -->
-            <div class="px-6 py-3 border-b flex items-center gap-3" style="border-color:var(--bd);background:var(--bg-body);">
-              <svg class="w-4 h-4 flex-shrink-0" style="color:var(--t3);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
-              </svg>
-              <input id="sc-chunk-search" type="text" class="flex-1 text-sm" placeholder="搜索知识库中的片段… (Agent 自动匹配)" style="background:transparent;border:none;" />
-              <button id="btn-sc-search" class="px-3 py-1 text-xs rounded-lg transition-colors" style="background:var(--accent-bg);color:var(--accent);">搜索</button>
+          <div id="sc-panel-chunks" class="flex-1 flex-col hidden overflow-hidden">
+            <!-- Filter bar -->
+            <div class="sc-chunks-toolbar">
+              <div class="sc-chunks-filter">
+                <input id="sc-source-search" type="text" class="input" placeholder="搜索来源名称、URL 或标签…" />
+                <select id="sc-source-type" class="select">
+                  <option value="">全部分类</option>
+                  ${SOURCE_TYPE_ORDER.map(key => `<option value="${key}">${SOURCE_TYPE_GROUPS[key].label}</option>`).join('')}
+                </select>
+                <select id="sc-source-tag" class="select">
+                  <option value="">全部标签</option>
+                </select>
+                <button id="btn-sc-source-refresh" class="sc-chunks-btn-subtle" type="button">刷新</button>
+              </div>
+              <button id="btn-sc-source-add-visible" class="sc-chunks-btn-primary" type="button">添加当前筛选</button>
             </div>
-            <!-- Search results -->
-            <div id="sc-chunk-results" class="hidden border-b px-6 py-3 max-h-64 overflow-y-auto" style="border-color:var(--bd);background:var(--bg-muted);"></div>
-            <!-- Selected chunks -->
-            <div class="px-6 py-2 border-b flex items-center justify-between" style="border-color:var(--bd);">
-              <span class="text-xs" style="color:var(--t2);">已选片段 (<span id="sc-chunk-count2">0</span>)</span>
-              <button id="btn-sc-chunks-refresh" class="text-xs transition-colors" style="color:var(--t3);">刷新</button>
+            <!-- Selected sources -->
+            <div class="sc-chunks-section">
+              <div class="sc-chunks-section-head">
+                <span class="sc-chunks-section-title">已关联知识源</span>
+                <span id="sc-chunk-count2" class="sc-chunks-section-badge">0</span>
+              </div>
+              <div id="sc-chunk-list" class="sc-chunks-list sc-chunks-list--selected"></div>
             </div>
-            <div id="sc-chunk-list" class="flex-1 overflow-y-auto px-6 py-3 space-y-2"></div>
+            <!-- Available sources -->
+            <div class="sc-chunks-section sc-chunks-section--available">
+              <div class="sc-chunks-section-head">
+                <span class="sc-chunks-section-title">可选知识源</span>
+                <span id="sc-source-result-meta" class="sc-chunks-section-desc">按分类、标签或关键词筛选后加入场景</span>
+              </div>
+              <div id="sc-source-results" class="sc-chunks-list"></div>
+            </div>
           </div>
 
           <!-- Tab: keys -->
@@ -381,6 +444,8 @@
     setTimeout(() => el.classList.add('hidden'), 2200);
   }
 
+  let _currentHints = null;
+
   function getCurrentUiConfigFromForm() {
     return normalizeUiConfig({
       template: document.getElementById('sc-ui-template').value,
@@ -389,6 +454,7 @@
       welcome: document.getElementById('sc-ui-welcome').value.trim(),
       placeholder: document.getElementById('sc-ui-placeholder').value.trim(),
       disclaimer: document.getElementById('sc-ui-disclaimer').value.trim(),
+      hints: _currentHints,
       color: document.getElementById('sc-ui-color-text').value.trim() || document.getElementById('sc-ui-color').value,
       css: document.getElementById('sc-ui-css').value.trim(),
     });
@@ -519,7 +585,7 @@
             </div>
             <div class="sc-list-desc">${esc(s.description || '无描述')}</div>
             <div class="sc-list-meta">
-              ${hasSourceCount ? `<span>${s.source_count} 片段</span>` : ''}
+              ${hasSourceCount ? `<span>${s.source_count} 来源</span>` : ''}
               <span>${template.badge}</span>
             </div>
           </div>
@@ -581,12 +647,13 @@
     document.getElementById('sc-name').value = sc.name || '';
     document.getElementById('sc-desc').value = sc.description || '';
     document.getElementById('sc-prompt').value = sc.system_prompt || '';
-    document.getElementById('sc-llm-provider').value = sc.llm_provider || 'custom';
+    document.getElementById('sc-llm-provider').value = 'custom';
     document.getElementById('sc-llm-model').value = sc.llm_model || '';
     document.getElementById('sc-llm-url').value = sc.llm_base_url || '';
     document.getElementById('sc-llm-key').value = sc.llm_api_key || '';
 
     const ui = normalizeUiConfig(sc.ui_config || {}, sc);
+    _currentHints = ui.hints;
     document.getElementById('sc-ui-template').value = ui.template;
     document.getElementById('sc-ui-title').value = ui.title;
     document.getElementById('sc-ui-subtitle').value = ui.subtitle;
@@ -599,7 +666,7 @@
     updateApiDocLink();
 
     const cnt = sc.source_count || 0;
-    $chunkCount.textContent = `已关联 ${cnt} 个片段`;
+    $chunkCount.textContent = `已关联 ${cnt} 个知识源`;
     $chunkCount2.textContent = cnt;
   }
 
@@ -624,7 +691,7 @@
       }
     });
 
-    if (tab === 'chunks') loadChunks();
+    if (tab === 'chunks') loadSourcesTab();
     if (tab === 'keys') loadKeys();
     if (tab === 'agent') initAgentChat();
   }
@@ -643,7 +710,7 @@
       name: document.getElementById('sc-name').value.trim(),
       description: document.getElementById('sc-desc').value.trim(),
       system_prompt: document.getElementById('sc-prompt').value,
-      llm_provider: document.getElementById('sc-llm-provider').value,
+      llm_provider: 'custom',
       llm_model: document.getElementById('sc-llm-model').value.trim(),
       llm_base_url: document.getElementById('sc-llm-url').value.trim(),
       llm_api_key: document.getElementById('sc-llm-key').value,
@@ -698,135 +765,220 @@
     }
   });
 
-  // ── Chunk management ────────────────────────────────────────────
+  // ── Source management ───────────────────────────────────────────
 
-  document.getElementById('btn-sc-chunks-refresh').addEventListener('click', loadChunks);
-
-  async function loadChunks() {
-    if (!currentId) return;
-    const list = document.getElementById('sc-chunk-list');
-    try {
-      const data = await apiJson(`/scenarios/${currentId}/sources`);
-      const sources = data.sources || [];
-      $chunkCount2.textContent = sources.length;
-      $chunkCount.textContent = `已关联 ${sources.length} 个片段`;
-
-      if (!sources.length) {
-        list.innerHTML = `<p class="text-xs py-8 text-center" style="color:var(--t3);">尚未关联任何片段。使用上方搜索添加。</p>`;
+  function aggregateScenarioSources(rows) {
+    const grouped = new Map();
+    rows.forEach(row => {
+      const key = row.source_id || row.chunk_id;
+      if (!key) return;
+      if (!grouped.has(key)) {
+        grouped.set(key, {
+          source_id: row.source_id || '',
+          source_name: row.source_name || row.source_id || row.chunk_id || '未命名来源',
+          source_type: row.source_type || '',
+          added_by: row.added_by || 'manual',
+          created_at: row.created_at || '',
+          whole_source: !row.chunk_id,
+          chunk_count: row.chunk_id ? 1 : 0,
+          preview: row.chunk_content || '',
+        });
         return;
       }
-
-      list.innerHTML = sources.map(s => `
-        <div class="stat-card flex items-start gap-3 px-3 py-2.5">
-          <div class="flex-1 min-w-0">
-            <div class="flex items-center gap-2 mb-1">
-              <span class="text-xs font-medium" style="color:var(--accent);">${esc(s.source_name || s.source_id?.slice(0, 8) || '?')}</span>
-              ${s.chunk_index != null ? `<span class="text-xs px-1.5 py-0.5 rounded" style="background:var(--bg-card);color:var(--t3);">#${s.chunk_index}</span>` : ''}
-              <span class="text-xs px-1.5 py-0.5 rounded" style="background:var(--bg-card);color:var(--t3);">${esc(s.added_by || 'manual')}</span>
-            </div>
-            <p class="text-xs line-clamp-2" style="color:var(--t2);">${esc((s.chunk_content || '').slice(0, 200))}</p>
-          </div>
-          <button class="btn-sc-chunk-remove text-xs px-2 py-1 rounded transition-colors flex-shrink-0"
-                  data-source="${esc(s.source_id || '')}" data-chunk="${esc(s.chunk_id || '')}"
-                  style="color:var(--c-err);background:transparent;"
-                  title="移除">✕</button>
-        </div>
-      `).join('');
-
-      list.querySelectorAll('.btn-sc-chunk-remove').forEach(btn => {
-        btn.addEventListener('click', async () => {
-          const sourceId = btn.dataset.source;
-          const chunkId = btn.dataset.chunk;
-          try {
-            await apiDelete(`/scenarios/${currentId}/sources`, { source_id: sourceId, chunk_id: chunkId });
-            loadChunks();
-          } catch (e) {
-            toast('移除失败: ' + e.message, 'error');
-          }
-        });
-      });
-    } catch (e) {
-      toast('加载片段失败: ' + e.message, 'error');
-    }
+      const entry = grouped.get(key);
+      entry.whole_source = entry.whole_source || !row.chunk_id;
+      if (row.chunk_id) entry.chunk_count += 1;
+      if (!entry.preview && row.chunk_content) entry.preview = row.chunk_content;
+      if (!entry.source_name && row.source_name) entry.source_name = row.source_name;
+      if (!entry.source_type && row.source_type) entry.source_type = row.source_type;
+      if (row.created_at && String(row.created_at) > String(entry.created_at)) entry.created_at = row.created_at;
+    });
+    return Array.from(grouped.values()).sort((left, right) => String(right.created_at).localeCompare(String(left.created_at)));
   }
 
-  // ── Agent chunk search ──────────────────────────────────────────
+  function renderScenarioSourceTagOptions() {
+    const select = document.getElementById('sc-source-tag');
+    const currentValue = select.value;
+    select.innerHTML = '<option value="">全部标签</option>' + sourceTags.map(tag => `<option value="${esc(tag)}">${esc(tag)}</option>`).join('');
+    select.value = sourceTags.includes(currentValue) ? currentValue : '';
+  }
 
-  document.getElementById('btn-sc-search').addEventListener('click', searchChunks);
-  document.getElementById('sc-chunk-search').addEventListener('keydown', e => {
-    if (e.key === 'Enter') searchChunks();
-  });
+  async function loadSourceCatalog(force = false) {
+    if (!force && sourceCatalog.length) return;
+    const [sourceData, tagData] = await Promise.all([
+      apiJson('/kb/sources?limit=500&offset=0'),
+      apiJson('/kb/tags'),
+    ]);
+    sourceCatalog = sourceData.sources || [];
+    sourceTags = tagData.tags || [];
+    renderScenarioSourceTagOptions();
+  }
 
-  async function searchChunks() {
-    const q = document.getElementById('sc-chunk-search').value.trim();
-    if (!q) return;
-    const resultsDiv = document.getElementById('sc-chunk-results');
+  function getFilteredCatalogSources() {
+    const keyword = document.getElementById('sc-source-search').value.trim().toLowerCase();
+    const typeKey = document.getElementById('sc-source-type').value;
+    const tag = document.getElementById('sc-source-tag').value;
+    return sourceCatalog.filter(source => {
+      const matchesKeyword = !keyword || getSourceSearchText(source).includes(keyword);
+      const matchesType = !typeKey || normalizeSourceTypeKey(source.type) === typeKey;
+      const matchesTag = !tag || (Array.isArray(source.tags) && source.tags.includes(tag));
+      return matchesKeyword && matchesType && matchesTag;
+    });
+  }
 
-    try {
-      const data = await apiPost('/scenarios/agent/search-chunks', { query: q, top_k: 15 });
-      chunkSearchResults = data.chunks || [];
-      if (!chunkSearchResults.length) {
-        resultsDiv.classList.remove('hidden');
-        resultsDiv.innerHTML = `<p class="text-xs py-4 text-center" style="color:var(--t3);">未找到匹配的片段</p>`;
-        return;
-      }
+  function renderSelectedScenarioSources() {
+    const list = document.getElementById('sc-chunk-list');
+    const sourceMap = new Map(sourceCatalog.map(source => [source.id, source]));
+    $chunkCount2.textContent = selectedScenarioSources.length;
+    $chunkCount.textContent = `已关联 ${selectedScenarioSources.length} 个知识源`;
+    const currentScenario = scenarios.find(scenario => scenario.id === currentId);
+    if (currentScenario) {
+      currentScenario.source_count = selectedScenarioSources.length;
+      renderScenarioList();
+    }
 
-      resultsDiv.classList.remove('hidden');
-      resultsDiv.innerHTML = `
-        <div class="flex items-center justify-between mb-2">
-          <span class="text-xs" style="color:var(--t2);">找到 ${chunkSearchResults.length} 个结果</span>
-          <button id="btn-sc-add-all" class="text-xs px-2 py-1 rounded transition-colors" style="background:var(--accent-bg);color:var(--accent);">全部添加</button>
-        </div>
-        ${chunkSearchResults.map(c => `
-          <div class="sc-search-result stat-card flex items-start gap-3 px-3 py-2 mb-1.5 cursor-pointer"
-               data-source="${esc(c.source_id)}" data-chunk="${esc(c.id)}">
-            <div class="flex-1 min-w-0">
-              <div class="flex items-center gap-2 mb-0.5">
-                <span class="text-xs font-medium" style="color:var(--accent);">${esc(c.source_name || c.source_id?.slice(0, 8) || '?')}</span>
-                <span class="text-xs" style="color:var(--t3);">相关性 ${(c.score * 100).toFixed(0)}%</span>
-              </div>
-              <p class="text-xs line-clamp-2" style="color:var(--t2);">${esc(c.content)}</p>
+    if (!selectedScenarioSources.length) {
+      list.innerHTML = `<div class="sc-chunks-empty">尚未关联任何知识源 — 从下方筛选并加入</div>`;
+      return;
+    }
+
+    list.innerHTML = selectedScenarioSources.map(source => {
+      const meta = sourceMap.get(source.source_id) || {};
+      const typeMeta = getSourceTypeMeta(source.source_type || meta.type);
+      const tags = Array.isArray(meta.tags) ? meta.tags : [];
+      const refLabel = source.whole_source ? '整份来源' : `历史片段 ${source.chunk_count} 个`;
+      return `
+        <div class="sc-chunks-item">
+          <div class="sc-chunks-item-body">
+            <div class="sc-chunks-item-title">${esc(source.source_name || source.source_id || '未命名来源')}</div>
+            <div class="sc-chunks-item-meta">
+              <span class="sc-chunks-item-tag">${typeMeta.icon} ${esc(typeMeta.label)}</span>
+              <span class="sc-chunks-item-tag">${esc(refLabel)}</span>
+              <span class="sc-chunks-item-tag">${esc(source.added_by || 'manual')}</span>
+              ${tags.map(tag => `<span class="sc-chunks-item-tag">${esc(tag)}</span>`).join('')}
             </div>
-            <span class="text-xs flex-shrink-0 px-1.5 py-0.5 rounded" style="color:var(--c-ok-t);background:rgba(74,222,128,.10);">+添加</span>
+            ${meta.url ? `<div class="sc-chunks-item-url">${esc(meta.url)}</div>` : ''}
+            ${source.preview ? `<div class="sc-chunks-item-preview">${esc(String(source.preview).slice(0, 200))}</div>` : ''}
           </div>
-        `).join('')}
+          <div class="sc-chunks-item-actions">
+            <button class="sc-chunks-item-btn sc-chunks-item-btn--remove" data-source="${esc(source.source_id || '')}" type="button">移除</button>
+          </div>
+        </div>
       `;
+    }).join('');
 
-      // Click to add individual
-      resultsDiv.querySelectorAll('.sc-search-result').forEach(el => {
-        el.addEventListener('click', async () => {
-          try {
-            await apiPost(`/scenarios/${currentId}/sources`, {
-              entries: [{ source_id: el.dataset.source, chunk_id: el.dataset.chunk }],
-              added_by: 'agent',
-            });
-            el.querySelector('span').textContent = '已添加';
-            el.querySelector('span').style.color = 'var(--t3)';
-            el.querySelector('span').style.background = 'transparent';
-            el.style.opacity = '0.5';
-            loadChunks();
-          } catch (e) {
-            toast('添加失败: ' + e.message, 'error');
-          }
-        });
-      });
-
-      // Add all
-      document.getElementById('btn-sc-add-all').addEventListener('click', async () => {
-        const entries = chunkSearchResults.map(c => ({ source_id: c.source_id, chunk_id: c.id }));
+    list.querySelectorAll('.sc-chunks-item-btn--remove').forEach(button => {
+      button.addEventListener('click', async () => {
         try {
-          const res = await apiPost(`/scenarios/${currentId}/sources`, { entries, added_by: 'agent' });
-          toast(`已添加 ${res.added} 个片段`, 'success');
-          resultsDiv.classList.add('hidden');
-          loadChunks();
-        } catch (e) {
-          toast('批量添加失败: ' + e.message, 'error');
+          await apiDelete(`/scenarios/${currentId}/sources`, { source_id: button.dataset.source, chunk_id: '' });
+          await loadSourcesTab();
+        } catch (error) {
+          toast('移除失败: ' + error.message, 'error');
         }
       });
-    } catch (e) {
-      toast('搜索失败: ' + e.message, 'error');
+    });
+  }
+
+  function renderAvailableScenarioSources() {
+    const results = document.getElementById('sc-source-results');
+    const meta = document.getElementById('sc-source-result-meta');
+    const addVisibleButton = document.getElementById('btn-sc-source-add-visible');
+    const selectedIds = new Set(selectedScenarioSources.map(source => source.source_id));
+    const filtered = getFilteredCatalogSources();
+    const addable = filtered.filter(source => !selectedIds.has(source.id));
+
+    meta.textContent = `${filtered.length} 个来源，可加入 ${addable.length} 个`;
+    addVisibleButton.disabled = addable.length === 0;
+    addVisibleButton.textContent = addable.length ? `添加当前筛选 (${addable.length})` : '添加当前筛选';
+
+    if (!filtered.length) {
+      results.innerHTML = `<div class="sc-chunks-empty">当前筛选下没有可选来源</div>`;
+      return;
+    }
+
+    results.innerHTML = filtered.map(source => {
+      const typeMeta = getSourceTypeMeta(source.type);
+      const tags = Array.isArray(source.tags) ? source.tags : [];
+      const isSelected = selectedIds.has(source.id);
+      return `
+        <div class="sc-chunks-item">
+          <div class="sc-chunks-item-body">
+            <div class="sc-chunks-item-title">${esc(source.name || source.id)}</div>
+            <div class="sc-chunks-item-meta">
+              <span class="sc-chunks-item-tag">${typeMeta.icon} ${esc(typeMeta.label)}</span>
+              ${tags.map(tag => `<span class="sc-chunks-item-tag">${esc(tag)}</span>`).join('')}
+            </div>
+            ${source.url ? `<div class="sc-chunks-item-url">${esc(source.url)}</div>` : ''}
+          </div>
+          <div class="sc-chunks-item-actions">
+            <button class="sc-chunks-item-btn sc-chunks-item-btn--add" data-source="${esc(source.id)}" ${isSelected ? 'disabled' : ''} type="button">
+              ${isSelected ? '已加入' : '加入场景'}
+            </button>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    results.querySelectorAll('.sc-chunks-item-btn--add').forEach(button => {
+      button.addEventListener('click', async () => {
+        try {
+          const added = await addSourcesToScenario([button.dataset.source]);
+          if (added) toast('知识源已加入场景', 'success');
+        } catch (error) {
+          toast('添加失败: ' + error.message, 'error');
+        }
+      });
+    });
+  }
+
+  async function addSourcesToScenario(sourceIds, addedBy = 'manual') {
+    const uniqueIds = [...new Set(sourceIds)].filter(Boolean);
+    if (!currentId || !uniqueIds.length) return 0;
+    const response = await apiPost(`/scenarios/${currentId}/sources`, {
+      entries: uniqueIds.map(sourceId => ({ source_id: sourceId, chunk_id: '' })),
+      added_by: addedBy,
+    });
+    await loadSourcesTab();
+    return response.added || 0;
+  }
+
+  async function loadSourcesTab({ forceCatalog = false } = {}) {
+    if (!currentId) return;
+    const list = document.getElementById('sc-chunk-list');
+    const results = document.getElementById('sc-source-results');
+    try {
+      await loadSourceCatalog(forceCatalog);
+      const data = await apiJson(`/scenarios/${currentId}/sources`);
+      selectedScenarioSources = aggregateScenarioSources(data.sources || []);
+      renderSelectedScenarioSources();
+      renderAvailableScenarioSources();
+    } catch (error) {
+      list.innerHTML = `<p class="text-xs py-8 text-center" style="color:var(--c-err);">加载场景知识源失败：${esc(error.message)}</p>`;
+      results.innerHTML = `<p class="text-xs py-8 text-center" style="color:var(--c-err);">加载知识库列表失败：${esc(error.message)}</p>`;
+      toast('加载知识库失败: ' + error.message, 'error');
     }
   }
+
+  document.getElementById('btn-sc-source-refresh').addEventListener('click', () => loadSourcesTab({ forceCatalog: true }));
+  document.getElementById('sc-source-search').addEventListener('input', renderAvailableScenarioSources);
+  document.getElementById('sc-source-type').addEventListener('change', renderAvailableScenarioSources);
+  document.getElementById('sc-source-tag').addEventListener('change', renderAvailableScenarioSources);
+  document.getElementById('btn-sc-source-add-visible').addEventListener('click', async () => {
+    const selectedIds = new Set(selectedScenarioSources.map(source => source.source_id));
+    const addableIds = getFilteredCatalogSources()
+      .map(source => source.id)
+      .filter(sourceId => !selectedIds.has(sourceId));
+    if (!addableIds.length) {
+      toast('当前筛选下没有可添加的知识源', 'error');
+      return;
+    }
+    try {
+      const added = await addSourcesToScenario(addableIds);
+      toast(`已加入 ${added} 个知识源`, 'success');
+    } catch (error) {
+      toast('批量添加失败: ' + error.message, 'error');
+    }
+  });
 
   // ── API Keys ────────────────────────────────────────────────────
 
@@ -969,7 +1121,7 @@
         replyHtml += `<div style="margin-top:6px;font-size:10px;color:var(--accent);">${data.actions_performed.map(a => '✓ ' + esc(a)).join('<br>')}</div>`;
       }
       if (data.search_results && data.search_results.length) {
-        replyHtml += `<div style="margin-top:6px;font-size:10px;color:var(--t3);">找到 ${data.search_results.length} 个片段。去「知识库片段」标签页查看和添加。</div>`;
+        replyHtml += `<div style="margin-top:6px;font-size:10px;color:var(--t3);">找到 ${data.search_results.length} 个片段。去「知识库」标签页按来源查看和添加。</div>`;
       }
       contentEl.innerHTML = replyHtml;
 

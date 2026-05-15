@@ -51,20 +51,6 @@ User question: {question}"""
 
 _NO_CTX_TEMPLATE = "{question}"
 
-# Prompt for LLM to judge whether retrieved context is sufficient
-_SUFFICIENCY_CHECK = """\
-You are evaluating whether the retrieved context is sufficient to answer a question.
-Read the context and question, then respond with exactly ONE line:
-
-SUFFICIENT
-- or -
-NEED_MORE: <specific query to search for the missing information>
-
-Question: {question}
-
-Retrieved context:
-{context}
-"""
 
 
 class Message(BaseModel):
@@ -88,42 +74,20 @@ class ChatRequest(BaseModel):
     """
 
 
-async def _retrieve(query: str, top_k: int, filters: dict | None) -> list[dict]:
-    import logging as _lg
-    # Run dense and sparse embedding in parallel
-    dense_task = asyncio.create_task(_embed_dense_safe(query, _lg))
-    sparse = _get_sparse_safe(query, _lg)
-    dense = await dense_task
+async def _retrieve(query: str, top_k: int, filters: dict | None, qdrant_filter: object = None) -> list[dict]:
+    from pipeline.retrieval import retrieve_chunks
 
-    if dense is None:
-        return []
-    try:
-        return await hybrid_search(
-            query_dense=dense,
-            query_sparse_indices=sparse[0] if sparse else [],
-            query_sparse_values=sparse[1] if sparse else [],
-            top_k=top_k,
-            filters=filters,
-        )
-    except Exception as exc:
-        _lg.getLogger(__name__).warning("Hybrid search failed: %s", exc)
-        return []
-
-
-async def _embed_dense_safe(query: str, _lg) -> list[float] | None:
-    try:
-        return (await embed_dense([query]))[0]
-    except Exception as exc:
-        _lg.getLogger(__name__).warning("Dense embedding failed, cannot retrieve: %s", exc)
-        return None
-
-
-def _get_sparse_safe(query: str, _lg) -> tuple | None:
-    try:
-        return embed_sparse([query])[0]
-    except Exception as exc:
-        _lg.getLogger(__name__).warning("Sparse embedding failed, using dense-only: %s", exc)
-        return None
+    retrieval = await retrieve_chunks(
+        query=query,
+        top_k=top_k,
+        filters=filters,
+        mode="hybrid",
+        rerank=True,
+        diversify=True,
+        expand=True,
+        qdrant_filter=qdrant_filter,
+    )
+    return retrieval.results
 
 
 def _build_context(chunks: list[dict]) -> str:
@@ -134,26 +98,19 @@ def _build_context(chunks: list[dict]) -> str:
     return "\n\n---\n\n".join(parts)
 
 
-def _get_llm(provider: str, model: str):
-    if provider == "openai":
-        from langchain_openai import ChatOpenAI
-        return ChatOpenAI(model=model, api_key=settings.openai_api_key, streaming=True)
-    if provider == "anthropic":
-        from langchain_anthropic import ChatAnthropic
-        return ChatAnthropic(model=model, api_key=settings.anthropic_api_key, streaming=True)
-    if provider == "ollama":
-        from langchain_community.chat_models import ChatOllama
-        return ChatOllama(model=model, base_url=settings.ollama_base_url)
-    if provider == "custom":
-        # OpenAI-compatible third-party endpoint (e.g. SiliconFlow, DeepSeek, etc.)
-        from langchain_openai import ChatOpenAI
-        return ChatOpenAI(
-            model=model,
-            api_key=settings.llm_api_key or "none",
-            base_url=settings.llm_base_url or None,
-            streaming=True,
-        )
-    raise ValueError(f"Unknown provider: {provider}")
+def _get_llm(provider: str, model: str, *, base_url: str | None = None, api_key: str | None = None):
+    from agents.llm import build_chat_model, normalize_provider
+
+    _base_url = base_url or settings.llm_base_url
+    _api_key = api_key or settings.llm_api_key
+    normalized = normalize_provider(provider, model=model, base_url=_base_url)
+    return build_chat_model(
+        normalized,
+        model,
+        api_key=_api_key,
+        base_url=_base_url,
+        streaming=True,
+    )
 
 
 def _build_retrieval_query(messages: list[Message], turns: int = _RETRIEVAL_HISTORY_TURNS) -> tuple[str, str]:
@@ -207,28 +164,31 @@ Workflow:
 Be terse. Do not narrate your tool plan in the final answer."""
 
 
-def _build_agentic_llm(provider: str, model: str):
+def _build_agentic_llm(provider: str, model: str, *, base_url: str | None = None, api_key: str | None = None):
     """Plain (non-streaming) LLM client used for tool-calling turns."""
-    if provider == "openai":
-        from langchain_openai import ChatOpenAI
-        return ChatOpenAI(model=model, api_key=settings.openai_api_key)
-    if provider == "anthropic":
-        from langchain_anthropic import ChatAnthropic
-        return ChatAnthropic(model=model, api_key=settings.anthropic_api_key)
-    if provider == "ollama":
-        from langchain_community.chat_models import ChatOllama
-        return ChatOllama(model=model, base_url=settings.ollama_base_url)
-    if provider == "custom":
-        from langchain_openai import ChatOpenAI
-        return ChatOpenAI(
-            model=model,
-            api_key=settings.llm_api_key or "none",
-            base_url=settings.llm_base_url or None,
-        )
-    raise ValueError(f"Unknown provider: {provider}")
+    from agents.llm import build_chat_model, normalize_provider
+
+    _base_url = base_url or settings.llm_base_url
+    _api_key = api_key or settings.llm_api_key
+    normalized = normalize_provider(provider, model=model, base_url=_base_url)
+    return build_chat_model(
+        normalized,
+        model,
+        api_key=_api_key,
+        base_url=_base_url,
+    )
 
 
-async def _stream_agentic(req: ChatRequest) -> AsyncGenerator[str, None]:
+async def _stream_agentic(
+    req: ChatRequest,
+    *,
+    system_prompt: str | None = None,
+    provider: str | None = None,
+    model: str | None = None,
+    base_url: str | None = None,
+    api_key: str | None = None,
+    qdrant_filter: object = None,
+) -> AsyncGenerator[str, None]:
     """Agentic chat path: LLM may call KB / web tools mid-conversation.
 
     Streams tokens to the SSE channel the same way :func:`_stream` does,
@@ -242,16 +202,19 @@ async def _stream_agentic(req: ChatRequest) -> AsyncGenerator[str, None]:
 
     from .chat_tools import ChatContext, build_chat_tools
 
-    provider = req.provider or settings.llm_provider
-    model = req.model or settings.llm_model
+    _provider = provider or req.provider or settings.llm_provider
+    _model = model or req.model or settings.llm_model
+    _base_url = base_url or settings.llm_base_url
+    _api_key = api_key or settings.llm_api_key
     thread_id = req.thread_id or str(uuid.uuid4())
 
     _retrieval_query, user_query = _build_retrieval_query(req.messages)
-    ctx = ChatContext(kb_filter=req.kb_filter)
+    ctx = ChatContext(kb_filter=req.kb_filter, qdrant_filter=qdrant_filter)
     tools = build_chat_tools(ctx)
     tool_map = {t.name: t for t in tools}
 
-    sys_prompt = get_rag_system_prompt() + _AGENTIC_SYSTEM_SUFFIX
+    sys_prompt = system_prompt or get_rag_system_prompt()
+    sys_prompt += _AGENTIC_SYSTEM_SUFFIX
     lc_msgs: list = [SystemMessage(content=sys_prompt)]
     for m in req.messages[:-1]:
         if m.role == "user":
@@ -261,13 +224,16 @@ async def _stream_agentic(req: ChatRequest) -> AsyncGenerator[str, None]:
     lc_msgs.append(HumanMessage(content=user_query))
 
     try:
-        llm = _build_agentic_llm(provider, model)
+        llm = _build_agentic_llm(_provider, _model, base_url=_base_url, api_key=_api_key)
         llm_with_tools = llm.bind_tools(tools)
     except Exception as exc:
         _lg.getLogger(__name__).warning(
             "agentic chat init failed (%s); falling back to legacy RAG", exc,
         )
-        async for evt in _stream(req):
+        async for evt in _stream(req, system_prompt=system_prompt,
+                                  provider=provider, model=model,
+                                  base_url=base_url, api_key=api_key,
+                                  qdrant_filter=qdrant_filter):
             yield evt
         return
 
@@ -295,7 +261,7 @@ async def _stream_agentic(req: ChatRequest) -> AsyncGenerator[str, None]:
                     final_text = str(resp.content)
                     yield f"data: {json.dumps({'type': 'token', 'content': final_text})}\n\n"
                 else:
-                    stream_llm = _get_llm(provider, model)
+                    stream_llm = _get_llm(_provider, _model, base_url=_base_url, api_key=_api_key)
                     async for chunk in stream_llm.astream(lc_msgs[:-1]):
                         tok = getattr(chunk, "content", "") or ""
                         if tok:
@@ -358,7 +324,10 @@ async def _stream_agentic(req: ChatRequest) -> AsyncGenerator[str, None]:
         _lg.getLogger(__name__).warning(
             "agentic chat loop failed (%s); falling back to legacy RAG", exc,
         )
-        async for evt in _stream(req):
+        async for evt in _stream(req, system_prompt=system_prompt,
+                                  provider=provider, model=model,
+                                  base_url=base_url, api_key=api_key,
+                                  qdrant_filter=qdrant_filter):
             yield evt
         return
 
@@ -412,81 +381,36 @@ async def _stream_agentic(req: ChatRequest) -> AsyncGenerator[str, None]:
     yield "data: [DONE]\n\n"
 
 
-async def _stream(req: ChatRequest) -> AsyncGenerator[str, None]:
+async def _stream(
+    req: ChatRequest,
+    *,
+    system_prompt: str | None = None,
+    provider: str | None = None,
+    model: str | None = None,
+    base_url: str | None = None,
+    api_key: str | None = None,
+    qdrant_filter: object = None,
+    skip_session: bool = False,
+) -> AsyncGenerator[str, None]:
     import logging as _lg
     from storage.metadata_db import upsert_session
 
-    provider = req.provider or settings.llm_provider
-    model = req.model or settings.llm_model
+    _provider = provider or req.provider or settings.llm_provider
+    _model = model or req.model or settings.llm_model
+    _base_url = base_url or settings.llm_base_url
+    _api_key = api_key or settings.llm_api_key
     thread_id = req.thread_id or str(uuid.uuid4())
 
     retrieval_query, user_query = _build_retrieval_query(req.messages)
 
-    # ── Iterative retrieval: let LLM decide if more context is needed ──
-    initial_k = max(req.top_k, 10)  # retrieve generously, let LLM filter
-    all_chunks = await _retrieve(retrieval_query, initial_k, req.kb_filter)
-    seen_ids = {c["id"] for c in all_chunks}
+    # Single-pass retrieval — generous top_k, LLM filters via citations
+    chunks = await _retrieve(retrieval_query, max(req.top_k, 10), req.kb_filter, qdrant_filter=qdrant_filter)
 
-    if settings.reranker_enabled and all_chunks:
-        from pipeline.reranker import rerank
-        all_chunks = await asyncio.to_thread(
-            rerank, user_query, all_chunks, settings.reranker_model
-        )
-
-    # Sufficiency check: let LLM decide if more info is needed (max 2 extra rounds)
-    llm = _get_llm(provider, model)
-    for round_num in range(2):
-        if not all_chunks:
-            break
-        ctx_preview = "\n\n".join(
-            f"[{i + 1}] {c['content'][:200]}" for i, c in enumerate(all_chunks[:8])
-        )
-        check_prompt = _SUFFICIENCY_CHECK.format(
-            question=user_query, context=ctx_preview
-        )
-        try:
-            from langchain_core.messages import HumanMessage as _HM
-            check_resp = await llm.ainvoke([_HM(content=check_prompt)])
-            verdict = (check_resp.content or "").strip()
-        except Exception as exc:
-            _lg.getLogger(__name__).warning("Sufficiency check failed: %s", exc)
-            break
-
-        if verdict.upper().startswith("SUFFICIENT"):
-            break
-
-        # Extract follow-up query
-        follow_up = verdict
-        if "NEED_MORE:" in verdict.upper():
-            follow_up = verdict.split(":", 1)[1].strip()
-        if len(follow_up) < 3:
-            break
-
-        # Targeted search for missing info
-        extra = await _retrieve(follow_up, initial_k, req.kb_filter)
-        if extra:
-            if settings.reranker_enabled:
-                extra = await asyncio.to_thread(
-                    rerank, follow_up, extra, settings.reranker_model
-                )
-            new_chunks = [c for c in extra if c["id"] not in seen_ids]
-            if new_chunks:
-                seen_ids.update(c["id"] for c in new_chunks)
-                all_chunks.extend(new_chunks)
-                if settings.reranker_enabled:
-                    # Re-rank combined set
-                    all_chunks = await asyncio.to_thread(
-                        rerank, user_query, all_chunks, settings.reranker_model
-                    )
-        else:
-            break
-
-    # Trim to final set
-    chunks = all_chunks[:max(req.top_k, 10)]
+    llm = _get_llm(_provider, _model, base_url=_base_url, api_key=_api_key)
 
     from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
-    lc_msgs = [SystemMessage(content=get_rag_system_prompt())]
+    lc_msgs = [SystemMessage(content=system_prompt or get_rag_system_prompt())]
     for msg in req.messages[:-1]:
         if msg.role == "user":
             lc_msgs.append(HumanMessage(content=msg.content))
@@ -543,14 +467,15 @@ async def _stream(req: ChatRequest) -> AsyncGenerator[str, None]:
     ]
     yield f"data: {json.dumps({'type': 'citations', 'citations': citations})}\n\n"
 
-    # Persist session to DB
-    updated_messages = [m.model_dump() for m in req.messages] + [
-        {"role": "assistant", "content": full_text}
-    ]
-    try:
-        await upsert_session(thread_id, updated_messages)
-    except Exception as _sess_err:
-        _lg.getLogger(__name__).warning("session persist failed for %s: %s", thread_id, _sess_err)
+    # Persist session to DB (skip for external/scenario API)
+    if not skip_session:
+        updated_messages = [m.model_dump() for m in req.messages] + [
+            {"role": "assistant", "content": full_text}
+        ]
+        try:
+            await upsert_session(thread_id, updated_messages)
+        except Exception as _sess_err:
+            _lg.getLogger(__name__).warning("session persist failed for %s: %s", thread_id, _sess_err)
 
     yield f"data: {json.dumps({'type': 'session', 'thread_id': thread_id})}\n\n"
     yield "data: [DONE]\n\n"
@@ -584,17 +509,17 @@ async def delete_session(thread_id: str):
 async def list_models():
     """Return available models from the configured LLM provider endpoint."""
     import httpx
-    provider = settings.llm_provider
+    from agents.llm import normalize_provider, resolve_base_url
+
+    provider = normalize_provider(
+        settings.llm_provider,
+        model=settings.llm_model,
+        base_url=settings.llm_base_url,
+    )
     try:
-        if provider == "custom":
-            base = (settings.llm_base_url or "").rstrip("/")
+        if provider in {"deepseek", "custom"}:
+            base = (resolve_base_url(provider, settings.llm_base_url) or "").rstrip("/")
             key = settings.llm_api_key or "none"
-        elif provider == "openai":
-            base = "https://api.openai.com/v1"
-            key = settings.openai_api_key
-        elif provider == "ollama":
-            base = (settings.ollama_base_url or "http://localhost:11434").rstrip("/")
-            key = "none"
         else:
             return {"models": [], "default": settings.llm_model}
 

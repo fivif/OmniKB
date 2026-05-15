@@ -15,13 +15,8 @@
           </p>
         </div>
         <div style="display:flex;align-items:center;gap:10px;">
-          <select id="chat-provider" style="background:var(--bg-muted);border:1px solid var(--bd);border-radius:var(--r);padding:5px 9px;font-size:12.5px;color:var(--t2);">
-            <option value="custom">第三方兼容</option>
-            <option value="openai">OpenAI</option>
-            <option value="anthropic">Anthropic</option>
-            <option value="ollama">Ollama</option>
-          </select>
-          <select id="chat-model" style="background:var(--bg-muted);border:1px solid var(--bd);border-radius:var(--r);padding:5px 9px;font-size:12.5px;color:var(--t2);max-width:180px;">
+          <span style="background:var(--bg-muted);border:1px solid var(--bd);border-radius:var(--r);padding:5px 9px;font-size:12.5px;color:var(--t2);white-space:nowrap;">OpenAI-compatible</span>
+          <select id="chat-model" style="background:var(--bg-muted);border:1px solid var(--bd);border-radius:var(--r);padding:5px 9px;font-size:12.5px;color:var(--t2);max-width:220px;">
             <option value="">加载中…</option>
           </select>
           <button id="btn-new-session" class="btn-ghost" style="font-size:12.5px;">新建对话</button>
@@ -71,31 +66,37 @@
   }
   _updateThreadDisplay();
 
-  // Pre-fill from settings
-  const s = loadSettings();
-  document.getElementById('chat-provider').value = s.llm_provider || 'custom';
-
-  // Load available models from backend
   async function loadModels() {
     const base = loadSettings().api_base || 'http://localhost:8000';
-    const sel = document.getElementById('chat-model');
+    const selectEl = document.getElementById('chat-model');
     try {
-      const data = await (await fetch(`${base}/chat/models`)).json();
-      const saved = s.llm_model || data.default || '';
-      sel.innerHTML = '';
-      const models = data.models && data.models.length ? data.models : [data.default].filter(Boolean);
-      models.forEach(m => {
-        const opt = document.createElement('option');
-        opt.value = m;
-        opt.textContent = m;
-        if (m === saved) opt.selected = true;
-        sel.appendChild(opt);
+      const resp = await fetch(`${base}/chat/models`);
+      const data = await resp.json();
+      const models = Array.isArray(data.models) && data.models.length
+        ? data.models
+        : [data.default].filter(Boolean);
+
+      selectEl.innerHTML = '';
+      if (!models.length) {
+        selectEl.innerHTML = '<option value="">未发现模型</option>';
+        return;
+      }
+
+      models.forEach(modelName => {
+        const option = document.createElement('option');
+        option.value = modelName;
+        option.textContent = modelName;
+        selectEl.appendChild(option);
       });
-      if (!sel.value && models.length) sel.value = models[0];
+      selectEl.value = models[0];
     } catch {
-      sel.innerHTML = `<option value="${s.llm_model || ''}">${s.llm_model || '(未知)'}</option>`;
+      const fallback = loadSettings().llm_model || '';
+      selectEl.innerHTML = fallback
+        ? `<option value="${fallback}">${fallback}</option>`
+        : '<option value="">未发现模型</option>';
     }
   }
+
   loadModels();
 
   function addMessage(role, content = '', id = null) {
@@ -159,8 +160,8 @@
     isStreaming = true;
     document.getElementById('btn-send').disabled = true;
 
-    const provider = document.getElementById('chat-provider').value;
-    const model = document.getElementById('chat-model').value || undefined;
+    const provider = 'custom';
+    const model = document.getElementById('chat-model').value.trim() || undefined;
     const topK = parseInt(document.getElementById('chat-topk').value) || 5;
 
     let fullText = '';

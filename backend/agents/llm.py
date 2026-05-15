@@ -25,6 +25,41 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+DEEPSEEK_API_BASE = "https://api.deepseek.com/v1"
+SUPPORTED_LLM_PROVIDERS = {"deepseek", "custom"}
+
+
+def normalize_provider(
+    provider: str | None,
+    *,
+    model: str = "",
+    base_url: str = "",
+) -> str:
+    """Collapse legacy provider values into the current supported set."""
+    value = (provider or "").strip().lower()
+    if value in SUPPORTED_LLM_PROVIDERS:
+        return value
+    if value in {"openai", "anthropic", "claude", "ollama"}:
+        return "custom"
+
+    model_hint = (model or "").strip().lower()
+    base_hint = (base_url or "").strip().lower()
+    if "deepseek" in model_hint or "deepseek" in base_hint:
+        return "deepseek"
+    if value or base_hint:
+        return "custom"
+    return "deepseek"
+
+
+def resolve_base_url(provider: str, base_url: str = "") -> str | None:
+    normalized = normalize_provider(provider, base_url=base_url)
+    raw = (base_url or "").strip()
+    if normalized == "deepseek":
+        return raw or DEEPSEEK_API_BASE
+    if normalized == "custom":
+        return raw or None
+    return None
+
 
 # ── Dual patch ──────────────────────────────────────────────────
 
@@ -132,49 +167,59 @@ def _parse_extra_body() -> dict:
     return {}
 
 
-# ── LLM factory ─────────────────────────────────────────────────
-
-def get_llm(temperature: float = 0, max_tokens: int | None = None):
-    """Build the LLM client. Installs reasoning_content patches for OpenAI-compatible providers."""
-    from config import settings
-
-    if settings.llm_provider == "anthropic":
-        from langchain_anthropic import ChatAnthropic
-        kwargs: dict[str, Any] = {
-            "model": settings.llm_model,
-            "api_key": settings.anthropic_api_key,
-            "temperature": temperature,
-        }
-        if max_tokens:
-            kwargs["max_tokens"] = max_tokens
-        return ChatAnthropic(**kwargs)
-
-    if settings.llm_provider == "ollama":
-        from langchain_ollama import ChatOllama
-        kwargs: dict[str, Any] = {
-            "model": settings.llm_model,
-            "base_url": settings.ollama_base_url,
-            "temperature": temperature,
-        }
-        if max_tokens:
-            kwargs["num_predict"] = max_tokens
-        return ChatOllama(**kwargs)
+def build_chat_model(
+    provider: str | None,
+    model: str,
+    *,
+    api_key: str = "",
+    base_url: str = "",
+    temperature: float = 0,
+    max_tokens: int | None = None,
+    streaming: bool = False,
+):
+    """Build a chat model for DeepSeek or generic compatible providers."""
+    normalized = normalize_provider(provider, model=model, base_url=base_url)
 
     _install_reasoning_patches()
 
     from langchain_openai import ChatOpenAI
-    kwargs = {
-        "model": settings.llm_model,
-        "api_key": settings.llm_api_key or settings.openai_api_key or "none",
-        "base_url": settings.llm_base_url or None,
+
+    kwargs: dict[str, Any] = {
+        "model": model,
+        "api_key": api_key or "none",
         "temperature": temperature,
     }
+    resolved_base_url = resolve_base_url(normalized, base_url)
+    if resolved_base_url:
+        kwargs["base_url"] = resolved_base_url
+    if streaming:
+        kwargs["streaming"] = True
     if max_tokens:
         kwargs["max_tokens"] = max_tokens
     extra_body = _parse_extra_body()
     if extra_body:
         kwargs["extra_body"] = extra_body
     return ChatOpenAI(**kwargs)
+
+
+# ── LLM factory ─────────────────────────────────────────────────
+
+def get_llm(temperature: float = 0, max_tokens: int | None = None):
+    """Build the configured LLM client for DeepSeek or custom gateways."""
+    from config import settings
+    provider = normalize_provider(
+        settings.llm_provider,
+        model=settings.llm_model,
+        base_url=settings.llm_base_url,
+    )
+    return build_chat_model(
+        provider,
+        settings.llm_model,
+        api_key=settings.llm_api_key,
+        base_url=settings.llm_base_url,
+        temperature=temperature,
+        max_tokens=max_tokens,
+    )
 
 
 # Backward-compat shim

@@ -168,6 +168,7 @@ async def init_db() -> None:
             pass
 
         await db.executescript(_CREATE_TABLES)
+        await _migrate_scenario_sources_schema(db)
 
         # Idempotent migrations for older databases.
         for ddl in (
@@ -191,6 +192,56 @@ async def init_db() -> None:
             pass
 
         await db.commit()
+
+
+async def _migrate_scenario_sources_schema(db: aiosqlite.Connection) -> None:
+    """Drop the legacy chunk_id foreign key from scenario_sources if present.
+
+    Older databases created ``scenario_sources.chunk_id -> chunks.id``. That
+    makes whole-source references impossible because this table intentionally
+    stores an empty string in ``chunk_id`` to mean "the entire source".
+    Rebuild the table in place when we detect that legacy FK.
+    """
+    async with db.execute("PRAGMA foreign_key_list('scenario_sources')") as cur:
+        foreign_keys = await cur.fetchall()
+
+    has_chunk_fk = any(
+        row[2] == "chunks" and row[3] == "chunk_id"
+        for row in foreign_keys
+    )
+    if not has_chunk_fk:
+        return
+
+    await db.execute("ALTER TABLE scenario_sources RENAME TO scenario_sources_legacy")
+    await db.execute(
+        """CREATE TABLE scenario_sources (
+            scenario_id     TEXT NOT NULL,
+            source_id       TEXT,
+            chunk_id        TEXT,
+            added_by        TEXT NOT NULL DEFAULT 'manual',
+            created_at      TEXT NOT NULL,
+            PRIMARY KEY (scenario_id, source_id, chunk_id),
+            FOREIGN KEY (scenario_id) REFERENCES scenarios(id) ON DELETE CASCADE,
+            FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE CASCADE
+        )"""
+    )
+    await db.execute(
+        """INSERT OR IGNORE INTO scenario_sources
+           (scenario_id, source_id, chunk_id, added_by, created_at)
+           SELECT legacy.scenario_id,
+                  legacy.source_id,
+                  COALESCE(legacy.chunk_id, ''),
+                  COALESCE(legacy.added_by, 'manual'),
+                  legacy.created_at
+           FROM scenario_sources_legacy AS legacy
+           JOIN scenarios AS sc ON sc.id = legacy.scenario_id
+           LEFT JOIN sources AS src ON src.id = legacy.source_id
+           WHERE legacy.source_id IS NULL OR src.id IS NOT NULL"""
+    )
+    await db.execute("DROP TABLE scenario_sources_legacy")
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_scenario_sources_sid ON scenario_sources(scenario_id)"
+    )
 
 
 def _now() -> str:
@@ -864,7 +915,7 @@ async def list_scenario_sources(scenario_id: str) -> list[dict]:
     async with _connect() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
-            """SELECT ss.source_id, ss.chunk_id, ss.added_by, ss.created_at,
+            """SELECT ss.source_id, COALESCE(ss.chunk_id, '') AS chunk_id, ss.added_by, ss.created_at,
                       c.content AS chunk_content, c.chunk_index,
                       s.name AS source_name, s.type AS source_type
                FROM scenario_sources ss
@@ -914,18 +965,25 @@ async def remove_scenario_source(
     scenario_id: str, source_id: str, chunk_id: str = ""
 ) -> None:
     async with _connect() as db:
-        await db.execute(
-            """DELETE FROM scenario_sources
-               WHERE scenario_id = ? AND source_id = ? AND chunk_id = ?""",
-            (scenario_id, source_id, chunk_id),
-        )
+        if chunk_id:
+            await db.execute(
+                """DELETE FROM scenario_sources
+                   WHERE scenario_id = ? AND source_id = ? AND chunk_id = ?""",
+                (scenario_id, source_id, chunk_id),
+            )
+        else:
+            await db.execute(
+                """DELETE FROM scenario_sources
+                   WHERE scenario_id = ? AND source_id = ?""",
+                (scenario_id, source_id),
+            )
         await db.commit()
 
 
 async def count_scenario_sources(scenario_id: str) -> int:
     async with _connect() as db:
         async with db.execute(
-            "SELECT COUNT(*) FROM scenario_sources WHERE scenario_id = ?",
+            "SELECT COUNT(DISTINCT COALESCE(source_id, chunk_id)) FROM scenario_sources WHERE scenario_id = ?",
             (scenario_id,),
         ) as cur:
             row = await cur.fetchone()

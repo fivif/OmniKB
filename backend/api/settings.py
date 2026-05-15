@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Literal
 
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
@@ -78,25 +77,24 @@ async def update_system_prompt(body: SystemPromptUpdate):
 
 
 class LLMSettingsUpdate(BaseModel):
-    provider: Literal["openai", "anthropic", "ollama", "custom"] = "custom"
+    provider: str = "deepseek"
     model: str = Field(default="", description="Default model id.")
     base_url: str = Field(default="", description="Provider base URL when applicable.")
     api_key: str = Field(default="", description="Provider API key. Empty string clears it.")
 
 
 def _read_runtime_llm_settings() -> dict:
+    from agents.llm import normalize_provider
     from config import settings
 
-    provider = settings.llm_provider
-    if provider == "anthropic":
-        api_key = settings.anthropic_api_key
-        base_url = ""
-    elif provider == "ollama":
-        api_key = ""
-        base_url = settings.ollama_base_url or settings.llm_base_url
-    else:
-        api_key = settings.llm_api_key or settings.openai_api_key
-        base_url = settings.llm_base_url
+    raw_provider = (settings.llm_provider or "").strip().lower()
+    provider = normalize_provider(
+        settings.llm_provider,
+        model=settings.llm_model,
+        base_url=settings.llm_base_url,
+    )
+    api_key = settings.llm_api_key
+    base_url = settings.llm_base_url or (settings.ollama_base_url if raw_provider == "ollama" else "")
 
     return {
         "provider": provider,
@@ -122,28 +120,18 @@ async def update_llm_settings(body: LLMSettingsUpdate):
     The frontend persists a browser-local copy and replays it after backend restarts;
     this endpoint is responsible for the live process state only.
     """
+    from agents.llm import normalize_provider
     from config import settings
 
-    provider = body.provider
+    provider = normalize_provider(body.provider, model=body.model, base_url=body.base_url)
     model = body.model.strip() or settings.llm_model
     base_url = body.base_url.strip()
     api_key = body.api_key.strip()
 
     settings.llm_provider = provider
     settings.llm_model = model
-
-    if provider == "anthropic":
-        settings.anthropic_api_key = api_key
-    elif provider == "ollama":
-        resolved_base_url = base_url or settings.ollama_base_url or "http://localhost:11434"
-        settings.ollama_base_url = resolved_base_url
-        settings.llm_base_url = resolved_base_url
-        settings.llm_api_key = ""
-    else:
-        settings.llm_base_url = base_url
-        settings.llm_api_key = api_key
-        if provider == "openai":
-            settings.openai_api_key = api_key
+    settings.llm_base_url = base_url
+    settings.llm_api_key = api_key
 
     return {**_read_runtime_llm_settings(), "updated": True}
 

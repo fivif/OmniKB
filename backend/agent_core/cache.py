@@ -1,14 +1,6 @@
-"""Prompt-cache adapter — provider-specific cache_control injection.
+"""Prompt-cache adapter — provider-specific cache accounting.
 
-Three provider families are supported:
-
-* **Anthropic** — explicit ``cache_control: {"type": "ephemeral"}`` markers
-  must be placed on the LAST content block of the system prompt and on the
-  LAST content block of the second-to-last user/tool message (so the agent
-  loop's stable prefix is cached). Cache reads are reported via
-  ``response.usage.cache_read_input_tokens`` / ``cache_creation_input_tokens``.
-
-* **OpenAI / DeepSeek / SiliconFlow** — automatic prefix caching. We do
+Current runtime providers rely on automatic prefix caching. We do
   nothing on the request side; just read ``response.usage.prompt_tokens_details.cached_tokens``
   (OpenAI) or ``response.usage.cached_tokens`` (DeepSeek) for stats.
 
@@ -30,7 +22,7 @@ from typing import Any, Literal
 logger = logging.getLogger(__name__)
 
 
-Provider = Literal["anthropic", "openai", "deepseek", "siliconflow", "ollama", "custom"]
+Provider = Literal["openai", "deepseek", "siliconflow", "custom"]
 
 
 # ─── Provider detection ───────────────────────────────────────────────
@@ -39,16 +31,12 @@ Provider = Literal["anthropic", "openai", "deepseek", "siliconflow", "ollama", "
 def detect_provider(model_or_provider: str) -> Provider:
     """Heuristic: classify a model name OR a configured provider string."""
     s = (model_or_provider or "").lower()
-    if "claude" in s or s == "anthropic":
-        return "anthropic"
     if "deepseek" in s:
         return "deepseek"
     if "qwen" in s or "siliconflow" in s or "bge" in s:
         return "siliconflow"
     if s.startswith("gpt") or s == "openai" or s.startswith("o1") or s.startswith("o3") or s.startswith("o4"):
         return "openai"
-    if "ollama" in s:
-        return "ollama"
     return "custom"
 
 
@@ -89,50 +77,8 @@ class CacheAdapter:
         system_prompt: str,
         messages: list[dict[str, Any]],
     ) -> tuple[Any, list[dict[str, Any]]]:
-        """Return ``(system, messages)`` ready for the provider.
-
-        For Anthropic the system becomes a list of content blocks with the
-        last block carrying ``cache_control``; the last user/tool message in
-        the prefix gets the same marker.
-
-        For everyone else the inputs are returned as-is — those providers
-        cache automatically based on the unchanged prompt prefix.
-        """
-        if provider != "anthropic":
-            return system_prompt, list(messages)
-
-        # ── Anthropic system prompt: convert to single-block list with cache mark
-        system_block = {"type": "text", "text": system_prompt or ""}
-        if (system_prompt or "").strip():
-            system_block["cache_control"] = dict(_EPHEMERAL)
-        prepared_system: list[dict[str, Any]] = [system_block]
-
-        # ── Anthropic message history: mark last user/tool message in prefix
-        out: list[dict[str, Any]] = [dict(m) for m in messages]
-        # Find latest non-assistant message to act as cache anchor.
-        for idx in range(len(out) - 1, -1, -1):
-            role = out[idx].get("role")
-            if role in ("user", "tool"):
-                out[idx] = self._add_cache_to_last_block(out[idx])
-                break
-        return prepared_system, out
-
-    @staticmethod
-    def _add_cache_to_last_block(message: dict[str, Any]) -> dict[str, Any]:
-        """Convert ``content`` to list-of-blocks form with cache_control on last block."""
-        msg = dict(message)
-        content = msg.get("content")
-        if isinstance(content, str):
-            msg["content"] = [
-                {"type": "text", "text": content, "cache_control": dict(_EPHEMERAL)},
-            ]
-        elif isinstance(content, list) and content:
-            blocks = [dict(b) for b in content]
-            last = dict(blocks[-1])
-            last["cache_control"] = dict(_EPHEMERAL)
-            blocks[-1] = last
-            msg["content"] = blocks
-        return msg
+        """Return ``(system, messages)`` ready for providers with auto caching."""
+        return system_prompt, list(messages)
 
     def extract_stats(
         self,
@@ -142,17 +88,7 @@ class CacheAdapter:
     ) -> CacheStats:
         """Read provider-native usage fields into a uniform CacheStats."""
         u = response_usage or {}
-        if provider == "anthropic":
-            return CacheStats(
-                provider=provider,
-                model=model,
-                input_tokens=int(u.get("input_tokens", 0) or 0),
-                cached_tokens=int(u.get("cache_read_input_tokens", 0) or 0),
-                cache_creation_tokens=int(u.get("cache_creation_input_tokens", 0) or 0),
-                output_tokens=int(u.get("output_tokens", 0) or 0),
-            )
-
-        # OpenAI & compatible (DeepSeek/SiliconFlow/Qwen)
+        # OpenAI-compatible providers (DeepSeek/SiliconFlow/Qwen included)
         cached = 0
         details = u.get("prompt_tokens_details")
         if isinstance(details, dict):
