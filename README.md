@@ -80,21 +80,20 @@ docker compose up -d    # Qdrant + Backend
 
 ### Skill 自举集成
 
-无需手动配置，将以下提示词复制给 Claude Code，Agent 会自动读取 API 文档、创建 Skill 并测试：
+无需手动编写配置文件。将以下提示词发给 Claude Code，Agent 会自行读取 API 文档、发现接口并完成集成：
 
 ```
-我需要为 OmniKB 知识库创建一个 Claude Code skill。
+我想接入 OmniKB 知识库，这是我的场景信息：
 
-API 文档地址：http://127.0.0.1:8000/scenario-api.html?scenario=你的场景ID
+API 文档页：http://127.0.0.1:8000/scenario-api.html?scenario=你的场景ID
 API Key：你的场景API密钥
 
-请你去这个页面读取 API 文档，了解所有接口和参数格式，
-然后在 ~/.claude/skills/omnikb/ 创建 SKILL.md，
-让我可以通过 /omnikb 命令搜索、问答、摄入内容。
-创建完后测试一下。
+请读取文档页了解接口格式，然后帮我搜索/问答/摄入内容。
 ```
 
-用户只需替换自己的场景 ID 和 API Key，Agent 完成其余所有步骤。
+用户只需替换自己的场景地址和 Key，其余由 Agent 自动完成。
+
+如果已克隆项目，直接输入 `/omnikb` 即可使用项目内置 Skill。
 
 ### Agent 运行时
 
