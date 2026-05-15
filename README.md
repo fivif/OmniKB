@@ -14,14 +14,12 @@ python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 
-# 3. 启动
+# 3. 启动 Qdrant（需提前安装）
+# docker run -d -p 6333:6333 qdrant/qdrant
+# 或直接使用 Qdrant Cloud
+
+# 4. 启动
 python main.py          # http://localhost:8000
-```
-
-Docker 一键部署：
-
-```bash
-docker compose up -d    # Qdrant + Backend
 ```
 
 ## 核心功能
@@ -141,7 +139,6 @@ Plan → Execute → Verify
 
 ```
 OmniKB/
-├── docker-compose.yml
 ├── .env.example
 ├── README.md
 ├── docs/                          # API + 部署文档
@@ -176,7 +173,6 @@ OmniKB/
 │       ├── scenario-manager.js    # 场景/QA 管理
 │       └── scenario-api.js        # 场景 API 客户端
 └── backend/
-    ├── Dockerfile
     ├── requirements.txt
     ├── main.py                    # FastAPI 入口 · 中间件 · lifespan
     ├── config.py                  # Pydantic 配置（38 个 env 变量）
