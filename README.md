@@ -78,23 +78,6 @@ docker compose up -d    # Qdrant + Backend
 
 特性：Bearer Token 鉴权、滑动窗口速率限制（60次/60秒/IP）、调用日志持久化（SQLite）。
 
-### Skill 自举集成
-
-无需手动编写配置文件。将以下提示词发给 Claude Code，Agent 会自行读取 API 文档、发现接口并完成集成：
-
-```
-我想接入 OmniKB 知识库，这是我的场景信息：
-
-API 文档页：http://127.0.0.1:8000/scenario-api.html?scenario=你的场景ID
-API Key：你的场景API密钥
-
-请读取文档页了解接口格式，然后帮我搜索/问答/摄入内容。
-```
-
-用户只需替换自己的场景地址和 Key，其余由 Agent 自动完成。
-
-如果已克隆项目，直接输入 `/omnikb` 即可使用项目内置 Skill。
-
 ### Agent 运行时
 
 自研 `agent_core` — Provider 无关的 Agent 循环引擎（2,292 行，13 文件）：
