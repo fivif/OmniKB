@@ -41,24 +41,9 @@ class KbChatRequest(BaseModel):
 
 
 _RETRIEVAL_HISTORY_TURNS = 3
-_SUFFICIENCY_CHECK = """\
-You are evaluating whether the retrieved context is sufficient to answer a question.
-Read the context and question, then respond with exactly ONE line:
-
-SUFFICIENT
-- or -
-NEED_MORE: <specific query to search for the missing information>
-
-Question: {question}
-
-Retrieved context:
-{context}
-"""
-
 _CTX_TEMPLATE = """\
-Use the following excerpts from the scenario knowledge base as internal reference.
-Do not say the user provided these excerpts, do not mention how many chunks were retrieved,
-and do not narrate your retrieval process. Answer the question directly and cite sources as [1], [2], etc.
+Use the following excerpts from the scenario knowledge base as your primary reference
+to answer the question comprehensively. Cite sources inline as [1], [2], etc.
 
 <context>
 {chunks}
@@ -67,8 +52,9 @@ and do not narrate your retrieval process. Answer the question directly and cite
 User question: {question}"""
 
 _NO_CTX_TEMPLATE = """\
-The scenario knowledge base did not yield enough evidence for this question.
-Answer carefully based on the conversation so far, and clearly say what information is missing if the KB evidence is insufficient.
+The scenario knowledge base did not contain relevant evidence for this question.
+Answer based on your own knowledge, and be clear about what information comes from
+the KB versus your general knowledge. Provide a helpful and thorough response.
 
 User question: {question}"""
 
@@ -212,52 +198,25 @@ async def _stream_kb_chat(
 
     retrieval_query, user_query = _build_retrieval_query(req.messages)
 
-    initial_k = max(req.top_k, 10)
+    # Single generous retrieval pass — no pre-stream LLM calls
+    initial_k = max(req.top_k, 15)
     all_chunks = await _retrieve_chunks(retrieval_query or user_query, scenario_id, initial_k)
-    seen_ids = {chunk["id"] for chunk in all_chunks}
 
     from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
     system_prompt = (sc.get("system_prompt") or (
         "You are a helpful knowledge base assistant. "
-        "Use the provided context to answer the user's question accurately. "
+        "Use the provided context to answer the user's question thoroughly and accurately. "
         "Cite sources as [1], [2], etc. when using them."
     )) + "\n\n" + (
-        "Treat retrieved KB excerpts as internal context, not something the user manually provided. "
-        "Never say phrases like '你提供了这些片段'、'现在我有足够的信息' or narrate the retrieval process. "
-        "Answer directly, keep the conversation natural, and if evidence is insufficient, plainly say what is still missing."
+        "Treat retrieved KB excerpts as internal reference material. "
+        "Do not say the user provided these excerpts, do not mention how many chunks were retrieved, "
+        "and do not narrate your retrieval process. "
+        "Answer the question directly and comprehensively. Use the full context available. "
+        "Structure your answer with clear headings, lists, and tables where appropriate."
     )
 
-    llm = _get_llm(provider, model, base_url, api_key)
-    for _ in range(3):
-        if not all_chunks:
-            break
-        ctx_preview = "\n\n".join(
-            f"[{i + 1}] {chunk['content'][:200]}" for i, chunk in enumerate(all_chunks[:10])
-        )
-        check_prompt = _SUFFICIENCY_CHECK.format(question=user_query, context=ctx_preview)
-        try:
-            check_resp = await llm.ainvoke([HumanMessage(content=check_prompt)])
-            verdict = (check_resp.content or "").strip()
-        except Exception as exc:
-            _lg.getLogger(__name__).warning("Scenario sufficiency check failed: %s", exc)
-            break
-
-        if verdict.upper().startswith("SUFFICIENT"):
-            break
-
-        follow_up = verdict.split(":", 1)[1].strip() if "NEED_MORE:" in verdict.upper() else verdict
-        if len(follow_up) < 3:
-            break
-
-        extra = await _retrieve_chunks(follow_up, scenario_id, initial_k)
-        new_chunks = [chunk for chunk in extra if chunk["id"] not in seen_ids]
-        if not new_chunks:
-            break
-        seen_ids.update(chunk["id"] for chunk in new_chunks)
-        all_chunks.extend(new_chunks)
-
-    chunks = all_chunks[:max(req.top_k, 10)]
+    chunks = all_chunks[:max(req.top_k, 12)]
 
     lc_msgs = [SystemMessage(content=system_prompt)]
     for msg in req.messages[:-1]:
@@ -274,6 +233,8 @@ async def _stream_kb_chat(
 
     lc_msgs.append(HumanMessage(content=final_user))
 
+    # Stream immediately — no pre-stream LLM calls
+    llm = _get_llm(provider, model, base_url, api_key)
     full_text = ""
     async for chunk in llm.astream(lc_msgs):
         token = chunk.content
