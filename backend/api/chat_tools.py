@@ -32,6 +32,10 @@ class ChatContext:
     then walks ``retrieved_chunks`` to emit citations.
     """
     kb_filter: dict[str, str] | None = None
+    qdrant_filter: object | None = None
+    """Optional Qdrant Filter for scenario-scoped retrieval."""
+    scenario_source_ids: list[str] | None = None
+    """When set, list_sources / get_source_chunks are scoped to these sources."""
     retrieved_chunks: list[dict] = field(default_factory=list)
     """Chunks returned across all search_kb calls, deduped by id."""
     fetched_urls: list[str] = field(default_factory=list)
@@ -66,27 +70,21 @@ def build_chat_tools(ctx: ChatContext):
         their source name and chunk ID. Call this whenever the user's
         question might be answered from existing materials.
         """
-        from pipeline.embedder import embed_dense, embed_sparse
-        from storage.vector_store import hybrid_search
+        from pipeline.retrieval import retrieve_chunks
         try:
-            dense = (await embed_dense([query]))[0]
-        except Exception as exc:
-            return f"[search_kb: embedding failed — {exc}]"
-        try:
-            sparse = embed_sparse([query])[0]
-            si, sv = sparse[0], sparse[1]
-        except Exception:
-            si, sv = [], []
-        try:
-            chunks = await hybrid_search(
-                query_dense=dense,
-                query_sparse_indices=si,
-                query_sparse_values=sv,
+            retrieval = await retrieve_chunks(
+                query=query,
                 top_k=top_k,
                 filters=ctx.kb_filter,
+                mode="hybrid",
+                rerank=True,
+                diversify=True,
+                expand=True,
+                qdrant_filter=ctx.qdrant_filter,
             )
         except Exception as exc:
             return f"[search_kb: search failed — {exc}]"
+        chunks = retrieval.results
         if not chunks:
             return "[search_kb: no matching chunks]"
         ctx.register_chunks(chunks)
@@ -108,6 +106,9 @@ def build_chat_tools(ctx: ChatContext):
             rows = await _list_sources(limit=max(1, min(limit, 50)), filter_tag=tag or None)
         except Exception as exc:
             return f"[list_sources error: {exc}]"
+        if ctx.scenario_source_ids is not None:
+            sid_set = set(ctx.scenario_source_ids)
+            rows = [r for r in rows if r.get("id") in sid_set]
         compact = [
             {
                 "id": r.get("id"),
@@ -138,6 +139,8 @@ def build_chat_tools(ctx: ChatContext):
         of relying on semantic search.
         """
         from storage.metadata_db import list_chunks_by_source
+        if ctx.scenario_source_ids is not None and source_id not in ctx.scenario_source_ids:
+            return f"[get_source_chunks: source {source_id} not in current scenario]"
         try:
             chunks = await list_chunks_by_source(source_id, limit=max(1, min(limit, 20)))
         except Exception as exc:
