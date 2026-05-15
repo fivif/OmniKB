@@ -78,23 +78,23 @@ docker compose up -d    # Qdrant + Backend
 
 特性：Bearer Token 鉴权、滑动窗口速率限制（60次/60秒/IP）、调用日志持久化（SQLite）。
 
-Claude Desktop 配置示例：
+### Skill 自举集成
 
-```json
-{
-  "mcpServers": {
-    "omnikb": {
-      "command": "python3",
-      "args": ["path/to/backend/mcp_server/run_stdio.py"],
-      "env": {
-        "LLM_API_KEY": "sk-...",
-        "MCP_API_KEY": "your-mcp-key",
-        "QDRANT_URL": "http://localhost:6333"
-      }
-    }
-  }
-}
+无需手动配置，将以下提示词复制给 Claude Code，Agent 会自动读取 API 文档、创建 Skill 并测试：
+
 ```
+我需要为 OmniKB 知识库创建一个 Claude Code skill。
+
+API 文档地址：http://127.0.0.1:8000/scenario-api.html?scenario=你的场景ID
+API Key：你的场景API密钥
+
+请你去这个页面读取 API 文档，了解所有接口和参数格式，
+然后在 ~/.claude/skills/omnikb/ 创建 SKILL.md，
+让我可以通过 /omnikb 命令搜索、问答、摄入内容。
+创建完后测试一下。
+```
+
+用户只需替换自己的场景 ID 和 API Key，Agent 完成其余所有步骤。
 
 ### Agent 运行时
 
