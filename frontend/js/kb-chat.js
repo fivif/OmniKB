@@ -192,7 +192,7 @@
     const param = params.get('api');
     if (param) return param.replace(/\/+$/, '');
     if (window.location.protocol === 'file:') {
-      return String(getLocalSettings().api_base || 'http://localhost:8000').replace(/\/+$/, '');
+      return String(getLocalSettings().api_base || 'http://localhost:6886').replace(/\/+$/, '');
     }
     return window.location.origin;
   }

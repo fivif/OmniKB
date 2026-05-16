@@ -258,5 +258,5 @@ if __name__ == "__main__":
     import uvicorn
 
     host = os.environ.get("OMNIKB_HOST", "0.0.0.0")
-    port = int(os.environ.get("OMNIKB_PORT", "8000"))
+    port = int(os.environ.get("OMNIKB_PORT", "6886"))
     uvicorn.run(app, host=host, port=port)

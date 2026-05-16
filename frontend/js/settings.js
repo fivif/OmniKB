@@ -18,7 +18,7 @@
               <div class="field-grid settings-form-grid">
                 <div class="stack-sm settings-field">
                   <label class="form-label">后端地址</label>
-                  <input id="s-api-base" class="input" type="text" placeholder="http://localhost:8000" />
+                  <input id="s-api-base" class="input" type="text" placeholder="http://localhost:6886" />
                 </div>
                 <div class="stack-sm settings-field">
                   <label class="form-label">HTTP 代理</label>
@@ -118,7 +118,7 @@
               <div class="stats-grid settings-summary-grid">
                 <div class="stats-card">
                   <span class="stats-label">后端</span>
-                  <strong id="settings-summary-base" class="stats-value">http://localhost:8000</strong>
+                  <strong id="settings-summary-base" class="stats-value">http://localhost:6886</strong>
                 </div>
                 <div class="stats-card">
                   <span class="stats-label">代理</span>
@@ -172,7 +172,7 @@
   };
 
   const defaults = {
-    api_base: 'http://localhost:8000',
+    api_base: 'http://localhost:6886',
     http_proxy: '',
     llm_provider: 'custom',
     llm_model: '',

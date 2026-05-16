@@ -14,10 +14,8 @@ python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 
-# 3. 启动
-# 默认 QDRANT_MODE=local，无需单独启动 Qdrant 服务
-# 如需 remote 模式，可在项目根目录运行：docker compose up -d qdrant
-python main.py          # http://localhost:8000
+# 3. 启动（默认 QDRANT_MODE=local 本地文件持久化，无需额外服务）
+python main.py          # http://localhost:6886
 ```
 
 ## 核心功能

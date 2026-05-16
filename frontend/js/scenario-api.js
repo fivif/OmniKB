@@ -46,7 +46,7 @@
     const param = params.get('api');
     if (param) return param.replace(/\/+$/, '');
     if (window.location.protocol === 'file:') {
-      return String(getLocalSettings().api_base || 'http://localhost:8000').replace(/\/+$/, '');
+      return String(getLocalSettings().api_base || 'http://localhost:6886').replace(/\/+$/, '');
     }
     return window.location.origin;
   }
@@ -281,7 +281,7 @@
       document.title = '场景 API 接入';
       titleEl.textContent = '场景加载失败';
       descEl.textContent = '请检查场景 ID 或后端地址是否正确。';
-      leadEl.textContent = '如果你是本地打开 HTML，可以通过 ?api=http://localhost:8000 指定后端地址。';
+      leadEl.textContent = '如果你是本地打开 HTML，可以通过 ?api=http://localhost:6886 指定后端地址。';
       setStatus(`读取场景配置失败：${error.message}`, 'error');
     }
   }

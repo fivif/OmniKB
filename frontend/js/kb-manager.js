@@ -912,7 +912,7 @@
   ['json', 'csv', 'zip'].forEach(format => {
     document.getElementById(`export-${format}`).addEventListener('click', event => {
       event.preventDefault();
-      const base = typeof getApiBase === 'function' ? getApiBase() : 'http://localhost:8000';
+      const base = typeof getApiBase === 'function' ? getApiBase() : 'http://localhost:6886';
       window.open(`${base}/kb/export?fmt=${format}`, '_blank');
       document.getElementById('export-menu').classList.add('hidden');
     });

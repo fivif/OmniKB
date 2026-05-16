@@ -70,9 +70,9 @@
   function getStoredApiBase() {
     try {
       const saved = JSON.parse(localStorage.getItem('omnikb_settings') || '{}');
-      return String(saved.api_base || 'http://localhost:8000').replace(/\/+$/, '');
+      return String(saved.api_base || 'http://localhost:6886').replace(/\/+$/, '');
     } catch {
-      return 'http://localhost:8000';
+      return 'http://localhost:6886';
     }
   }
 

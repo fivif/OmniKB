@@ -283,7 +283,7 @@
     formData.append('tags', document.getElementById('file-tags').value.trim());
 
     try {
-      const base = loadSettings().api_base || 'http://localhost:8000';
+      const base = loadSettings().api_base || 'http://localhost:6886';
       const response = await fetch(`${base}/ingest/file`, { method: 'POST', body: formData });
       if (!response.ok) throw new Error((await response.json()).detail || response.statusText);
       const data = await response.json();

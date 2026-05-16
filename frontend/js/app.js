@@ -3,9 +3,9 @@
 function getApiBase() {
   try {
     const s = JSON.parse(localStorage.getItem('omnikb_settings') || '{}');
-    return s.api_base || 'http://localhost:8000';
+    return s.api_base || 'http://localhost:6886';
   } catch {
-    return 'http://localhost:8000';
+    return 'http://localhost:6886';
   }
 }
 const API_BASE = getApiBase();
@@ -52,7 +52,7 @@ function saveSettings(obj) {
 
 // ── API helper ──────────────────────────────────────────────
 async function api(path, options = {}) {
-  const base = loadSettings().api_base || 'http://localhost:8000';
+  const base = loadSettings().api_base || 'http://localhost:6886';
   const url = base + path;
   try {
     const res = await fetch(url, {
@@ -153,7 +153,7 @@ let backendStatusTimer = null;
 async function refreshBackendStatus(forceToast = false) {
   const pill = document.getElementById('topbar-status-pill');
   const label = document.getElementById('topbar-status-label');
-  const base = loadSettings().api_base || 'http://localhost:8000';
+  const base = loadSettings().api_base || 'http://localhost:6886';
   if (!pill || !label) return false;
 
   pill.classList.remove('is-online', 'is-offline', 'is-warning');
@@ -199,7 +199,7 @@ window.__omnikb_protocol_v2 = false;
 
 async function detectOmnikbV2() {
   try {
-    const base = loadSettings().api_base || 'http://localhost:8000';
+    const base = loadSettings().api_base || 'http://localhost:6886';
     const r = await fetch(base + '/agent/v2/events?probe=1', { method: 'HEAD' });
     window.__omnikb_protocol_v2 = r.ok;
   } catch {
