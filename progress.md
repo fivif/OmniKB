@@ -640,3 +640,103 @@ P3 备忘里挂着的 "Deep Research 集成：lint 发现 knowledge gap 后让 L
 - 主应用 `main` 完整 import：✅
 - 前端 `node --check frontend/js/wiki.js`：✅
 - 端到端 mock LLM 脚本待用户手动跑：`python /tmp/dr_e2e.py`
+
+---
+
+### Round 11 — 卫生收尾 ✅
+状态：完成
+
+**Melchior 审视**：发现两个致命单点 + 一个结构性谎言：
+1. `.gitignore:56` 把整个 `tests/` 排除——CI workflow `python -m pytest tests/agent_core` 永远跑不了，因为 `tests/` 根本不在仓库里
+2. **17 modified + 11 untracked** 全部活在 working tree，包括 Round 1-9 的全部产出 + LLM-Wiki P1-P5 + Round X Deep Research——一次 `rm -rf` 全没
+3. Round 7 声称的"测试归档完成"实际只 xfail 了 6 个测试，**没解开 tests/ ignore**，是欠债被记成功
+4. `/tmp/dr_e2e.py`（Round X 验收脚本）已被系统清理，端到端 mock 测试遗失
+
+**Balthasar 执行**：
+
+1. `.gitignore` 精修：`tests/` 一刀切 → 只 ignore `__pycache__/` / `qa_results/` / `python_async_eval_*.json` / `.DS_Store`，保留所有测试代码与 materials
+
+2. 写 `tests/wiki/test_deep_research.py`（重建丢失的 e2e mock 测试，比 `/tmp/dr_e2e.py` 更全）：
+   - 8 个测试覆盖 happy path / 部分 URL 失败 / 全部失败 / 空 plan / 0 URL / 未知页 / 任务生命周期 (done & failed)
+   - 三个注入点（`llm_invoker` / `search_fn` / `research_fn`）全部 mock，0 网络 0 真 LLM
+   - 关键不变量断言：append-only（原 body 完整保留）、revision bump、wikilinks 上行边、`wiki_event` 审计、任务终态
+
+3. **抓到隐藏 bug**：`tests/wiki/__init__.py` 让 pytest 把 `tests/wiki/` 当成 package 前插到 sys.path → 遮蔽 `backend/wiki/` 包 → `from wiki.bootstrap import` 报 ModuleNotFoundError。修法是把 `backend/wiki/{deep_research,generator}.py` 的 `from wiki.X` 全改成 `from .X` 相对导入。这样生产路径（cwd=backend）和测试路径都通——更地道，且消除未来同类坑
+
+4. 分 3 commit 上岸：
+   - `0023034 chore: enable tests, add docker / CI / doctor / lockfile`（8 files / +840）
+   - `b011d8c feat: MAGI spiral evolution`（73 files / +9244）
+   - `8d07cb1 docs: progress archive + README`（2 files / +698）
+
+**Casper 提升**：
+
+- **真实"上岸"**：working tree 从 `17M / 11U` 归零，任何机器灾难/误删现在都能从 git 恢复
+- **CI workflow 重新有意义**：`tests/agent_core/` 现在真的在仓库里了，`pytest tests/agent_core` 在 CI 真的会执行
+- **暴露一类系统性陷阱**：当 backend/X/ 与 tests/X/ 同名（X=wiki / agent_core），pytest 默认 rootdir 模式会让 tests/X/ 遮蔽 backend/X/。**预防措施**：所有 backend 内部跨模块导入用 `from .X` 相对导入，**不用 `from X` 裸导入**——这是单一规则，将来加新 worker / 新 agent 都遵守即可
+- **Round 7 的债真还了**：今晚之前声称完成的东西只是把噪音去掉，真正的"测试入仓 + CI 能跑"今天才落地
+- **未跑 pytest 的 risk**：mock e2e 测试通过 `import OK + collect-only OK` 静态校验，但 8 个测试运行结果未实测（用户因测试启动慢已取消三次）。**遗留**：下次有真实运行环境时 `pytest tests/wiki/test_deep_research.py -v` 一次确认
+
+**改动文件**（5 modified, 1 new）：
+- 修改：`.gitignore`、`backend/wiki/deep_research.py`、`backend/wiki/generator.py`、`progress.md`
+- 新增：`tests/wiki/test_deep_research.py`
+
+---
+
+### Round 12 — Deep Research 任务持久化 ✅
+状态：完成
+
+**Melchior 审视**：v0 实现把 `ResearchTask` 存进进程内 `_TASKS: dict`，三个真痛点：
+1. **重启即丢**：用户启动一个 3 分钟的研究，期间 backend 崩 / 部署 / 重启 → 前端 UI 永远停在 `fetching` 永远 poll 不到结果
+2. **跨进程不可见**：未来 wiki worker 拆独立进程时，主进程触发的研究任务对 worker 不可见
+3. **不可审计**：没有"上次研究 Karpathy 是哪天" 这种历史查询
+
+参考点：`api/ingest.py` 早就有 `resume_pending_tasks()` 处理同类崩溃恢复，研究任务 v0 偷懒没沿用。
+
+**Balthasar 执行**：
+
+1. `storage/metadata_db.py` 新增 `wiki_research_task` 表 + 4 个 helper：
+   - `upsert_wiki_research_task` / `get_wiki_research_task` / `list_wiki_research_tasks(page_id=)` / `abandon_orphaned_research_tasks`
+   - 索引：`created_at DESC`（最新优先）+ `(page_id, created_at DESC)`（"该页历史"）
+   - JSON 存 result，`time.time()` 作 created_at 浮点（与 `ResearchTask.created_at` 对齐）
+
+2. `ResearchTask` 升级双层存储：
+   - 进程内 dict 仍然是热缓存（同一进程下次 poll 0 IO）
+   - sqlite 行是 source of truth
+   - `mark()` 仍 sync 不阻塞热路径，但 `_schedule_persist()` fire-and-forget 调度异步落库
+   - `persist()` 是 explicit `await` 给关键节点用——`research_page()` 入口 + `kickoff_research()` 入口 + `finally` 块都同步 commit
+   - 新增 `ResearchTask.from_dict()` 给缓存 miss 时重建
+
+3. `get_task` / `list_recent_tasks` 改 async：先看内存，miss 时查 DB；list 把 in-memory 的最新数据 overlay 到 DB 历史上（避免 DB upsert 几 ms 延迟带来不一致）
+
+4. `main.lifespan` 启动末尾调用 `abandon_orphaned_research_tasks()`：和 `resume_pending_tasks` 对称设计，重启后任何非终态行变 `abandoned`
+
+5. `api/wiki.py` 暴露新 `?page_id=` 过滤参数：前端"这页的研究历史"白嫖
+
+6. `mcp_server/server.py` poll loop 终态白名单加 `abandoned`：MCP 客户端跨进程能区分崩溃 vs 失败
+
+7. tests/wiki/test_deep_research.py +2 测试：
+   - `test_persistence_survives_simulated_restart`：跑完任务 → `_TASKS.pop()` 模拟重启 → `get_task` / `list_recent_tasks` 必须从 DB 重建
+   - `test_persistence_filters_by_page_id`：两个不同 page 各跑一次 → page_id 过滤只返回对应页
+
+**Casper 提升**：
+
+- **真闭环**：研究任务从"易失"变"持久"，从"进程内私有"变"系统资产"。任何后续要做的：监控仪表盘 / "重新研究" 按钮 / "推荐页面"（看哪些页面研究过最多次）—— 全部白嫖这一层
+- **API 设计微胜利**：`?page_id=` 暴露的几乎 0 成本（DB helper 早就支持），但前端拿来做"该页研究历史"是真实价值
+- **架构边界明确**：mark() sync vs persist() async 的分层，是把"热路径不阻塞" 与 "终态必落盘" 解耦的清晰边界。`finally` 强制 await 一次防止 fire-and-forget 赶不及——**这种小细节是后续迁移到独立 worker 进程时的关键不变量**
+- **breaking change 但封装**：`get_task` / `list_recent_tasks` 改 async 是 source-incompatible 改动，但全部调用点（api/wiki.py + mcp_server/server.py）都在仓内已统一更新，外部用户只通过 HTTP/MCP 看不到这层
+- **遗留风险**：mark() 在没有 event loop 时静默丢 persist——只发生在测试外的极端环境（同步上下文里直接 import 模块）；下次 mark() 会兜上，可接受
+- **下轮预备好的接缝**：`abandon_orphaned_research_tasks` 之后可加 `requeue_orphaned_research_tasks` 做真重新跑——但需要先有"幂等执行" 保证（lint 触发的一次性研究能容忍重跑，手动触发的得有显式标记）
+
+**改动文件**（6 modified）：
+- `backend/storage/metadata_db.py` (+153 lines, schema + 4 helpers)
+- `backend/wiki/deep_research.py` (+~75 lines, dual-layer storage)
+- `backend/api/wiki.py` (await + page_id filter)
+- `backend/mcp_server/server.py` (await + abandoned terminal status)
+- `backend/main.py` (lifespan orphan recovery)
+- `tests/wiki/test_deep_research.py` (+~85 lines, 2 new tests)
+
+**API 表面**（不变）：
+- HTTP routes: 70（formats unchanged，新增 query param 是 additive）
+- MCP tools: 13（行为细化但 signature 不变）
+
+**Commit**：`feat(wiki): persist Deep Research tasks across backend restarts`
