@@ -374,10 +374,89 @@ async def test_task_lifecycle_done(unique_slug):
     assert task.finished_at is not None
     assert task.result is not None and "new_chars" in task.result
 
-    # Lookups round-trip.
-    assert get_task(task.task_id) is task
-    recent = list_recent_tasks(limit=5)
+    # Lookups round-trip — get_task / list_recent_tasks are now async
+    # because they fall back to the wiki_research_task table when the
+    # in-process cache misses (post-restart, cross-process).
+    assert (await get_task(task.task_id)) is task
+    recent = await list_recent_tasks(limit=5)
     assert task in recent
+
+
+@pytest.mark.asyncio
+async def test_persistence_survives_simulated_restart(unique_slug):
+    """After a happy-path run, evicting the in-process cache simulates a
+    backend restart. get_task / list_recent_tasks must still return the
+    task by reading the wiki_research_task table."""
+    from backend.config import settings
+
+    page_id, _ = await _seed_page(unique_slug)
+
+    invoker = _make_invoker(
+        plan_resp=_mock_plan_response([("q", "i")]),
+        synth_resp=_mock_synthesis_response(),
+    )
+    researcher = DeepResearcher(
+        data_dir=settings.data_dir,
+        llm_invoker=invoker,
+        search_fn=_make_search([
+            SearchResult(url="https://persist.example.com", title="t", snippet=""),
+        ]),
+        research_fn=_make_research({
+            "https://persist.example.com": "Persisted content. " * 30,
+        }),
+        max_urls=1, max_queries=1,
+    )
+    task = ResearchTask(task_id=f"persist-{unique_slug}", page_id=page_id)
+    _TASKS[task.task_id] = task
+    await researcher.research_page(page_id=page_id, task=task)
+    assert task.status == "done"
+
+    # Simulate a restart: drop the in-process cache. Lookups must fall
+    # back to the DB row written by mark()/persist().
+    cached_id = task.task_id
+    _TASKS.pop(cached_id, None)
+
+    rebuilt = await get_task(cached_id)
+    assert rebuilt is not None, "task should be reconstructable from the DB"
+    assert rebuilt.task_id == cached_id
+    assert rebuilt.status == "done"
+    assert rebuilt.result is not None and rebuilt.result.get("new_chars", 0) > 0
+
+    # And it must show up in list_recent_tasks even with empty cache.
+    history = await list_recent_tasks(limit=10)
+    assert any(t.task_id == cached_id for t in history)
+
+
+@pytest.mark.asyncio
+async def test_persistence_filters_by_page_id(unique_slug):
+    """list_recent_tasks must accept a page_id filter for 'this page's
+    research history' queries."""
+    from backend.config import settings
+
+    page_a, _ = await _seed_page(f"a-{unique_slug}")
+    page_b, _ = await _seed_page(f"b-{unique_slug}")
+
+    invoker = _make_invoker(
+        plan_resp=_mock_plan_response([("q", "i")]),
+        synth_resp=_mock_synthesis_response(),
+    )
+    researcher = DeepResearcher(
+        data_dir=settings.data_dir,
+        llm_invoker=invoker,
+        search_fn=_make_search([
+            SearchResult(url="https://x.example.com", title="t", snippet=""),
+        ]),
+        research_fn=_make_research({
+            "https://x.example.com": "Content. " * 30,
+        }),
+        max_urls=1, max_queries=1,
+    )
+    await researcher.research_page(page_id=page_a)
+    await researcher.research_page(page_id=page_b)
+
+    only_a = await list_recent_tasks(limit=20, page_id=page_a)
+    assert all(t.page_id == page_a for t in only_a)
+    assert any(t.page_id == page_a for t in only_a)
 
 
 @pytest.mark.asyncio

@@ -293,9 +293,11 @@ async def kickoff_deep_research(req: DeepResearchRequest) -> DeepResearchTaskOut
 )
 async def list_deep_research_tasks(
     limit: int = Query(20, ge=1, le=200),
+    page_id: str | None = Query(None, description="Optional page filter"),
 ) -> list[DeepResearchTaskOut]:
     from wiki.deep_research import list_recent_tasks
-    return [DeepResearchTaskOut(**t.to_dict()) for t in list_recent_tasks(limit)]
+    tasks = await list_recent_tasks(limit, page_id=page_id)
+    return [DeepResearchTaskOut(**t.to_dict()) for t in tasks]
 
 
 @router.get(
@@ -305,7 +307,7 @@ async def list_deep_research_tasks(
 )
 async def get_deep_research_task(task_id: str) -> DeepResearchTaskOut:
     from wiki.deep_research import get_task
-    task = get_task(task_id)
+    task = await get_task(task_id)
     if task is None:
         raise HTTPException(404, f"unknown research task: {task_id}")
     return DeepResearchTaskOut(**task.to_dict())

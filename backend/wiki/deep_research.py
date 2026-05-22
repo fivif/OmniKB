@@ -49,7 +49,10 @@ from typing import Any, Awaitable, Callable
 from storage.metadata_db import (
     append_wiki_event,
     get_wiki_page,
+    get_wiki_research_task,
+    list_wiki_research_tasks,
     upsert_wiki_page,
+    upsert_wiki_research_task,
     upsert_wikilink,
 )
 from .bootstrap import page_path
@@ -84,15 +87,23 @@ ResearchFn = Callable[[str, str], Awaitable[str]]
 class ResearchTask:
     """Mutable handle the API returns + the UI polls.
 
-    Kept in a process-local dict — when the backend restarts, in-flight
-    research vanishes. Acceptable for v0 since research is initiated
-    manually and a restart while one is running is unlikely. If we
-    later want persistence, swap this for a sqlite row.
+    Two storage tiers in lockstep:
+
+    * **In-process dict** (``_TASKS``) — hot cache for the same-process
+      active task. Updated synchronously by ``mark()`` so the next poll
+      sees the new status without an IO round-trip.
+    * **SQLite row** (``wiki_research_task`` table) — source of truth.
+      Survives backend restarts (orphans get marked 'abandoned' on
+      startup), visible across worker processes, queryable for history.
+
+    ``mark()`` schedules a fire-and-forget async upsert so the hot path
+    stays sync. Callers that need durability before returning to the
+    user can ``await persist()`` explicitly.
     """
     task_id:     str
     page_id:     str
     focus:       str = ""
-    status:      str = "queued"   # queued|searching|fetching|synthesising|writing|done|failed
+    status:      str = "queued"   # queued|searching|fetching|synthesising|writing|done|failed|abandoned
     phase_note:  str = ""         # short human-readable subdetail
     created_at:  float = field(default_factory=time.time)
     finished_at: float | None = None
@@ -100,9 +111,31 @@ class ResearchTask:
     error:       str | None = None
 
     def mark(self, status: str, *, note: str = "") -> None:
+        """Update in-process state + schedule a DB upsert (fire-and-forget)."""
         self.status = status
         self.phase_note = note
         logger.info("research[%s] %s — %s", self.task_id[:8], status, note or "")
+        self._schedule_persist()
+
+    def _schedule_persist(self) -> None:
+        """Best-effort async persistence; never block the caller."""
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                asyncio.create_task(self.persist(), name=f"research-persist:{self.task_id[:8]}")
+                return
+        except RuntimeError:
+            pass
+        # No running loop (e.g. unit tests calling mark() outside async
+        # context). Drop the persist — the orchestrator's own async
+        # context will catch up via the next mark() call.
+
+    async def persist(self) -> None:
+        """Upsert the current state into the DB. Failures log but never raise."""
+        try:
+            await upsert_wiki_research_task(self.to_dict())
+        except Exception as exc:  # noqa: BLE001 — best-effort
+            logger.warning("research[%s] persist failed: %s", self.task_id[:8], exc)
 
     def to_dict(self) -> dict:
         return {
@@ -117,17 +150,61 @@ class ResearchTask:
             "error":       self.error,
         }
 
+    @classmethod
+    def from_dict(cls, row: dict) -> "ResearchTask":
+        """Reconstruct a (read-only) task from a DB row.
+
+        Used by ``get_task`` / ``list_recent_tasks`` when the in-process
+        cache misses (after restart, or for cross-process visibility).
+        """
+        return cls(
+            task_id=     row["task_id"],
+            page_id=     row["page_id"],
+            focus=       row.get("focus") or "",
+            status=      row["status"],
+            phase_note=  row.get("phase_note") or "",
+            created_at=  float(row.get("created_at") or 0.0),
+            finished_at= row.get("finished_at"),
+            result=      row.get("result"),
+            error=       row.get("error"),
+        )
+
 
 _TASKS: dict[str, ResearchTask] = {}
 
 
-def get_task(task_id: str) -> ResearchTask | None:
-    return _TASKS.get(task_id)
+async def get_task(task_id: str) -> ResearchTask | None:
+    """Return the live in-process task if any, else reconstruct from DB.
+
+    Async signature lets the API hit the persisted ledger transparently
+    after a restart. Callers must ``await`` it now (was sync in v0).
+    """
+    cached = _TASKS.get(task_id)
+    if cached is not None:
+        return cached
+    row = await get_wiki_research_task(task_id)
+    return ResearchTask.from_dict(row) if row else None
 
 
-def list_recent_tasks(limit: int = 20) -> list[ResearchTask]:
-    """Most recent first — used by the UI status panel."""
-    items = sorted(_TASKS.values(), key=lambda t: t.created_at, reverse=True)
+async def list_recent_tasks(limit: int = 20, *, page_id: str | None = None) -> list[ResearchTask]:
+    """Most recent first; merges live in-process tasks with DB history.
+
+    Strategy:
+
+    1. Pull the latest ``limit`` rows from the DB (source of truth).
+    2. Overlay any live ``_TASKS`` entries — same task_id wins from
+       memory, since it has the freshest phase_note (DB upsert may lag
+       by a few ms).
+    """
+    rows = await list_wiki_research_tasks(limit=limit, page_id=page_id)
+    by_id: dict[str, ResearchTask] = {
+        r["task_id"]: ResearchTask.from_dict(r) for r in rows
+    }
+    for live in _TASKS.values():
+        if page_id is not None and live.page_id != page_id:
+            continue
+        by_id[live.task_id] = live  # in-memory wins
+    items = sorted(by_id.values(), key=lambda t: t.created_at, reverse=True)
     return items[:limit]
 
 
@@ -245,6 +322,9 @@ class DeepResearcher:
         if task is None:
             task = ResearchTask(task_id=uuid.uuid4().hex, page_id=page_id, focus=focus)
             _TASKS[task.task_id] = task
+            # Persist immediately so even an instantly-failing task
+            # leaves a row behind for audit.
+            await task.persist()
 
         try:
             task.mark("loading", note=f"reading {page_id}")
@@ -321,6 +401,14 @@ class DeepResearcher:
             raise
         finally:
             task.finished_at = time.time()
+            # Synchronously commit the terminal row before returning.
+            # Without this, a fast-finishing task could race the
+            # fire-and-forget persist scheduled by mark() and leave a
+            # stale 'fetching' row visible to the next poll.
+            try:
+                await task.persist()
+            except Exception:  # noqa: BLE001
+                pass
 
     # ── Internal stages ──────────────────────────────────────
 
@@ -600,6 +688,11 @@ async def kickoff_research(
     researcher = DeepResearcher(data_dir=data_dir, max_urls=max_urls)
     task = ResearchTask(task_id=uuid.uuid4().hex, page_id=page_id, focus=focus)
     _TASKS[task.task_id] = task
+    # Persist the queued row before the HTTP response returns so a
+    # client that immediately polls /wiki/research/{task_id} (or that
+    # restarts and re-fetches by the task_id we just gave them) always
+    # sees a real row, not a 404.
+    await task.persist()
 
     async def _runner() -> None:
         try:

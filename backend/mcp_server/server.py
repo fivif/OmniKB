@@ -244,17 +244,19 @@ async def deep_research(
     if not wait:
         return task.to_dict()
 
-    # Poll until terminal state or timeout. We deliberately ignore the
-    # background asyncio.Task here — it writes status into the shared
-    # _TASKS dict and we just observe.
+    # Poll until terminal state or timeout. The background asyncio.Task
+    # writes status into the in-process _TASKS dict (and asynchronously
+    # to the wiki_research_task table); get_task transparently falls
+    # back to the DB so this loop also works when the MCP client lives
+    # in a different process from the worker.
     import asyncio
     deadline = asyncio.get_event_loop().time() + max(5.0, float(timeout_s))
     interval = max(0.2, float(poll_interval_s))
     while True:
-        snap = get_task(task.task_id)
+        snap = await get_task(task.task_id)
         if snap is None:
             return {"error": "task lost from registry", "task_id": task.task_id}
-        if snap.status in ("done", "failed"):
+        if snap.status in ("done", "failed", "abandoned"):
             return snap.to_dict()
         if asyncio.get_event_loop().time() >= deadline:
             return {

@@ -2,6 +2,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
@@ -251,6 +252,27 @@ CREATE TABLE IF NOT EXISTS wiki_events (
 );
 CREATE INDEX IF NOT EXISTS idx_wiki_events_kind ON wiki_events(kind);
 CREATE INDEX IF NOT EXISTS idx_wiki_events_time ON wiki_events(created_at);
+
+-- Deep Research task ledger. v0 stored these in a process-local dict;
+-- that lost in-flight work on every backend restart. The table makes
+-- tasks survive crashes (we mark survivors as 'abandoned' on startup),
+-- visible across worker processes, and queryable for "when did we last
+-- research X?" history. The in-process ``_TASKS`` dict in
+-- ``wiki.deep_research`` is now a hot cache for the same-process
+-- active task — the DB row is the source of truth.
+CREATE TABLE IF NOT EXISTS wiki_research_task (
+    task_id      TEXT PRIMARY KEY,
+    page_id      TEXT NOT NULL,
+    focus        TEXT NOT NULL DEFAULT '',
+    status       TEXT NOT NULL,            -- queued | searching | fetching | synthesising | writing | done | failed | abandoned
+    phase_note   TEXT NOT NULL DEFAULT '',
+    created_at   REAL NOT NULL,
+    finished_at  REAL,
+    result_json  TEXT,                     -- JSON-encoded result dict on done
+    error        TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_wiki_research_task_created ON wiki_research_task(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_wiki_research_task_page    ON wiki_research_task(page_id, created_at DESC);
 """
 
 
@@ -1484,3 +1506,134 @@ async def list_wiki_events(*, limit: int = 100) -> list[dict]:
                 }
                 for r in rows
             ]
+
+
+# ── Wiki research tasks (Deep Research persistence) ──────────────────
+#
+# Compared with the in-process ``_TASKS`` dict, these helpers add three
+# guarantees:
+#
+# 1. Survival across backend restarts — orphaned in-flight tasks get
+#    marked 'abandoned' on startup so the UI never polls forever.
+# 2. Cross-process visibility — once we split the wiki worker into its
+#    own process, both processes see the same task ledger.
+# 3. Auditability — "when did we last research Karpathy?" becomes one
+#    indexed query.
+#
+# Status state machine (mirrors ResearchTask):
+#   queued → planning → searching → fetching → synthesising → writing → done
+#                                                                     ↘ failed
+#   any non-terminal status, on startup recovery → abandoned
+_TERMINAL_RESEARCH_STATUSES = ("done", "failed", "abandoned")
+
+
+def _row_to_research_task(row) -> dict:
+    """Map a DB row → API/dict shape used by ResearchTask.to_dict()."""
+    raw_result = row["result_json"]
+    result: dict | None = None
+    if raw_result:
+        try:
+            parsed = json.loads(raw_result)
+            if isinstance(parsed, dict):
+                result = parsed
+        except (TypeError, ValueError):
+            result = None
+    return {
+        "task_id":     row["task_id"],
+        "page_id":     row["page_id"],
+        "focus":       row["focus"] or "",
+        "status":      row["status"],
+        "phase_note":  row["phase_note"] or "",
+        "created_at":  float(row["created_at"]),
+        "finished_at": float(row["finished_at"]) if row["finished_at"] is not None else None,
+        "result":      result,
+        "error":       row["error"],
+    }
+
+
+async def upsert_wiki_research_task(task: dict) -> None:
+    """Insert or update a research task row.
+
+    Accepts the ``ResearchTask.to_dict()`` shape directly so callers
+    don't need a translation layer. Idempotent: same task_id with a
+    later mark() call just updates the mutable fields.
+    """
+    task_id = task.get("task_id")
+    if not task_id:
+        raise ValueError("upsert_wiki_research_task: task_id required")
+    result = task.get("result")
+    result_json = json.dumps(result, ensure_ascii=False) if isinstance(result, dict) else None
+    async with _connect() as db:
+        await db.execute(
+            """INSERT INTO wiki_research_task
+                (task_id, page_id, focus, status, phase_note,
+                 created_at, finished_at, result_json, error)
+               VALUES (:task_id, :page_id, :focus, :status, :phase_note,
+                       :created_at, :finished_at, :result_json, :error)
+               ON CONFLICT(task_id) DO UPDATE SET
+                 status      = excluded.status,
+                 phase_note  = excluded.phase_note,
+                 finished_at = excluded.finished_at,
+                 result_json = excluded.result_json,
+                 error       = excluded.error""",
+            {
+                "task_id":     task_id,
+                "page_id":     task.get("page_id") or "",
+                "focus":       task.get("focus") or "",
+                "status":      task.get("status") or "queued",
+                "phase_note":  task.get("phase_note") or "",
+                "created_at":  float(task.get("created_at") or 0.0),
+                "finished_at": task.get("finished_at"),
+                "result_json": result_json,
+                "error":       task.get("error"),
+            },
+        )
+        await db.commit()
+
+
+async def get_wiki_research_task(task_id: str) -> dict | None:
+    async with _connect() as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM wiki_research_task WHERE task_id = ?", (task_id,)
+        ) as cur:
+            row = await cur.fetchone()
+            return _row_to_research_task(row) if row else None
+
+
+async def list_wiki_research_tasks(
+    *, limit: int = 20, page_id: str | None = None,
+) -> list[dict]:
+    """Most-recent-first task listing, optionally scoped to one page."""
+    async with _connect() as db:
+        db.row_factory = aiosqlite.Row
+        if page_id:
+            sql  = "SELECT * FROM wiki_research_task WHERE page_id = ? ORDER BY created_at DESC LIMIT ?"
+            args = (page_id, limit)
+        else:
+            sql  = "SELECT * FROM wiki_research_task ORDER BY created_at DESC LIMIT ?"
+            args = (limit,)
+        async with db.execute(sql, args) as cur:
+            rows = await cur.fetchall()
+            return [_row_to_research_task(r) for r in rows]
+
+
+async def abandon_orphaned_research_tasks() -> int:
+    """On startup, set any non-terminal tasks → 'abandoned'.
+
+    Returns the number of rows updated. Without this, the UI keeps
+    polling forever for tasks whose owning asyncio.Task died with the
+    previous process.
+    """
+    placeholders = ",".join("?" for _ in _TERMINAL_RESEARCH_STATUSES)
+    async with _connect() as db:
+        cur = await db.execute(
+            f"""UPDATE wiki_research_task
+                SET status      = 'abandoned',
+                    error       = COALESCE(error, 'Backend restarted while task was in flight'),
+                    finished_at = COALESCE(finished_at, ?)
+                WHERE status NOT IN ({placeholders})""",
+            (time.time(), *_TERMINAL_RESEARCH_STATUSES),
+        )
+        await db.commit()
+        return cur.rowcount or 0

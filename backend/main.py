@@ -197,6 +197,18 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("task recovery failed (non-fatal): %s", exc)
 
+    # Same logic for Deep Research tasks: any in-flight task whose
+    # owning asyncio.Task died with the previous process is now an
+    # orphan. Mark it 'abandoned' so the UI poller settles instead of
+    # spinning forever.
+    try:
+        from storage.metadata_db import abandon_orphaned_research_tasks
+        abandoned = await abandon_orphaned_research_tasks()
+        if abandoned:
+            logger.info("Research recovery: abandoned %d orphaned task(s)", abandoned)
+    except Exception as exc:
+        logger.warning("research-task recovery failed (non-fatal): %s", exc)
+
     logger.info("OmniKB startup complete")
     yield
 
