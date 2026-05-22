@@ -151,6 +151,20 @@ class Settings(BaseSettings):
     # P4 turns this on by default once we trust the generated content.
     wiki_retrieval_enabled: bool = False
 
+    # Auto-trigger Deep Research from lint knowledge_gap insights.
+    # Default OFF because this opens a wallet faucet — every gap page
+    # could spawn a multi-LLM research run. Operators must opt in by
+    # setting WIKI_AUTO_RESEARCH_ENABLED=true once they've seen the
+    # cost profile of manual runs.
+    wiki_auto_research_enabled: bool = False
+    # Hard cap per insights scan. With max_urls=3 default and ~5-10
+    # LLM calls per URL, 3 dispatches ≈ 50-100 LLM calls upper bound.
+    wiki_auto_research_max_per_run: int = 3
+    # How long to suppress repeated research on the same page.
+    # 24h is a reasonable trade-off: long enough for fresh content to
+    # emerge on the open web, short enough to keep gaps shrinking.
+    wiki_auto_research_cooldown_hours: int = 24
+
     # ── Web agent budget caps (BudgetTracker defaults) ─────────────
     # Soft caps enforced by agent_core.budget.BudgetTracker. Set to 0 to
     # disable a specific cap. Triggered run terminates cleanly with

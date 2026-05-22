@@ -184,19 +184,35 @@ async def insights(
     include_lint: bool = Query(True, description="run page-level health scan"),
     include_graph: bool = Query(True, description="run structural graph analysis"),
     knowledge_gap_threshold: int = Query(1, ge=0, le=10),
+    auto_research: bool = Query(
+        False,
+        description=(
+            "If true and WIKI_AUTO_RESEARCH_ENABLED, dispatch Deep "
+            "Research kickoffs for any knowledge_gap pages not in "
+            "cooldown. Returns the dispatch report under 'auto_research'."
+        ),
+    ),
 ) -> dict:
     """Return a list of actionable issues + structural insights.
 
     Lint is read-only — it never changes pages or edges. The chat
     agent / UI is responsible for surfacing suggestions and asking
     the user before making any edits.
+
+    When ``auto_research=true`` AND the global
+    ``WIKI_AUTO_RESEARCH_ENABLED`` setting is on, the endpoint
+    additionally fire-and-forget kicks off Deep Research jobs against
+    any ``knowledge_gap`` pages not in cooldown. Both gates must agree
+    before any work is dispatched.
     """
     from wiki.insights import run_lint, graph_insights
 
     out: list[dict] = []
+    raw_issues: list = []  # kept around for the auto-research dispatcher
     if include_lint:
         try:
             issues = await run_lint(data_dir=settings.data_dir)
+            raw_issues.extend(issues)
             out.extend(i.to_dict() for i in issues)
         except Exception as exc:  # noqa: BLE001
             logger.warning("wiki insights lint failed: %s", exc)
@@ -205,6 +221,7 @@ async def insights(
             issues = await graph_insights(
                 knowledge_gap_threshold=knowledge_gap_threshold,
             )
+            raw_issues.extend(issues)
             out.extend(i.to_dict() for i in issues)
         except Exception as exc:  # noqa: BLE001
             logger.warning("wiki insights graph failed: %s", exc)
@@ -213,7 +230,29 @@ async def insights(
     # calm by surfacing actionable items at the top.
     severity_order = {"error": 0, "warning": 1, "info": 2}
     out.sort(key=lambda d: (severity_order.get(d["severity"], 99), d["kind"]))
-    return {"items": out, "count": len(out)}
+    response: dict = {"items": out, "count": len(out)}
+
+    # Auto-dispatch Deep Research from knowledge_gap items, if both
+    # the per-call flag and the global setting say yes.
+    if auto_research and settings.wiki_auto_research_enabled and raw_issues:
+        try:
+            from wiki.insights import auto_dispatch_from_gaps
+            report = await auto_dispatch_from_gaps(
+                raw_issues,
+                data_dir=settings.data_dir,
+                max_per_run=settings.wiki_auto_research_max_per_run,
+                cooldown_hours=settings.wiki_auto_research_cooldown_hours,
+            )
+            response["auto_research"] = report
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("auto-research dispatch failed: %s", exc)
+            response["auto_research"] = {"error": str(exc)}
+    elif auto_research and not settings.wiki_auto_research_enabled:
+        response["auto_research"] = {
+            "error": "WIKI_AUTO_RESEARCH_ENABLED is false; refusing to dispatch.",
+        }
+
+    return response
 
 
 # ── Deep Research ────────────────────────────────────────────────────

@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -37,6 +38,7 @@ from typing import Any
 
 from storage.metadata_db import (
     list_wiki_pages,
+    list_wiki_research_tasks,
     list_wikilinks,
 )
 
@@ -295,3 +297,121 @@ async def graph_insights(*, knowledge_gap_threshold: int = 1) -> list[WikiIssue]
         ))
 
     return issues
+
+
+# ── Auto-dispatch (Round 13) ─────────────────────────────────────────
+
+
+# Statuses that count toward the cooldown. 'abandoned' deliberately
+# does NOT — those tasks died with a backend crash and we want to
+# allow the next insights pass to retry them.
+_COOLDOWN_BLOCKING_STATUSES = ("queued", "planning", "searching", "fetching",
+                                "synthesising", "writing", "loading",
+                                "done", "failed")
+
+
+async def auto_dispatch_from_gaps(
+    issues: list[WikiIssue],
+    *,
+    data_dir: str | Path,
+    max_per_run: int,
+    cooldown_hours: float,
+    kickoff: Any | None = None,
+) -> dict[str, list[str]]:
+    """Pick gap-page candidates from a fresh ``run_lint + graph_insights``
+    output and fire-and-forget research kickoffs against the survivors.
+
+    Cooldown rule:
+
+    * For each candidate page, look at the most recent task in
+      ``wiki_research_task``. If it exists, was created within
+      ``cooldown_hours`` ago, AND its status is one of the blocking
+      statuses (anything except ``abandoned`` and any future status
+      that explicitly opts out), the candidate is skipped.
+    * Note that ``abandoned`` tasks (orphans recovered on startup) do
+      not count — we want a chance to re-run them.
+
+    Budget rule:
+
+    * Only the first ``max_per_run`` non-cooldown candidates are
+      dispatched; the rest are returned in ``deferred`` so the UI can
+      show "5 more candidates queued for tomorrow".
+
+    The ``kickoff`` argument lets tests inject a mock — it should
+    accept the same kwargs as ``wiki.deep_research.kickoff_research``
+    (``page_id`` / ``focus`` / ``data_dir`` / ``max_urls``) and return
+    a coroutine. When ``None`` we lazy-import the real one.
+
+    Returns a structured report:
+
+    .. code-block:: python
+
+        {
+            "dispatched":       ["entity:karpathy", "concept:llm-wiki"],
+            "skipped_cooldown": ["entity:tesla"],
+            "deferred":         ["concept:rag", "entity:openai"],
+        }
+    """
+    # 1. Gather candidate page_ids from any knowledge_gap issue.
+    gap_ids: list[str] = []
+    seen: set[str] = set()
+    for issue in issues:
+        if issue.kind != "knowledge_gap":
+            continue
+        for pid in issue.page_ids:
+            if pid in seen:
+                continue
+            seen.add(pid)
+            gap_ids.append(pid)
+
+    if not gap_ids:
+        return {"dispatched": [], "skipped_cooldown": [], "deferred": []}
+
+    # 2. Cooldown filter — one DB call per candidate (limit=1, indexed).
+    #    Cheap enough for the typical "tens of gap pages" scale.
+    cooldown_seconds = max(0.0, float(cooldown_hours)) * 3600.0
+    now = time.time()
+    eligible: list[str] = []
+    skipped: list[str] = []
+    for pid in gap_ids:
+        recent = await list_wiki_research_tasks(limit=1, page_id=pid)
+        if recent:
+            last = recent[0]
+            age = now - float(last.get("created_at") or 0.0)
+            status = last.get("status") or ""
+            if age < cooldown_seconds and status in _COOLDOWN_BLOCKING_STATUSES:
+                skipped.append(pid)
+                continue
+        eligible.append(pid)
+
+    # 3. Budget cap.
+    cap = max(0, int(max_per_run))
+    dispatched = eligible[:cap]
+    deferred = eligible[cap:]
+
+    # 4. Fire kickoffs. Each kickoff awaits an initial DB persist so
+    #    by the time we return the rows are visible to the UI.
+    if dispatched:
+        if kickoff is None:
+            from .deep_research import kickoff_research as kickoff  # noqa: PLW0127
+
+        for pid in dispatched:
+            try:
+                await kickoff(
+                    page_id=pid,
+                    focus="auto-research from knowledge_gap lint",
+                    data_dir=data_dir,
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "auto_dispatch_from_gaps: kickoff for %s failed: %s",
+                    pid, exc,
+                )
+                # Don't let one bad page stop the rest of the batch.
+                continue
+
+    return {
+        "dispatched":       dispatched,
+        "skipped_cooldown": skipped,
+        "deferred":         deferred,
+    }
