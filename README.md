@@ -152,6 +152,51 @@ Plan → Execute → Verify
 3. Verify:  强制 self_check，不足则补充，2 次失败后诚实输出
 ```
 
+### LLM-Wiki 二级索引（叠加层）
+
+灵感来自 [Karpathy 的 LLM-Wiki gist](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) — RAG 留作规模兜底，wiki 层负责跨文综合 / 累积 / 可视化。**完全叠加，不替换 RAG**。
+
+- **L1（RAG）**：chunks + embeddings + Qdrant，适合规模与实时检索
+- **L2（Wiki）**：LLM 维护的 entity / concept / source / query 页面（markdown + frontmatter），存 `data/wiki/`，wikilink 双向边，sigma.js 力导向图谱
+
+每次摄入触发：
+1. RAG 立即可用（不变）
+2. 后台 wiki worker 异步生成 / 增量更新 wiki 页面（可关，wallet-friendly）
+3. wiki 失败永远不影响 RAG（叠加层 cardinal 原则）
+
+**Lint + Insights**：四类页面健康问题（orphan / contradicts / superseded / empty_body）+ 三类图谱洞察（surprising_connection / bridge / **knowledge_gap**），UI 可视化展示，活动按钮一键巡检。
+
+### Deep Research 自主补全
+
+LLM 自查自补的最后一环：
+
+```
+ingest → 生成 wiki 页 → lint 找出 knowledge_gap →
+auto_dispatch_from_gaps → 每个 gap 页跑 DDG 搜索 →
+  agents/web/loop.run_agent 抓取每个 URL（Plan→Execute→Verify）→
+  LLM 综合 → 追加 ## Recent Research (date) 到页面
+```
+
+**Append-only 不变量**：永远只追加 section，绝不覆盖已有正文（Karpathy 模式硬约束）。失败隔离：单 URL 失败 → 其余继续；全 URL 失败 → 整体放弃，页面不动。
+
+任务持久化到 sqlite `wiki_research_task` 表 + 进程内 dict 双层（重启不丢、可审计、可跨 worker 进程）。3 个触发方式：
+
+```bash
+# 1. 手动 / UI（页面右上角望远镜按钮）
+POST /wiki/research { "page_id": "entity:karpathy" }
+
+# 2. 半自动：lint 后批量
+GET /wiki/insights?auto_research=true
+
+# 3. 全自动：周期 worker（默认关）
+WIKI_AUTO_RESEARCH_ENABLED=true
+WIKI_AUTO_RESEARCH_INTERVAL_HOURS=6
+WIKI_AUTO_RESEARCH_MAX_PER_RUN=3
+WIKI_AUTO_RESEARCH_COOLDOWN_HOURS=24
+```
+
+Cooldown 防滥触发，max_per_run 守钱包，`abandoned` 状态自动重试（崩溃恢复），`done`/`failed` 严格冷却。
+
 ## 技术架构
 
 ```

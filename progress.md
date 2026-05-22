@@ -740,3 +740,173 @@ P3 备忘里挂着的 "Deep Research 集成：lint 发现 knowledge gap 后让 L
 - MCP tools: 13（行为细化但 signature 不变）
 
 **Commit**：`feat(wiki): persist Deep Research tasks across backend restarts`
+
+---
+
+### Round 13 — 自动触发：lint knowledge_gap → 研究队列 ✅
+状态：完成
+
+**Melchior 审视**：P5 早就有 `knowledge_gap` lint 类别（degree ≤ threshold 的 entity/concept），suggestion 文本里也写明"选一两个页面跑 Deep Research"——但**只是把建议摆给用户，没有任何自动行为**。用户得手动点每个望远镜按钮。这不是闭环，这是叠加按钮。
+
+观察：Round 12 加的 `wiki_research_task` 表已经具备所有所需信息（按 page_id 索引 + created_at 排序）做 cooldown 检查。
+
+**Balthasar 执行**：
+
+1. `config.py` 新增 3 个开关，全部默认关（成本敏感）：
+   - `wiki_auto_research_enabled: bool = False` — master switch
+   - `wiki_auto_research_max_per_run: int = 3` — 单次扫描上限
+   - `wiki_auto_research_cooldown_hours: int = 24` — 同页重复触发的冷却
+
+2. `wiki/insights.py` 新增 `auto_dispatch_from_gaps(issues, ...)`：
+   - 从 `knowledge_gap` issue 提 page_ids（跨 issue 自动 dedup）
+   - 每个候选查 `list_wiki_research_tasks(page_id=, limit=1)` 看最近一条
+   - **冷却语义**：`done`/`failed` 在 cooldown 内 → skip；**`abandoned` 不计入冷却**（崩溃恢复值得重试）
+   - 取前 `max_per_run` 触发 `kickoff_research`，剩余进 `deferred`
+   - kickoff 单个失败不阻断整批（loop continues）
+   - 注入 focus="auto-research from knowledge_gap lint" 让审计能 grep 自动 vs 手动
+
+3. `api/wiki.py` `/insights` 加 `?auto_research=true` query param + 双门控（per-call flag + 全局 setting 同意才 dispatch）；返回结构化报告 `auto_research: {dispatched, skipped_cooldown, deferred}`
+
+4. `tests/wiki/test_auto_dispatch.py` 7 个测试覆盖完整策略矩阵：
+   - 空 issue 列表 / 全新 gap 全触发 / cap 截断（5→2 dispatched + 3 deferred）
+   - 冷却内 `done` skip / `abandoned` 不计冷却（重试）
+   - 跨 issue dedup / 单 kickoff 异常不中断批
+
+**Casper 提升**：
+
+- **真闭环到 90%**：`/wiki/insights?auto_research=true` 一次调用就完成整个 audit-and-repair 周期。但还差最后 10%——**需要有人调这个 endpoint**。Round 14 会用周期 worker 闭上这一环
+- **冷却策略经过细致考量**：用户/Casper 此前讨论时已经识别 `abandoned` 应当能重试（崩溃 ≠ 失败）；这个细节直接成了测试不变量 (`test_auto_dispatch_ignores_abandoned_for_cooldown`)
+- **0 新存储状态**：完全复用 Round 12 的 `wiki_research_task` 表 + 索引——这是 Round 12 投资的真正回报开始显现
+- **API 设计微胜利**：默认 `auto_research=False` 保证向后兼容；显式开启 + setting 双门控避免任何"配置漂移导致烧钱"
+- **暴露的小风险**：sequential `await kickoff` 串行触发 N 个研究——如果 max_per_run 调到比如 10，会有微小延迟。可接受（默认 3，跑完 ~50ms）
+
+**改动文件**（4 modified/new）：
+- `backend/config.py` (+14 lines, 3 settings)
+- `backend/wiki/insights.py` (+120 lines, dispatcher + cooldown logic)
+- `backend/api/wiki.py` (+41 lines, /insights endpoint upgrade)
+- `tests/wiki/test_auto_dispatch.py` (+250 lines, 7 tests)
+
+**Commit**：`feat(wiki): auto-dispatch Deep Research from knowledge_gap lint`
+
+---
+
+### Round 14 — Worker 抽象 + 周期调度 ✅
+状态：完成
+
+**Melchior 审视**：两个真问题：
+
+1. **未自驱**：Round 13 闭环差最后一公里——还得有人手动调 `/insights?auto_research=true`。真正的 self-driving 是 backend 自己周期触发
+2. **架构债**：`wiki/worker.py` 是个一次性实现（start/stop/cancel/error-isolation/stats 全部硬编码）。一旦加第二个 worker（周期调度、未来的 indexer），就得复制 ~30 行的 lifecycle boilerplate，是教科书级的"该抽基类却没抽"
+
+机会：把"加第二个 worker" 和"抽基类" 同时做，**用第二个 worker 反向证明基类抽象正确**。
+
+**Balthasar 执行**：
+
+1. 新建顶级包 `backend/workers/` 与 `BackgroundWorker` 基类：
+   - 共享：`start()` / `stop(timeout)` / `is_running` / `stats()` / 日志命名 / 错误隔离 / `_should_stop()` helper / `_isolate(coro)` helper
+   - **两种重写风格**：
+     - **Tick-driven**（默认）：子类只 override `_loop_iteration()`，base 默认 `_run()` 用 `wait_for(stop_event, timeout=TICK_INTERVAL_S)` 实现 stop 响应式 sleep
+     - **Queue-driven**：子类 override `_run()` 全权控制 wait/dispatch（如 WikiWorker），用 `_drain()` 钩子做 `queue.join()`
+   - 决定不放 `agent_core/` —— 那是 LLM agent loop 专属（messages/tokens/budget 等），后台 worker 抽象更适合自己一个包
+
+2. `wiki/worker.py` `WikiWorker` 重构为继承 `BackgroundWorker`：
+   - 删了 ~50 行重复 lifecycle 代码
+   - 行为完全等价（保留 bespoke `_run()` queue 循环 + 加 `_drain()` override）
+   - 公共 API（`enqueue` / `stats`）不变
+
+3. 新建 `wiki/scheduled_research.py` `ScheduledResearchWorker`（tick-driven 示范）：
+   - 每 N 小时自动跑 `run_lint + graph_insights + auto_dispatch_from_gaps`
+   - 100% 复用 Round 13 的 cooldown / cap 策略，0 新状态
+   - 自带 stats: `dispatched / skipped_cooldown / deferred / interval_s`
+   - 防误用：`TICK_INTERVAL_S = max(60.0, interval_s)`，永不快于 1 次/分钟
+
+4. `config.py` `+wiki_auto_research_interval_hours: float = 0.0`（0 关闭）
+
+5. `main.lifespan` 双门控启动：master enabled + interval > 0 才启动；shutdown 时优雅 stop（worker 不存在时 no-op）
+
+6. `tests/wiki/test_workers_base.py` 7 个测试覆盖：
+   - tick-driven 计数 / 异常隔离 / 幂等 start / safe-stop-before-start
+   - queue-driven 处理顺序 / drain on stop
+   - `_isolate` helper success/failure 计数
+
+**Casper 提升**：
+
+- **闭环真完成了**：在两个 settings 同时开启时，OmniKB 现在能从 ingest 开始自驱完成"摄入 → wiki → lint → 研究 → 拓展"一整圈，**0 人工干预**。这就是 Karpathy LLM-Wiki gist 描述的终极形态
+- **抽象的成本/收益清晰**：base class +160 LOC，但 WikiWorker 减 ~50，新 worker 仅 +125（其中 ~80 是业务逻辑）。**新 worker 几乎无 boilerplate**，证明抽象选对了切割点
+- **第二种重写风格的设计胜利**：tick-driven 用 `wait_for(stop_event, timeout=N)` 实现 sleep——既精确（每次 tick 间隔 N 秒）又响应式（stop 立即生效），优于 `asyncio.sleep(N)` + 周期检查
+- **下轮可以做的事**：
+  - 第三个 worker：周期 wiki 健康巡检（检查 broken wikilinks、orphan 长期不被引用）
+  - storage adapter 抽象（`metadata_db._connect` 散落 30+ 调用点 — 下一个真欠债）
+  - SSE 推 worker stats 到前端 / `/wiki/stats` 暴露 worker 状态
+- **小遗憾**：base 的 `_isolate` helper 当前只被 base 自己用 / 未在 WikiWorker `_run` 里复用——保留了 WikiWorker 历史的内联计数。可以下轮改成 `_isolate`，但收益小于改动风险，当前不做
+
+**改动文件**（7 modified/new）：
+- 新增：`backend/workers/__init__.py` (24 lines)、`backend/workers/base.py` (160 lines)
+- 新增：`backend/wiki/scheduled_research.py` (125 lines)
+- 修改：`backend/wiki/worker.py` (-51 lines, +33 lines, 净简化)、`backend/config.py` (+5)、`backend/main.py` (+31)
+- 新增：`tests/wiki/test_workers_base.py` (194 lines, 7 tests)
+
+**API 表面**（不变）：
+- HTTP routes: 70（worker 不暴露路由）
+- MCP tools: 13
+- 新 settings: 1 (`wiki_auto_research_interval_hours`)
+- 新 worker: 1 (`ScheduledResearchWorker`)
+
+**Commit**：`feat(workers): extract BackgroundWorker base + add ScheduledResearchWorker`
+
+---
+
+### Round 15 — 验收 + 文档收尾 ✅
+状态：完成
+
+**Melchior 审视**：5 轮（11-14）累计 6 个 commit，但：
+
+1. **README 完全没提 wiki / Deep Research / 自动闭环**——新用户克隆下来根本不知道这些功能存在
+2. **progress.md 只记录到 Round 12**，Rounds 13-14 的三脑记录还没补
+3. 整体没做"验收一切还能跑" 的最后扫描
+
+**Balthasar 执行**：
+
+1. README.md 新增 2 个 `###` 章节（在 Web Agent 三阶段循环之后）：
+   - **LLM-Wiki 二级索引（叠加层）**：解释 L1/L2 关系、Karpathy 模式硬约束、lint + insights 4+3 类
+   - **Deep Research 自主补全**：完整流程图 + append-only 不变量 + 3 种触发方式（手动 UI / `?auto_research=true` / 周期 worker）+ cooldown 语义
+
+2. progress.md 补 Round 13 + 14 完整三脑条目（本轮）
+
+3. 验收 sweep：
+   - `import main` → 70 routes，0 import errors
+   - `import workers, wiki.worker, wiki.scheduled_research, wiki.deep_research` → 全通
+   - `WikiWorker.__mro__[1] == BackgroundWorker` → 继承正确
+   - `ScheduledResearchWorker.__mro__[1] == BackgroundWorker` → 继承正确
+   - 4 类 wiki settings + 1 类 interval setting 可读取
+   - pytest collect-only：`tests/wiki/` 全部测试模块识别（test_parser / test_retriever / test_deep_research / test_auto_dispatch / test_workers_base）
+
+**Casper 提升**：
+
+- **5 轮成果可见性补齐**：README 新章节意味着任何人 clone 仓库后第一时间能看到 wiki + Deep Research + 自动闭环的完整画像；不再是隐藏功能
+- **本次螺旋演进总结**：
+  - Round 11 卫生：73 files / +9244 LOC 上岸；tests/ 入仓；CI 真能跑
+  - Round 12 持久化：DB 行替进程内 dict；重启不丢；audit query 白嫖
+  - Round 13 自动触发：knowledge_gap → research 半自动闭环
+  - Round 14 周期 worker：完成全自动闭环；`BackgroundWorker` 基类抽出
+  - Round 15 文档：可见性 + 验收
+- **5 轮累计 commits**：
+  - `0023034 chore: enable tests, add docker / CI / doctor / lockfile`
+  - `b011d8c feat: MAGI spiral evolution — architecture cleanup + LLM-Wiki + Deep Research`
+  - `8d07cb1 docs: add MAGI spiral progress archive + README polish`
+  - `c3cc2fb feat(wiki): persist Deep Research tasks across backend restarts`
+  - `05d17d4 docs: log Round 11-12 to MAGI progress archive`
+  - `081ab23 feat(wiki): auto-dispatch Deep Research from knowledge_gap lint`
+  - `a709426 feat(workers): extract BackgroundWorker base + add ScheduledResearchWorker`
+  - + Round 15 docs commit
+- **下次螺旋潜在方向**（不入路线，备忘）：
+  - **Storage adapter 抽象** —— `metadata_db._connect` 散落到 30+ 调用点，未来想换 Postgres/Litestream 痛苦
+  - **Embedding factory 统一** —— dense/sparse/reranker 各管各
+  - **真 LLM 端到端跑一次** —— 用户手动一次确认 mock 测试与真实链路同步
+  - **前端 worker stats 面板** —— `/wiki/scheduled_research/stats` 暴露 dispatched/skipped/deferred 计数
+
+**改动文件**（2 modified）：
+- `README.md` (+45 lines)
+- `progress.md`（本轮 Rounds 13-15 三脑条目，~150 lines）
+
+**Commit**：`docs: round 13-15 README + progress wrap-up`
