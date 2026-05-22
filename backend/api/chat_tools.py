@@ -179,4 +179,67 @@ def build_chat_tools(ctx: ChatContext):
         body = (doc.content or "")[:4000]
         return f"# Fetched: {url}\n\n{body}"
 
-    return [search_kb, list_sources, list_tags, get_source_chunks, fetch_url_preview]
+    # ── Wiki tools (only registered when settings.wiki_retrieval_enabled) ──
+    #
+    # The L2 wiki layer carries cross-document synthesis the chunk
+    # store cannot — entity / concept / source pages with citations.
+    # When the feature flag is on, the chat agent gets two extra
+    # tools that search and read the wiki. The agent decides whether
+    # to use them; when they're off the prompt size shrinks and chat
+    # behaviour is identical to before P4.
+
+    try:
+        from config import settings as _wiki_settings
+        _wiki_on = bool(getattr(_wiki_settings, "wiki_retrieval_enabled", False))
+        _data_dir = _wiki_settings.data_dir
+    except Exception:  # noqa: BLE001 — defensive: never break chat
+        _wiki_on = False
+        _data_dir = "data"
+
+    if not _wiki_on:
+        return [search_kb, list_sources, list_tags, get_source_chunks, fetch_url_preview]
+
+    @_lc_tool
+    async def search_wiki(query: str, top_k: int = 5) -> str:
+        """Search the LLM-Wiki layer (entity / concept / source pages).
+
+        Prefer this over ``search_kb`` when the user's question asks
+        about a named entity, a defined concept, or wants synthesis
+        across multiple sources. Returns a JSON list of
+        ``{page_id, type, title, summary, score, matched}`` — call
+        ``read_wiki_page`` next to fetch the full body of any hit.
+        """
+        from wiki.retriever import search_wiki_pages
+        try:
+            hits = await search_wiki_pages(query=query, top_k=max(1, min(top_k, 20)))
+        except Exception as exc:
+            return f"[search_wiki error: {exc}]"
+        if not hits:
+            return "[search_wiki: no matching pages]"
+        return json.dumps([h.to_dict() for h in hits], ensure_ascii=False)
+
+    @_lc_tool
+    async def read_wiki_page(page_id: str) -> str:
+        """Read the full markdown body of a wiki page by id.
+
+        ``page_id`` follows the form ``<type>:<slug>``, e.g.
+        ``entity:andrej-karpathy`` or ``concept:llm-wiki``. Use after
+        ``search_wiki`` finds a candidate, or when you already know
+        which page you want.
+        """
+        from wiki.retriever import read_page_body
+        try:
+            row, body = await read_page_body(page_id, data_dir=_data_dir)
+        except Exception as exc:
+            return f"[read_wiki_page error: {exc}]"
+        if row is None:
+            return f"[read_wiki_page: unknown page id {page_id!r}]"
+        if not body:
+            return (
+                f"# {row['title']}\n\n_(page metadata exists but body is empty — "
+                "wiki worker may still be generating it)_"
+            )
+        return body
+
+    return [search_kb, list_sources, list_tags, get_source_chunks,
+            fetch_url_preview, search_wiki, read_wiki_page]

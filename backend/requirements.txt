@@ -1,54 +1,63 @@
-# Web framework
-fastapi>=0.111.0
-uvicorn[standard]>=0.30.0
-pydantic>=2.7.0
-pydantic-settings>=2.3.0
-python-multipart>=0.0.9
-aiofiles>=23.2.1
-starlette>=0.37.0
+# OmniKB dependencies — compatible-release pins.
+# Use ~= (compatible release): allows patch-level security updates within the
+# same minor version, blocks breaking changes. For exact reproducibility
+# use ``requirements.lock.txt`` (generated via ``pip freeze``).
+#
+#   pip install -r requirements.txt            # development (compat pins)
+#   pip install -r requirements.lock.txt       # reproducible build (exact)
 
-# Vector store
-qdrant-client[fastembed]>=1.10.0
+# ── Web framework ──────────────────────────────────────────────
+fastapi~=0.136.0
+uvicorn[standard]~=0.46.0
+pydantic~=2.13.0
+pydantic-settings~=2.14.0
+python-multipart~=0.0.27
+aiofiles~=25.1.0
+starlette~=1.0.0
 
-# Metadata DB
-aiosqlite>=0.20.0
+# ── Vector store ───────────────────────────────────────────────
+qdrant-client[fastembed]~=1.17.0
 
-# LLM / Embeddings
-openai>=1.30.0
-langchain>=0.2.0
-langchain-openai>=0.1.8
-langchain-anthropic>=0.1.12
-langchain-community>=0.2.0
-langchain-text-splitters>=0.2.0
-langgraph>=0.1.5
+# ── Metadata DB ────────────────────────────────────────────────
+aiosqlite~=0.22.0
 
-# MCP
-fastmcp>=0.4.0
+# ── LLM / Embeddings ───────────────────────────────────────────
+# NOTE: only DeepSeek and OpenAI-compatible providers are wired today.
+# langchain-anthropic is installed for legacy .env compatibility only.
+openai~=2.36.0
+langchain~=1.2.0
+langchain-openai~=1.2.0
+langchain-anthropic~=1.4.0
+langchain-community~=0.4.0
+langchain-text-splitters~=1.1.0
+langgraph~=1.1.0
 
-# Document processing
-pdfplumber>=0.11.0
-python-docx>=1.1.2
-beautifulsoup4>=4.12.3
-httpx>=0.27.0
+# ── MCP ────────────────────────────────────────────────────────
+fastmcp~=3.2.0
 
-# Utilities
-python-dotenv>=1.0.1
+# ── Document processing ────────────────────────────────────────
+pdfplumber~=0.11.0
+python-docx~=1.2.0
+beautifulsoup4~=4.14.0
+httpx~=0.28.0
 
-# ── P1 features ────────────────────────────────────────────────
-# Media transcription (video/audio → text)
-# Note: ffmpeg must also be installed and on PATH for video support
-faster-whisper>=1.0.0
-ffmpeg-python>=0.2.0
+# ── Utilities ──────────────────────────────────────────────────
+python-dotenv~=1.2.0
 
-# Web scraping (Layer 1: static fetcher)
-scrapling>=0.2.0
+# ── Media transcription ────────────────────────────────────────
+# Requires: ffmpeg binary on PATH (apt install ffmpeg / brew install ffmpeg).
+faster-whisper~=1.2.0
+ffmpeg-python~=0.2.0
 
-# Stealth-patched Playwright fork (drop-in). Optional; falls back to plain playwright.
-patchright>=1.40.0
+# ── Web scraping ───────────────────────────────────────────────
+scrapling~=0.4.0
+# Stealth-patched Playwright fork. Optional; requires `patchright install`
+# (or `playwright install chromium`) on first run.
+patchright~=1.59.0
 
-# Re-ranking (cross-encoder, large download on first use)
-sentence-transformers>=3.0.0
+# ── Re-ranker (optional, large download on first use) ──────────
+sentence-transformers~=5.4.0
 
-# Smart URL fetching: YouTube metadata extraction (optional, improves YouTube ingest)
-# Install separately: pip install yt-dlp
-# yt-dlp>=2024.1.0
+# ── Optional (install manually): ────────────────────────────────
+# yt-dlp                 — YouTube metadata extraction
+# pytest pytest-asyncio  — running tests/agent_core unit suite

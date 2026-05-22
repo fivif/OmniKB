@@ -50,6 +50,9 @@
   <!-- ─── Topbar ───────────────────────────────────────────── -->
   <header class="omni-topbar">
     <div class="topbar-left">
+      <button class="topbar-burger" id="topbar-burger" aria-label="打开导航" aria-expanded="false" aria-controls="omni-sidebar">
+        <i data-lucide="menu"></i>
+      </button>
       <div class="topbar-title-block">
         <span class="topbar-eyebrow">Knowledge Console</span>
         <div class="topbar-heading-row">
@@ -77,7 +80,9 @@
   <!-- ─── Body (sidebar + main) ─────────────────────────────── -->
   <div class="omni-body">
 
-    <aside class="omni-sidebar">
+    <div class="sidebar-backdrop" id="sidebar-backdrop" hidden></div>
+
+    <aside class="omni-sidebar" id="omni-sidebar">
       <div class="sidebar-logo">
         <img class="sidebar-logo-img" src="logo-128.png" alt="OmniKB" width="48" height="48"/>
         <div class="sidebar-logo-copy">
@@ -105,6 +110,9 @@
         <button data-tab="kb" class="nav-btn">
           <i data-lucide="database"></i><span>知识库</span>
         </button>
+        <button data-tab="wiki" class="nav-btn">
+          <i data-lucide="book-open"></i><span>Wiki</span>
+        </button>
         <button data-tab="scenarios" class="nav-btn">
           <i data-lucide="layout-grid"></i><span>问答管理</span>
         </button>
@@ -131,6 +139,7 @@
       <section id="tab-search"    class="tab-panel hidden"></section>
       <section id="tab-chat"      class="tab-panel hidden tab-panel-flex" style="padding:0;"></section>
       <section id="tab-kb"        class="tab-panel hidden"></section>
+      <section id="tab-wiki"      class="tab-panel hidden tab-panel-flex" style="padding:0;"></section>
       <section id="tab-scenarios" class="tab-panel hidden tab-panel-flex" style="padding:0;"></section>
       <section id="tab-settings"  class="tab-panel hidden"></section>
     </main>
@@ -148,6 +157,15 @@
 <script src="js/citation-chain.js"></script>
 <script src="js/settings.js"></script>
 <script src="js/scenario-manager.js"></script>
+
+<!-- Wiki tab: marked.js for markdown render, sigma + graphology for graph view.
+     Load only AFTER the other tabs so they're not blocked by these CDNs. -->
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/graphology@0.25.4/dist/graphology.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/graphology-layout-forceatlas2@0.10.1/dist/graphology-layout-forceatlas2.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/sigma@2.4.0/build/sigma.min.js"></script>
+<script src="js/wiki.js"></script>
+
 <script src="js/agent-console.js"></script>
 <script>
   document.addEventListener('DOMContentLoaded', function () {

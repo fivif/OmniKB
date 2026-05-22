@@ -34,23 +34,17 @@ async def auto_tag(content: str, max_chars: int = 1200) -> list[str]:
     list[str]
         Up to 5 lowercase tag strings.  Empty list on any failure.
     """
-    from config import settings  # local import avoids circular dep at module load
-
     preview = content[:max_chars].strip()
     if not preview:
         return []
 
     try:
         from langchain_core.messages import HumanMessage, SystemMessage
-        from langchain_openai import ChatOpenAI
+        from agents.llm import get_llm
 
-        llm = ChatOpenAI(
-            model=settings.llm_model,
-            api_key=settings.llm_api_key or "none",
-            base_url=settings.llm_base_url or None,
-            temperature=0,
-            max_tokens=120,
-        )
+        # Use the central factory so reasoning_content patches, extra_body
+        # (e.g. enable_thinking=false) and provider normalisation all apply.
+        llm = get_llm(temperature=0, max_tokens=120)
 
         resp = await llm.ainvoke([
             SystemMessage(content=_SYSTEM),

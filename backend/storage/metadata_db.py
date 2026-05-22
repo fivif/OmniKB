@@ -1,5 +1,7 @@
 from __future__ import annotations
+import asyncio
 import json
+import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
@@ -7,26 +9,74 @@ import aiosqlite
 
 from config import settings
 
+logger = logging.getLogger(__name__)
+
+
+# ── Long-lived connection ─────────────────────────────────────────────
+#
+# Earlier versions opened a fresh aiosqlite connection (≈ 187 µs each) for
+# every query. With 55 call sites that adds 1-2 ms of pointless overhead to
+# every request hot-path. aiosqlite runs each connection on its own worker
+# thread and already serialises operations, so a single shared connection is
+# the right primitive — it preserves the existing 'async with _connect()'
+# call shape so no caller has to change.
+#
+# The connection is lazily opened on first use and reused for the process
+# lifetime. ``close_db()`` is exposed for clean shutdown (called from
+# ``main.py`` lifespan).
+
+_shared_conn: aiosqlite.Connection | None = None
+_open_lock = asyncio.Lock()
+
+
+async def _open_shared_connection() -> aiosqlite.Connection:
+    conn = await aiosqlite.connect(settings.sqlite_path)
+    # Per-connection PRAGMAs that must be re-set every time SQLite opens
+    # this database handle:
+    # - ``busy_timeout=5000``: wait up to 5 s on writer contention before
+    #   raising ``database is locked``. WAL (enabled persistently in
+    #   :func:`init_db`) lets readers and writers coexist gracefully.
+    # - ``foreign_keys=ON``: SQLite ships with FK enforcement disabled by
+    #   default, which silently breaks ``ON DELETE CASCADE`` clauses.
+    await conn.execute("PRAGMA busy_timeout = 5000")
+    await conn.execute("PRAGMA foreign_keys = ON")
+    return conn
+
+
+async def _get_conn() -> aiosqlite.Connection:
+    """Return the lazily-initialised process-wide aiosqlite connection."""
+    global _shared_conn
+    if _shared_conn is not None:
+        return _shared_conn
+    async with _open_lock:
+        if _shared_conn is None:
+            _shared_conn = await _open_shared_connection()
+            logger.debug("metadata_db: opened shared connection to %s", settings.sqlite_path)
+    return _shared_conn
+
+
+async def close_db() -> None:
+    """Close the shared connection. Idempotent; safe to call multiple times."""
+    global _shared_conn
+    conn, _shared_conn = _shared_conn, None
+    if conn is not None:
+        try:
+            await conn.close()
+        except Exception as exc:
+            logger.debug("metadata_db: close error (non-fatal): %s", exc)
+
 
 @asynccontextmanager
 async def _connect():
-    """Open a SQLite connection with WAL-friendly PRAGMAs applied.
+    """Yield the shared aiosqlite connection.
 
-    - ``busy_timeout=5000``: wait up to 5 s on writer contention before raising
-      ``database is locked``. With WAL enabled in :func:`init_db`, this lets
-      concurrent ingest / chat / MCP writes coexist gracefully.
-    - ``foreign_keys=ON``: SQLite ships with FK enforcement disabled by default,
-      which silently breaks ``ON DELETE CASCADE`` clauses. We need it ON so that
-      deleting a source actually cascades into ``chunks`` and
-      ``scenario_sources`` instead of leaving orphans.
+    Kept as an ``async with`` context manager for backwards compatibility:
+    every existing call site uses ``async with _connect() as db:`` and
+    closing the connection per request is no longer correct. The CM is a
+    no-op around the singleton.
     """
-    conn = await aiosqlite.connect(settings.sqlite_path)
-    try:
-        await conn.execute("PRAGMA busy_timeout = 5000")
-        await conn.execute("PRAGMA foreign_keys = ON")
-        yield conn
-    finally:
-        await conn.close()
+    conn = await _get_conn()
+    yield conn
 
 _CREATE_TABLES = """
 CREATE TABLE IF NOT EXISTS sources (
@@ -153,6 +203,54 @@ CREATE TABLE IF NOT EXISTS scenario_api_keys (
 );
 CREATE INDEX IF NOT EXISTS idx_scenario_keys_sid ON scenario_api_keys(scenario_id);
 CREATE INDEX IF NOT EXISTS idx_scenario_keys_hash ON scenario_api_keys(key_hash);
+
+-- ── L2 Wiki layer (LLM-Wiki secondary index) ────────────────────────
+-- Page metadata; the rendered markdown lives on disk under
+-- ``data_dir/wiki/{page_type}s/{slug}.md``. We keep two copies of
+-- intent: file system for human reading + git versioning, DB for fast
+-- lookup, type filtering, and graph queries.
+CREATE TABLE IF NOT EXISTS wiki_pages (
+    id           TEXT PRIMARY KEY,         -- e.g. "entity:karpathy"
+    page_type    TEXT NOT NULL,            -- entity | concept | source | query | overview
+    slug         TEXT NOT NULL,            -- url-safe filename (no extension)
+    title        TEXT NOT NULL,
+    file_path    TEXT NOT NULL,            -- relative to data_dir, e.g. wiki/entities/karpathy.md
+    summary      TEXT NOT NULL DEFAULT '',
+    frontmatter  TEXT NOT NULL DEFAULT '{}', -- JSON: tags[], aliases[], dates, ...
+    source_ids   TEXT NOT NULL DEFAULT '[]', -- JSON list of contributing source.id
+    created_at   TEXT NOT NULL,
+    updated_at   TEXT NOT NULL,
+    revision     INTEGER NOT NULL DEFAULT 1, -- bumped on every LLM edit
+    UNIQUE(page_type, slug)
+);
+CREATE INDEX IF NOT EXISTS idx_wiki_pages_type    ON wiki_pages(page_type);
+CREATE INDEX IF NOT EXISTS idx_wiki_pages_updated ON wiki_pages(updated_at);
+
+-- Directed [[wikilink]] edge table. ``relation`` lets us encode
+-- semantically richer ties later (contradicts / extends / source-of)
+-- without schema churn — for P1 every edge is just 'mentions'.
+CREATE TABLE IF NOT EXISTS wikilinks (
+    src_page_id  TEXT NOT NULL REFERENCES wiki_pages(id) ON DELETE CASCADE,
+    dst_page_id  TEXT NOT NULL REFERENCES wiki_pages(id) ON DELETE CASCADE,
+    relation     TEXT NOT NULL DEFAULT 'mentions',
+    weight       REAL NOT NULL DEFAULT 1.0,
+    created_at   TEXT NOT NULL,
+    PRIMARY KEY (src_page_id, dst_page_id, relation)
+);
+CREATE INDEX IF NOT EXISTS idx_wikilinks_dst ON wikilinks(dst_page_id);
+
+-- Append-only log of wiki worker events; mirrors data/wiki/log.md but
+-- with structured fields for UI / analytics. Worker writes both.
+CREATE TABLE IF NOT EXISTS wiki_events (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind        TEXT NOT NULL,             -- ingest | lint | query_save | manual_edit
+    source_id   TEXT,                      -- optional FK to sources.id (no cascade — keep history)
+    page_ids    TEXT NOT NULL DEFAULT '[]', -- JSON: pages touched by this event
+    summary     TEXT NOT NULL DEFAULT '',
+    created_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_wiki_events_kind ON wiki_events(kind);
+CREATE INDEX IF NOT EXISTS idx_wiki_events_time ON wiki_events(created_at);
 """
 
 
@@ -1047,3 +1145,342 @@ async def verify_scenario_key(key_raw: str) -> tuple[str, str] | None:
                 await db.commit()
                 return row[1], row[0]
     return None
+
+
+# ── Wiki layer (L2 secondary index) ──────────────────────────────────
+#
+# Thin CRUD over wiki_pages / wikilinks / wiki_events. The page
+# *content* lives on disk under ``data_dir/wiki/...`` and is owned by
+# the wiki worker (P2); these helpers only manage metadata + edges.
+
+WIKI_PAGE_TYPES: tuple[str, ...] = ("entity", "concept", "source", "query", "overview")
+
+
+def _coerce_json_list(raw) -> list:
+    """Defensive JSON list parser used by every wiki row reader."""
+    if isinstance(raw, list):
+        return raw
+    if not raw:
+        return []
+    try:
+        v = json.loads(raw)
+    except (TypeError, ValueError):
+        return []
+    return v if isinstance(v, list) else []
+
+
+def _coerce_json_dict(raw) -> dict:
+    if isinstance(raw, dict):
+        return raw
+    if not raw:
+        return {}
+    try:
+        v = json.loads(raw)
+    except (TypeError, ValueError):
+        return {}
+    return v if isinstance(v, dict) else {}
+
+
+def _row_to_wiki_page(row) -> dict:
+    return {
+        "id":          row["id"],
+        "page_type":   row["page_type"],
+        "slug":        row["slug"],
+        "title":       row["title"],
+        "file_path":   row["file_path"],
+        "summary":     row["summary"],
+        "frontmatter": _coerce_json_dict(row["frontmatter"]),
+        "source_ids":  _coerce_json_list(row["source_ids"]),
+        "created_at":  row["created_at"],
+        "updated_at":  row["updated_at"],
+        "revision":    row["revision"],
+    }
+
+
+def make_wiki_page_id(page_type: str, slug: str) -> str:
+    """Canonical PK for a wiki page. Surfaced because callers (worker,
+    api, MCP tool) all need to construct IDs deterministically without
+    duplicating the format string."""
+    if page_type not in WIKI_PAGE_TYPES:
+        raise ValueError(f"unknown wiki page_type {page_type!r}; expected one of {WIKI_PAGE_TYPES}")
+    return f"{page_type}:{slug}"
+
+
+async def upsert_wiki_page(page: dict) -> dict:
+    """Create or update a wiki page row by (page_type, slug).
+
+    On update the ``revision`` column is bumped automatically and
+    ``updated_at`` refreshed. ``created_at`` is preserved on update.
+    Returns the canonical row dict.
+    """
+    page_type = page["page_type"]
+    slug = page["slug"]
+    pid = page.get("id") or make_wiki_page_id(page_type, slug)
+    now = _now()
+
+    # Default file path uses the canonical type→dir map so ``entity``
+    # → ``entities/``, ``query`` → ``queries/`` (not ``entitys`` /
+    # ``querys``). Imported lazily to avoid pulling the wiki package
+    # into pure storage callers.
+    default_path = page.get("file_path")
+    if not default_path:
+        try:
+            from wiki.bootstrap import directory_for
+            sub = directory_for(page_type)
+            default_path = (
+                f"wiki/{slug}.md" if sub is None else f"wiki/{sub}/{slug}.md"
+            )
+        except Exception:  # noqa: BLE001 — fallback, very unlikely
+            default_path = f"wiki/{page_type}/{slug}.md"
+
+    record = {
+        "id":          pid,
+        "page_type":   page_type,
+        "slug":        slug,
+        "title":       page.get("title") or slug,
+        "file_path":   default_path,
+        "summary":     page.get("summary") or "",
+        "frontmatter": json.dumps(page.get("frontmatter") or {}, ensure_ascii=False),
+        "source_ids":  json.dumps(page.get("source_ids") or [], ensure_ascii=False),
+        "created_at":  page.get("created_at") or now,
+        "updated_at":  now,
+    }
+
+    async with _connect() as db:
+        # ON CONFLICT keeps original created_at, bumps revision, updates
+        # the rest. Using the (page_type, slug) UNIQUE constraint as the
+        # conflict target so callers don't have to know the PK shape.
+        await db.execute(
+            """INSERT INTO wiki_pages
+                (id, page_type, slug, title, file_path, summary,
+                 frontmatter, source_ids, created_at, updated_at, revision)
+               VALUES
+                (:id, :page_type, :slug, :title, :file_path, :summary,
+                 :frontmatter, :source_ids, :created_at, :updated_at, 1)
+               ON CONFLICT(page_type, slug) DO UPDATE SET
+                 title       = excluded.title,
+                 file_path   = excluded.file_path,
+                 summary     = excluded.summary,
+                 frontmatter = excluded.frontmatter,
+                 source_ids  = excluded.source_ids,
+                 updated_at  = excluded.updated_at,
+                 revision    = wiki_pages.revision + 1""",
+            record,
+        )
+        await db.commit()
+
+    fetched = await get_wiki_page(pid)
+    assert fetched is not None  # we just wrote it
+    return fetched
+
+
+async def get_wiki_page(page_id: str) -> dict | None:
+    async with _connect() as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM wiki_pages WHERE id = ?", (page_id,)
+        ) as cur:
+            row = await cur.fetchone()
+            return _row_to_wiki_page(row) if row else None
+
+
+async def get_wiki_page_by_slug(page_type: str, slug: str) -> dict | None:
+    return await get_wiki_page(make_wiki_page_id(page_type, slug))
+
+
+async def list_wiki_pages(
+    *,
+    page_type: str | None = None,
+    limit: int = 200,
+    offset: int = 0,
+) -> list[dict]:
+    """List pages newest-first; filter by ``page_type`` when given."""
+    async with _connect() as db:
+        db.row_factory = aiosqlite.Row
+        if page_type is not None:
+            if page_type not in WIKI_PAGE_TYPES:
+                return []
+            sql = ("SELECT * FROM wiki_pages WHERE page_type = ? "
+                   "ORDER BY updated_at DESC LIMIT ? OFFSET ?")
+            params: tuple = (page_type, limit, offset)
+        else:
+            sql = ("SELECT * FROM wiki_pages "
+                   "ORDER BY updated_at DESC LIMIT ? OFFSET ?")
+            params = (limit, offset)
+        async with db.execute(sql, params) as cur:
+            rows = await cur.fetchall()
+            return [_row_to_wiki_page(r) for r in rows]
+
+
+async def count_wiki_pages_by_type() -> dict[str, int]:
+    """Return ``{page_type: count}`` for every present type. Useful for
+    sidebar badges and graph legends."""
+    async with _connect() as db:
+        async with db.execute(
+            "SELECT page_type, COUNT(*) FROM wiki_pages GROUP BY page_type"
+        ) as cur:
+            rows = await cur.fetchall()
+            return {r[0]: r[1] for r in rows}
+
+
+async def delete_wiki_page(page_id: str) -> None:
+    """Delete a page and (via FK cascade) all its wikilinks edges."""
+    async with _connect() as db:
+        await db.execute("DELETE FROM wiki_pages WHERE id = ?", (page_id,))
+        await db.commit()
+
+
+async def upsert_wikilink(
+    src_page_id: str,
+    dst_page_id: str,
+    *,
+    relation: str = "mentions",
+    weight: float = 1.0,
+) -> None:
+    """Idempotent edge insert. Updating ``weight`` on a duplicate edge
+    is the simplest accumulation strategy — every time the LLM mentions
+    page A from page B again the edge gets stronger."""
+    async with _connect() as db:
+        await db.execute(
+            """INSERT INTO wikilinks (src_page_id, dst_page_id, relation, weight, created_at)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(src_page_id, dst_page_id, relation) DO UPDATE
+                 SET weight = wikilinks.weight + excluded.weight""",
+            (src_page_id, dst_page_id, relation, weight, _now()),
+        )
+        await db.commit()
+
+
+async def list_wikilinks(
+    *,
+    src: str | None = None,
+    dst: str | None = None,
+    limit: int = 1000,
+) -> list[dict]:
+    """List edges; pass ``src`` and/or ``dst`` to filter direction.
+
+    Returning all edges (no filter) is OK at moderate scale (P1
+    targets ~thousands of edges). Switch to a streaming reader once
+    the graph crosses ~50k edges.
+    """
+    sql = "SELECT src_page_id, dst_page_id, relation, weight, created_at FROM wikilinks"
+    where: list[str] = []
+    params: list = []
+    if src is not None:
+        where.append("src_page_id = ?")
+        params.append(src)
+    if dst is not None:
+        where.append("dst_page_id = ?")
+        params.append(dst)
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    sql += " LIMIT ?"
+    params.append(limit)
+
+    async with _connect() as db:
+        async with db.execute(sql, params) as cur:
+            rows = await cur.fetchall()
+            return [
+                {
+                    "src_page_id": r[0],
+                    "dst_page_id": r[1],
+                    "relation":    r[2],
+                    "weight":      r[3],
+                    "created_at":  r[4],
+                }
+                for r in rows
+            ]
+
+
+async def graph_neighbors(page_id: str, *, hops: int = 1) -> dict:
+    """Breadth-first neighbour expansion up to ``hops`` away.
+
+    Returns ``{"nodes": [page_dict...], "edges": [edge_dict...]}`` so
+    the frontend can hand it straight to sigma.js without a join. Both
+    incoming and outgoing edges count as adjacency.
+    """
+    if hops < 1:
+        hops = 1
+    if hops > 4:
+        hops = 4  # bound the BFS — wider neighbourhoods belong to a real graph query API
+
+    seen_pages: set[str] = {page_id}
+    seen_edges: set[tuple[str, str, str]] = set()
+    frontier: set[str] = {page_id}
+
+    nodes: list[dict] = []
+    edges: list[dict] = []
+
+    seed = await get_wiki_page(page_id)
+    if seed is None:
+        return {"nodes": [], "edges": []}
+    nodes.append(seed)
+
+    for _ in range(hops):
+        if not frontier:
+            break
+        next_frontier: set[str] = set()
+        for pid in frontier:
+            outgoing = await list_wikilinks(src=pid)
+            incoming = await list_wikilinks(dst=pid)
+            for e in outgoing + incoming:
+                key = (e["src_page_id"], e["dst_page_id"], e["relation"])
+                if key in seen_edges:
+                    continue
+                seen_edges.add(key)
+                edges.append(e)
+                for other in (e["src_page_id"], e["dst_page_id"]):
+                    if other not in seen_pages:
+                        seen_pages.add(other)
+                        next_frontier.add(other)
+                        page = await get_wiki_page(other)
+                        if page:
+                            nodes.append(page)
+        frontier = next_frontier
+
+    return {"nodes": nodes, "edges": edges}
+
+
+async def append_wiki_event(
+    *,
+    kind: str,
+    source_id: str | None = None,
+    page_ids: list[str] | None = None,
+    summary: str = "",
+) -> int:
+    """Record a structured event. Returns the autoincrement id so
+    callers can correlate (e.g. attach to ingest task logs)."""
+    async with _connect() as db:
+        cur = await db.execute(
+            """INSERT INTO wiki_events (kind, source_id, page_ids, summary, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            (
+                kind,
+                source_id,
+                json.dumps(page_ids or [], ensure_ascii=False),
+                summary,
+                _now(),
+            ),
+        )
+        await db.commit()
+        return cur.lastrowid or 0
+
+
+async def list_wiki_events(*, limit: int = 100) -> list[dict]:
+    async with _connect() as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT * FROM wiki_events ORDER BY id DESC LIMIT ?", (limit,)
+        ) as cur:
+            rows = await cur.fetchall()
+            return [
+                {
+                    "id":         r["id"],
+                    "kind":       r["kind"],
+                    "source_id":  r["source_id"],
+                    "page_ids":   _coerce_json_list(r["page_ids"]),
+                    "summary":    r["summary"],
+                    "created_at": r["created_at"],
+                }
+                for r in rows
+            ]

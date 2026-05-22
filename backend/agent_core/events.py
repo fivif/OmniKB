@@ -77,7 +77,16 @@ class AgentEvent:
             self.timestamp = time.time()
 
     def to_sse(self) -> str:
-        """Serialise to SSE wire format with ``event:`` / ``id:`` / ``data:`` lines."""
+        """Serialise to SSE wire format with ``id:`` / ``data:`` lines.
+
+        We DELIBERATELY do NOT emit the ``event: <type>`` line: the frontend
+        in ``frontend/js/agent-console.js`` listens to the default
+        ``message`` channel and does the dispatch in JS via
+        ``JSON.parse(e.data).type``. Emitting ``event:`` would force
+        EventSource to route every frame to a named handler instead, silently
+        breaking the live agent console. The wire format is intentional —
+        any future move to typed events must be coordinated frontend + backend.
+        """
         payload = {
             "type": self.type,
             "task_id": self.task_id,

@@ -111,6 +111,34 @@ async def run_ingest_pipeline(
         await append_task_log(task_id, f"✅ 摄入完成，存储 {len(unique)} 个片段")
         await update_task(task_id, "done")
         await update_source_status(source_id, "done")
+
+        # L2 wiki layer (best-effort, async). The worker may not be
+        # running (test harnesses, CLI ingest) — enqueue_event handles
+        # that case and just returns False. We never block ingest on
+        # wiki maintenance and never raise.
+        try:
+            from wiki import enqueue_event
+            from wiki.worker import WikiEvent
+            title = (
+                meta.get("title")
+                or raw_doc.metadata.get("title")
+                or meta.get("source_url")
+                or source_id
+            )
+            await enqueue_event(WikiEvent(
+                kind="ingest",
+                source_id=source_id,
+                summary=f"{title} ({len(unique)} chunks)",
+                raw_text=raw_doc.content,
+                source_metadata=dict(meta),
+            ))
+        except Exception as exc:  # noqa: BLE001
+            # The wiki layer is purely additive — if it ever broke
+            # ingest we'd want to know but never want to fail the
+            # user's request.
+            from logging import getLogger
+            getLogger(__name__).debug("wiki enqueue failed (non-fatal): %s", exc)
+
         return len(unique)
 
     except Exception as exc:

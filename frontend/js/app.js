@@ -27,6 +27,10 @@ const TAB_META = {
     title: '知识库管理',
     subtitle: '查看来源、标签、片段规模，并执行批量管理',
   },
+  wiki: {
+    title: 'Wiki 知识图谱',
+    subtitle: 'LLM 持续维护的二级索引：实体 / 概念 / 来源页面 + 关系图',
+  },
   scenarios: {
     title: '问答发布',
     subtitle: '配置公共场景、API 密钥和对外问答体验',
@@ -127,12 +131,69 @@ function showTab(name) {
 }
 
 document.querySelectorAll('.nav-btn').forEach(btn => {
-  btn.addEventListener('click', () => showTab(btn.dataset.tab));
+  btn.addEventListener('click', () => {
+    showTab(btn.dataset.tab);
+    closeSidebarDrawer();   // tapping a nav item on mobile dismisses the drawer
+  });
 });
 
-// Chat & Scenarios panels use flex layout
+// ── Mobile drawer (sidebar) ───────────────────────────────────
+// Only meaningful at <= 760px; on desktop the burger button is CSS-hidden
+// and the sidebar is always visible. We still register the handlers
+// universally — they're cheap and keep the resize-from-mobile-to-desktop
+// case clean (closing the drawer just removes a class that has no effect
+// at desktop widths).
+const _burger = document.getElementById('topbar-burger');
+const _drawer = document.getElementById('omni-sidebar');
+const _backdrop = document.getElementById('sidebar-backdrop');
+
+function openSidebarDrawer() {
+  if (!_drawer || !_backdrop) return;
+  _drawer.classList.add('is-open');
+  _backdrop.hidden = false;
+  // Force a reflow so the opacity transition actually plays.
+  void _backdrop.offsetWidth;
+  _backdrop.classList.add('is-visible');
+  if (_burger) _burger.setAttribute('aria-expanded', 'true');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeSidebarDrawer() {
+  if (!_drawer || !_backdrop) return;
+  _drawer.classList.remove('is-open');
+  _backdrop.classList.remove('is-visible');
+  if (_burger) _burger.setAttribute('aria-expanded', 'false');
+  document.body.style.overflow = '';
+  // Hide backdrop after the fade-out transition finishes (180ms by default).
+  // Falling back to a setTimeout instead of transitionend keeps things
+  // simple and tolerates 'prefers-reduced-motion: reduce' (no event fires).
+  setTimeout(() => { if (!_drawer.classList.contains('is-open')) _backdrop.hidden = true; }, 200);
+}
+
+if (_burger) _burger.addEventListener('click', () => {
+  if (_drawer && _drawer.classList.contains('is-open')) closeSidebarDrawer();
+  else openSidebarDrawer();
+});
+if (_backdrop) _backdrop.addEventListener('click', closeSidebarDrawer);
+document.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Escape' && _drawer && _drawer.classList.contains('is-open')) {
+    closeSidebarDrawer();
+  }
+});
+// Resizing past the desktop breakpoint should release any open drawer state
+// so the user doesn't end up with a 'drawer-open' body when going from
+// portrait phone → landscape tablet.
+window.addEventListener('resize', () => {
+  if (window.innerWidth > 760 && _drawer && _drawer.classList.contains('is-open')) {
+    closeSidebarDrawer();
+  }
+});
+
+// Chat & Scenarios & Wiki panels use flex layout
 document.getElementById('tab-chat').dataset.flex = '1';
 document.getElementById('tab-scenarios').dataset.flex = '1';
+const _wikiTab = document.getElementById('tab-wiki');
+if (_wikiTab) _wikiTab.dataset.flex = '1';
 
 // Route on load
 const initialTab = window.location.hash.replace('#', '') || 'upload';

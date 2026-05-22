@@ -98,6 +98,50 @@
 .omni-agent-console.collapsed { height: 44px; }
 .omni-agent-console.expanded { height: 320px; }
 
+/* ── Burger button (mobile-only nav trigger) ─────────────────────────
+   Hidden on desktop; the layout query below brings it back at <= 760px. */
+.topbar-burger {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  border: 1px solid var(--bd-subtle);
+  background: var(--bg-elevated);
+  color: var(--t1);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out);
+}
+.topbar-burger:hover { background: var(--bg-surface); }
+.topbar-burger:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.topbar-burger i { width: 22px; height: 22px; }
+
+/* ── Sidebar backdrop (only shown when drawer open on mobile) ─────── */
+.sidebar-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  z-index: var(--z-fixed);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-base) var(--ease-out);
+}
+.sidebar-backdrop.is-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+   Tablet / narrow desktop  (≤ 1080px)
+   Sidebar collapses to icon-only rail. Behaviour unchanged from
+   the previous layout.css.
+   ───────────────────────────────────────────────────────────────────── */
 @media (max-width: 1080px) {
   .omni-sidebar { width: 88px; }
   .omni-sidebar .sidebar-logo-text,
@@ -110,29 +154,79 @@
 }
 
 @media (max-width: 900px) {
-  .omni-topbar {
-    padding-inline: 16px;
-  }
-
-  .tab-panel {
-    padding: 22px 18px 28px;
-  }
+  .omni-topbar { padding-inline: 16px; }
+  .tab-panel { padding: 22px 18px 28px; }
 }
 
+/* ─────────────────────────────────────────────────────────────────────
+   Mobile  (≤ 760px)
+   Sidebar transforms into an off-canvas drawer. The body no longer
+   reserves space for it — main content uses the full viewport width
+   and the burger button reveals the drawer over a backdrop.
+   ───────────────────────────────────────────────────────────────────── */
 @media (max-width: 760px) {
   .omni-topbar {
-    height: auto;
-    flex-wrap: wrap;
-    padding-block: 14px;
+    height: 64px;                /* fixed compact height instead of wrapping */
+    padding: 0 14px;
+    gap: 10px;
+  }
+  .topbar-burger { display: inline-flex; }
+  .topbar-eyebrow,
+  .topbar-divider,
+  .topbar-subtitle { display: none; }
+  .topbar-breadcrumb { font-size: 16px; }
+  .topbar-status-pill .topbar-status-label { display: none; }
+  .topbar-status-pill {
+    width: 36px;
+    padding: 0;
+    justify-content: center;
   }
 
-  .topbar-center {
-    order: 3;
-    width: 100%;
-    justify-content: stretch;
-  }
-
+  /* Drawer: fixed overlay, full-height, slide from left. The default
+     transform keeps it off-screen; .is-open slides it in. */
   .omni-sidebar {
-    width: 78px;
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: min(86vw, 320px);
+    max-width: 320px;
+    z-index: calc(var(--z-fixed) + 1);
+    transform: translateX(-100%);
+    transition: transform var(--dur-base) var(--ease-out);
+    box-shadow: 0 0 32px rgba(0, 0, 0, 0.35);
   }
+  .omni-sidebar.is-open { transform: translateX(0); }
+
+  /* Inside the drawer, restore the full text labels — there's room. */
+  .omni-sidebar .sidebar-logo-text,
+  .omni-sidebar .sidebar-logo-kicker,
+  .omni-sidebar .sidebar-overview,
+  .omni-sidebar .nav-btn span,
+  .omni-sidebar .sidebar-footer-note { display: block; }
+  .omni-sidebar .sidebar-stat { justify-content: space-between; }
+  .omni-sidebar .sidebar-stat span:first-child { display: inline; }
+
+  .nav-btn {
+    /* Touch target: WCAG 2.5.5 minimum 44×44 */
+    min-height: 44px;
+  }
+
+  .tab-panel { padding: 18px 14px 24px; }
+
+  /* Agent console becomes a half-height bottom sheet when expanded. */
+  .omni-agent-console.expanded { height: 55vh; }
+  .omni-agent-console.collapsed { height: 40px; }
+}
+
+/* ── Pointer + motion preferences (apply at any width) ──────────── */
+@media (pointer: coarse) {
+  /* Slightly bigger hit areas on touch devices. */
+  .nav-btn, .topbar-icon-btn, .topbar-burger { min-height: 44px; min-width: 44px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .omni-sidebar,
+  .sidebar-backdrop,
+  .omni-agent-console { transition: none !important; }
 }

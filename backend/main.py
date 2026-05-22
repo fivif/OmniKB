@@ -57,7 +57,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from storage.file_store import init_file_store
-from storage.metadata_db import init_db
+from storage.metadata_db import close_db, init_db
 from storage.vector_store import init_vector_store
 from api import ingest, search, chat, kb
 from api import kb_api
@@ -66,6 +66,7 @@ from api import agent_stream
 from api import metrics
 from api import scenarios
 from api import settings as settings_api
+from api import wiki as wiki_api
 from mcp_server.server import create_mcp_app
 
 # ── Logging setup ─────────────────────────────────────────────
@@ -111,10 +112,35 @@ class McpRateLimiter(BaseHTTPMiddleware):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Configuration self-check — surface drift before request handlers blow up.
+    from config import verify_settings
+    issues = verify_settings()
+    for issue in issues:
+        logger.warning("config: %s", issue)
+    app.state.config_issues = issues
+
     os.makedirs(settings.data_dir, exist_ok=True)
     await init_db()
     await init_vector_store()
     init_file_store()
+
+    # Wiki layer (L2 secondary index) — bootstrap directory + worker.
+    # Bootstrap is idempotent so a wiped data dir auto-heals on next
+    # start. The worker stays up for the process lifetime; ingest /
+    # MCP / chat code reaches it via app.state.wiki_worker.
+    import wiki as _wiki_pkg
+    from wiki.bootstrap import init_wiki_filesystem
+    from wiki.worker import WikiWorker
+    wiki_manifest = init_wiki_filesystem(settings.data_dir)
+    if wiki_manifest["created"]:
+        logger.info("wiki bootstrap: %d new entries under %s",
+                    len(wiki_manifest["created"]), wiki_manifest["wiki_root"])
+    app.state.wiki_worker = WikiWorker(settings.data_dir)
+    await app.state.wiki_worker.start()
+    # Publish to the package-level pointer so producers
+    # (agents.orchestrator, MCP tools) can enqueue without reaching
+    # into FastAPI's app.state from non-request contexts.
+    _wiki_pkg.WORKER = app.state.wiki_worker
 
     # Global typed-event stream (PC.1) — one shared EventStream for all agent runs.
     # Producers (agent_core.run_loop) publish here; subscribers
@@ -184,6 +210,15 @@ async def lifespan(app: FastAPI):
         logger.debug("PlaywrightPool stop: %s", exc)
     _pool_mod.JSHOOK_POOL = None
     _pool_mod.PLAYWRIGHT_POOL = None
+    try:
+        await app.state.wiki_worker.stop()
+    except Exception as exc:
+        logger.debug("wiki worker stop: %s", exc)
+    _wiki_pkg.WORKER = None
+    try:
+        await close_db()
+    except Exception as exc:
+        logger.debug("close_db: %s", exc)
     logger.info("OmniKB shutdown")
 
 
@@ -223,6 +258,7 @@ app.include_router(metrics.router,      prefix="/metrics",   tags=["metrics"])
 app.include_router(settings_api.router, prefix="/settings",  tags=["settings"])
 app.include_router(scenarios.router,  prefix="/scenarios", tags=["scenarios"])
 app.include_router(kb_api.router,    prefix="/kb-api",   tags=["kb-api"])
+app.include_router(wiki_api.router)   # /wiki/* — prefix declared on the router itself
 
 # MCP SSE endpoint (authenticated)
 app.mount("/mcp", create_mcp_app())
@@ -239,7 +275,31 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 @app.get("/health", tags=["system"])
 async def health():
-    return {"status": "ok", "version": app.version}
+    """Liveness probe + lightweight config diagnostics.
+
+    Reports ``config_issues`` (list of strings) so operators can spot drift
+    without grepping startup logs. Secrets are never echoed back.
+    """
+    return {
+        "status": "ok",
+        "version": app.version,
+        "config_issues": getattr(app.state, "config_issues", []),
+    }
+
+
+@app.get("/health/config", tags=["system"])
+async def health_config():
+    """Return the full redacted configuration (secrets masked).
+
+    Useful when debugging an install: shows exactly which provider,
+    base URL, and feature flags are in effect, with API keys reduced to
+    a 4-char prefix.
+    """
+    from config import redacted_settings, verify_settings
+    return {
+        "settings": redacted_settings(),
+        "issues": verify_settings(),
+    }
 
 
 # Serve frontend if present (production mode)

@@ -135,6 +135,22 @@ class Settings(BaseSettings):
     # patchright/playwright browser count (0 = disable)
     playwright_pool_size: int = 1
 
+    # ── L2 Wiki layer (LLM-Wiki secondary index) ──────────────────
+    # Master switch for the worker. When false, ingest still enqueues
+    # events for the audit trail but the LLM generation step is
+    # skipped — useful for cost-sensitive deployments and CI.
+    wiki_enabled: bool = True
+    # Maximum chars of source text fed to the analysis prompt. Beyond
+    # this we truncate (head + tail). Costs roughly 1 token per 4
+    # chars for English, ~1 per 2 chars for CJK.
+    wiki_max_source_chars: int = 8000
+    # Concurrent LLM calls inside one ingest (one per generated page).
+    # Keeps a single ingest from saturating the LLM connection pool.
+    wiki_generation_concurrency: int = 3
+    # Whether the chat / MCP retrieval path also reads wiki pages.
+    # P4 turns this on by default once we trust the generated content.
+    wiki_retrieval_enabled: bool = False
+
     # ── Web agent budget caps (BudgetTracker defaults) ─────────────
     # Soft caps enforced by agent_core.budget.BudgetTracker. Set to 0 to
     # disable a specific cap. Triggered run terminates cleanly with
@@ -157,3 +173,129 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+# ── Self-check & redaction ────────────────────────────────────────────
+#
+# These helpers make configuration drift observable instead of silent.
+# ``verify_settings()`` is called by ``main.py`` during lifespan startup and
+# logs ERROR / WARNING lines for misconfigurations that would otherwise blow
+# up later inside a request handler. ``redacted_settings()`` produces a dict
+# safe for /health, /metrics, or debugging endpoints — no secrets leak.
+
+
+_SECRET_FIELDS = frozenset({
+    "openai_api_key",
+    "anthropic_api_key",
+    "llm_api_key",
+    "siliconflow_api_key",
+    "vision_api_key",
+    "mcp_api_key",
+})
+
+
+def _redact(value: str) -> str:
+    if not value:
+        return ""
+    if len(value) <= 8:
+        return "***"
+    return f"{value[:4]}…{value[-2:]}"
+
+
+def redacted_settings() -> dict:
+    """Return a dict copy of settings with secrets masked.
+
+    Safe to log, return from /health, or include in error reports.
+    """
+    out: dict = {}
+    for name in type(settings).model_fields:
+        value = getattr(settings, name, None)
+        if name in _SECRET_FIELDS and isinstance(value, str):
+            out[name] = _redact(value)
+        else:
+            out[name] = value
+    return out
+
+
+def verify_settings() -> list[str]:
+    """Validate runtime settings and return a list of issue strings.
+
+    Empty list ⇒ healthy configuration. Caller decides whether to log,
+    fail, or surface to the operator. ``main.py`` logs warnings but does
+    not abort startup so partially configured installs (e.g. embeddings
+    not yet wired) can still serve cached content.
+    """
+    issues: list[str] = []
+
+    # LLM credentials
+    if not settings.llm_api_key:
+        issues.append(
+            "LLM_API_KEY is empty — all LLM calls will fail. Set it in .env"
+        )
+    provider = (settings.llm_provider or "").strip().lower()
+    if provider not in {"deepseek", "custom", "openai", "anthropic", "claude", "ollama"}:
+        issues.append(
+            f"LLM_PROVIDER={provider!r} is unrecognised; expected "
+            "'deepseek' or 'custom'"
+        )
+    if provider == "custom" and not settings.llm_base_url:
+        issues.append(
+            "LLM_PROVIDER=custom but LLM_BASE_URL is empty — custom providers "
+            "need an OpenAI-compatible endpoint URL"
+        )
+
+    # Embeddings
+    if settings.embedding_provider == "siliconflow" and not settings.siliconflow_api_key:
+        issues.append(
+            "EMBEDDING_PROVIDER=siliconflow but SILICONFLOW_API_KEY is empty — "
+            "embedding calls will fail"
+        )
+    elif settings.embedding_provider == "openai" and not settings.openai_api_key:
+        issues.append(
+            "EMBEDDING_PROVIDER=openai but OPENAI_API_KEY is empty"
+        )
+
+    # Vision (only if enabled)
+    if settings.vision_enabled:
+        # Vision falls back to llm_* credentials when its own are blank,
+        # so we only complain if BOTH paths are empty.
+        vk = settings.vision_api_key or settings.llm_api_key
+        if not vk:
+            issues.append(
+                "VISION_ENABLED=true but no vision_api_key and no llm_api_key "
+                "configured"
+            )
+
+    # MCP key default
+    if settings.mcp_api_key == "changeme-replace-with-strong-secret":
+        issues.append(
+            "MCP_API_KEY is still the default placeholder — anyone reaching "
+            "/mcp can call your tools. Rotate it before exposing the port."
+        )
+
+    # Qdrant mode
+    if settings.qdrant_mode not in {"remote", "local", "memory"}:
+        issues.append(
+            f"QDRANT_MODE={settings.qdrant_mode!r} is invalid; expected "
+            "'remote', 'local', or 'memory'"
+        )
+
+    # Budget sanity
+    if settings.web_agent_max_seconds <= 0 and settings.web_agent_max_input_tokens <= 0:
+        issues.append(
+            "web_agent_max_seconds and web_agent_max_input_tokens are both "
+            "disabled — runaway agents have no time/token cap"
+        )
+
+    # Reflection vs hard cap: warn if both are off
+    if (
+        settings.web_agent_reflection_interval <= 0
+        and settings.web_agent_max_tool_calls <= 0
+    ):
+        issues.append(
+            "Both web_agent_reflection_interval and web_agent_max_tool_calls "
+            "are disabled — the agent will never self-reflect or stop on "
+            "tool-call count. Consider setting one."
+        )
+
+    return issues

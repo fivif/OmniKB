@@ -1,0 +1,422 @@
+/* ── Wiki tab — three-column layout ──────────────────────────────── */
+/*
+ * Layout: [Tree (260px)] [Markdown preview (1fr)] [Graph (380px)]
+ * Mobile (≤ 900px): tree + graph collapse into off-canvas panes.
+ */
+
+#tab-wiki.tab-panel-flex {
+  flex-direction: row;
+  align-items: stretch;
+  background: var(--bg-canvas);
+  overflow: hidden;
+}
+
+.wiki-pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--bg-canvas);
+  border-right: 1px solid var(--bd-subtle);
+}
+.wiki-pane:last-child { border-right: none; }
+
+.wiki-pane-header {
+  flex-shrink: 0;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--bd-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: var(--bg-elevated);
+}
+.wiki-pane-header h3 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--t1);
+  margin: 0;
+}
+.wiki-pane-header .wiki-stat {
+  font-size: 11px;
+  color: var(--t3);
+  font-variant-numeric: tabular-nums;
+}
+
+.wiki-pane-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px 16px;
+}
+
+/* ── Left: tree ────────────────────────────────────────────────── */
+.wiki-tree {
+  width: 280px;
+  flex: 0 0 280px;
+}
+.wiki-tree-section {
+  margin-bottom: 14px;
+}
+.wiki-tree-section summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--t2);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  user-select: none;
+}
+.wiki-tree-section summary::-webkit-details-marker { display: none; }
+.wiki-tree-section summary:hover { background: var(--bg-elevated); }
+.wiki-tree-section summary .wiki-badge {
+  font-size: 11px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--bd-subtle);
+  padding: 1px 7px;
+  border-radius: 999px;
+  color: var(--t2);
+}
+
+.wiki-tree-list {
+  margin: 4px 0 0 0;
+  padding: 0;
+  list-style: none;
+}
+.wiki-tree-item {
+  padding: 6px 10px;
+  margin: 1px 0;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--t1);
+  border: 1px solid transparent;
+  transition: background var(--dur-fast) var(--ease-out);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wiki-tree-item:hover { background: var(--bg-elevated); }
+.wiki-tree-item.is-active {
+  background: var(--accent-soft, rgba(94, 106, 210, 0.15));
+  border-color: var(--accent);
+  color: var(--accent-strong, var(--accent));
+  font-weight: 500;
+}
+
+.wiki-tree-empty {
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--t3);
+  font-style: italic;
+}
+
+/* ── Middle: markdown preview ─────────────────────────────────── */
+.wiki-preview { flex: 1 1 auto; }
+.wiki-preview-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--t3);
+  font-size: 14px;
+}
+.wiki-preview-meta {
+  margin-bottom: 18px;
+  padding: 12px 14px;
+  background: var(--bg-elevated);
+  border-radius: 8px;
+  border: 1px solid var(--bd-subtle);
+  font-size: 12px;
+  color: var(--t2);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+.wiki-preview-meta strong { color: var(--t1); margin-right: 4px; }
+
+/* Markdown body — minimal styling to override pico/none */
+.wiki-md { line-height: 1.65; color: var(--t1); }
+.wiki-md h1 { font-size: 24px; margin: 0 0 16px; font-weight: 700; }
+.wiki-md h2 { font-size: 18px; margin: 24px 0 10px; font-weight: 600; border-bottom: 1px solid var(--bd-subtle); padding-bottom: 4px; }
+.wiki-md h3 { font-size: 15px; margin: 18px 0 8px; font-weight: 600; }
+.wiki-md p { margin: 8px 0; }
+.wiki-md ul, .wiki-md ol { margin: 8px 0; padding-left: 22px; }
+.wiki-md li { margin: 3px 0; }
+.wiki-md code {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
+  background: var(--bg-elevated);
+  border: 1px solid var(--bd-subtle);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+.wiki-md pre {
+  background: var(--bg-elevated);
+  border: 1px solid var(--bd-subtle);
+  padding: 10px 12px;
+  border-radius: 6px;
+  overflow-x: auto;
+  font-size: 12px;
+}
+.wiki-md pre code { border: none; padding: 0; background: none; }
+.wiki-md blockquote {
+  border-left: 3px solid var(--accent);
+  padding: 4px 12px;
+  margin: 10px 0;
+  color: var(--t2);
+  background: var(--bg-elevated);
+  border-radius: 0 6px 6px 0;
+}
+
+/* Wikilinks rendered by wiki.js — pill-styled clickable */
+.wiki-md a.wikilink {
+  color: var(--accent);
+  text-decoration: none;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--accent-soft, rgba(94, 106, 210, 0.10));
+  border: 1px solid var(--accent-soft, rgba(94, 106, 210, 0.20));
+  font-weight: 500;
+  font-size: 0.92em;
+}
+.wiki-md a.wikilink:hover {
+  background: var(--accent-soft, rgba(94, 106, 210, 0.20));
+  border-color: var(--accent);
+}
+.wiki-md a.wikilink.is-broken {
+  color: var(--warning-t, #b45309);
+  background: transparent;
+  border-style: dashed;
+  cursor: not-allowed;
+}
+
+/* ── Right: graph ─────────────────────────────────────────────── */
+.wiki-graph {
+  width: 380px;
+  flex: 0 0 380px;
+  position: relative;
+}
+.wiki-graph-canvas {
+  width: 100%;
+  height: 100%;
+  background: var(--bg-canvas);
+}
+.wiki-graph-toolbar {
+  position: absolute;
+  top: 60px;
+  right: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 5;
+}
+.wiki-graph-toolbar button {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--bd-subtle);
+  color: var(--t1);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.wiki-graph-toolbar button:hover { background: var(--bg-surface); }
+
+.wiki-graph-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--t3);
+  font-size: 13px;
+  text-align: center;
+  padding: 20px;
+}
+
+/* ── Deep Research panel (preview header) ────────────────────────
+ *
+ * Inline form that slides in below the preview header when the user
+ * clicks the telescope button. Status updates are appended live.
+ * Visual language: same border / radius as wiki-preview-meta so it
+ * reads as part of the preview pane, not a foreign popup.
+ */
+.wiki-research-panel {
+  flex-shrink: 0;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--bd-subtle);
+  background: var(--bg-elevated);
+}
+.wiki-research-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.wiki-research-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--t1);
+}
+.wiki-research-title i { width: 16px; height: 16px; }
+.wiki-research-hint {
+  color: var(--t3);
+  font-size: 11px;
+  margin-left: auto;
+}
+.wiki-research-hint code {
+  font-size: 11px;
+  background: transparent;
+}
+.wiki-research-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--t2);
+}
+.wiki-research-label.wiki-research-row {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+}
+.wiki-research-label textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 36px;
+  padding: 8px 10px;
+  font-size: 12px;
+  border: 1px solid var(--bd-subtle);
+  border-radius: 6px;
+  background: var(--bg-base);
+  color: var(--t1);
+  font-family: inherit;
+}
+.wiki-research-label input[type="range"] { flex: 1; }
+.wiki-research-label output {
+  min-width: 1.5em;
+  font-variant-numeric: tabular-nums;
+  color: var(--t1);
+  font-weight: 600;
+}
+.wiki-research-actions {
+  display: flex;
+  gap: 8px;
+}
+.wiki-research-run,
+.wiki-research-cancel {
+  font-size: 12px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.wiki-research-run {
+  background: var(--accent, #4f8cff);
+  color: white;
+  border: 1px solid var(--accent, #4f8cff);
+}
+.wiki-research-run:hover:not(:disabled) { filter: brightness(1.1); }
+.wiki-research-run:disabled,
+.wiki-research-run.is-running {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.wiki-research-run i { width: 14px; height: 14px; }
+.wiki-research-cancel {
+  background: transparent;
+  color: var(--t2);
+  border: 1px solid var(--bd-subtle);
+}
+.wiki-research-cancel:hover { color: var(--t1); background: var(--bg-base); }
+
+.wiki-research-status:empty { display: none; }
+.wiki-research-line {
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--bd-subtle);
+  background: var(--bg-base);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.wiki-research-line.is-running { border-color: var(--accent, #4f8cff); }
+.wiki-research-line.is-failed  { border-color: #d9534f; color: #d9534f; }
+.wiki-research-line.is-done    { border-color: #4caf50; }
+.wiki-research-elapsed {
+  margin-left: auto;
+  color: var(--t3);
+  font-variant-numeric: tabular-nums;
+}
+.wiki-research-error {
+  margin-top: 4px;
+  font-size: 11px;
+  color: #d9534f;
+  white-space: pre-wrap;
+}
+.wiki-research-result {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--t2);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.wiki-research-queries code {
+  font-size: 10px;
+  margin-right: 4px;
+  padding: 1px 4px;
+  background: var(--bg-elevated);
+  border-radius: 3px;
+}
+
+/* ── Refresh button + activity dot ────────────────────────────── */
+.wiki-refresh-btn {
+  background: transparent;
+  border: 1px solid var(--bd-subtle);
+  color: var(--t2);
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.wiki-refresh-btn:hover { background: var(--bg-elevated); color: var(--t1); }
+.wiki-refresh-btn.is-spinning i { animation: wikiSpin 0.8s linear infinite; }
+@keyframes wikiSpin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+
+/* ── Mobile (≤ 900px): collapse side panes ──────────────────── */
+@media (max-width: 900px) {
+  .wiki-tree, .wiki-graph {
+    width: 220px;
+    flex-basis: 220px;
+  }
+}
+@media (max-width: 760px) {
+  /* On phones the tree + graph become bottom sheets reachable via
+     buttons in the preview header. P3 ships them collapsed by default. */
+  #tab-wiki.tab-panel-flex {
+    flex-direction: column;
+  }
+  .wiki-tree, .wiki-graph {
+    width: 100%;
+    flex: 0 0 auto;
+    max-height: 200px;
+    border-right: none;
+    border-bottom: 1px solid var(--bd-subtle);
+  }
+  .wiki-graph { max-height: 280px; border-bottom: none; border-top: 1px solid var(--bd-subtle); }
+}

@@ -82,8 +82,6 @@ async def search_kb(
 
 async def ask_kb(question: str, context_k: int = 5) -> dict:
     """Search the KB and generate an LLM answer with citations."""
-    from config import settings
-
     t0 = time.time()
     chunks = await _do_search(question, top_k=context_k)
     context = "\n\n".join(f"[{i + 1}] {c['content']}" for i, c in enumerate(chunks))
@@ -91,15 +89,11 @@ async def ask_kb(question: str, context_k: int = 5) -> dict:
     answer = ""
     try:
         from langchain_core.messages import HumanMessage, SystemMessage
-        from langchain_openai import ChatOpenAI
-
-        llm = ChatOpenAI(
-            model=settings.llm_model,
-            api_key=settings.llm_api_key or "none",
-            base_url=settings.llm_base_url or None,
-            temperature=0,
-        )
+        from agents.llm import get_llm
         from api.chat import get_rag_system_prompt
+
+        # Central factory: respects llm_extra_body_json + reasoning_content patches.
+        llm = get_llm(temperature=0)
 
         resp = await llm.ainvoke([
             SystemMessage(content=get_rag_system_prompt()),

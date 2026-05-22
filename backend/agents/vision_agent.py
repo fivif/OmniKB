@@ -57,18 +57,25 @@ async def _call_openai_compat(
     image_bytes: bytes,
     mime: MimeType,
     prompt: str,
+    provider: str,
     model: str,
     api_key: str,
     base_url: str | None,
 ) -> str:
-    from langchain_openai import ChatOpenAI
+    from agents.llm import build_chat_model
     from langchain_core.messages import HumanMessage
 
-    kwargs: dict = {"model": model, "api_key": api_key, "max_tokens": 2048}
-    if base_url:
-        kwargs["base_url"] = base_url
-
-    llm = ChatOpenAI(**kwargs)
+    # Vision keeps its own (provider, api_key, base_url) triple — feed it
+    # to the central factory so reasoning_content patches and llm_extra_body_json
+    # apply identically to text and vision calls.
+    llm = build_chat_model(
+        provider,
+        model,
+        api_key=api_key,
+        base_url=base_url or "",
+        temperature=0,
+        max_tokens=2048,
+    )
     data_url = f"data:{mime};base64,{_b64(image_bytes)}"
     msg = HumanMessage(content=[
         {"type": "image_url", "image_url": {"url": data_url, "detail": "high"}},
@@ -102,7 +109,7 @@ async def describe_image(
         api_key = settings.vision_api_key or settings.llm_api_key
         base_url = resolve_base_url(provider, settings.vision_base_url or settings.llm_base_url)
         return await _call_openai_compat(
-            image_bytes, mime, prompt, model, api_key, base_url
+            image_bytes, mime, prompt, provider, model, api_key, base_url
         )
     except Exception as exc:
         logger.warning("vision_agent.describe_image failed: %s", exc)
