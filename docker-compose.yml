@@ -1,0 +1,72 @@
+# OmniKB docker-compose — single-host production-ish deployment.
+#
+# Two services:
+#   - omnikb : the FastAPI app
+#   - qdrant : optional remote vector store (uncomment + set QDRANT_MODE=remote)
+#
+# Persistent volumes:
+#   - omnikb-data    : SQLite, files, qdrant local index
+#   - omnikb-cache   : fastembed BM25 + huggingface model cache
+#                       (avoids 100MB+ redownloads on every restart)
+#
+# Usage:
+#   cp .env.example .env   # fill in API keys, then:
+#   docker compose up -d
+#   docker compose logs -f omnikb
+#   docker compose down
+
+services:
+  omnikb:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: omnikb:latest
+    container_name: omnikb
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      OMNIKB_HOST: 0.0.0.0
+      OMNIKB_PORT: 6886
+      DATA_DIR: /app/data
+      SQLITE_PATH: /app/data/omnikb.db
+      QDRANT_LOCAL_PATH: /app/data/qdrant
+      FASTEMBED_CACHE_PATH: /app/.cache/fastembed
+      HF_HOME: /app/.cache/huggingface
+    ports:
+      - "6886:6886"
+    volumes:
+      - omnikb-data:/app/data
+      - omnikb-cache:/app/.cache
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:6886/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    # depends_on:
+    #   qdrant:
+    #     condition: service_healthy
+
+  # ──── Optional: dedicated Qdrant service ────────────────────────
+  # Uncomment to run remote Qdrant. In that case, set QDRANT_MODE=remote
+  # and QDRANT_URL=http://qdrant:6333 in .env.
+  #
+  # qdrant:
+  #   image: qdrant/qdrant:latest
+  #   container_name: omnikb-qdrant
+  #   restart: unless-stopped
+  #   volumes:
+  #     - qdrant-storage:/qdrant/storage
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "curl -fsS http://localhost:6333/healthz || exit 1"]
+  #     interval: 30s
+  #     timeout: 5s
+  #     retries: 3
+
+volumes:
+  omnikb-data:
+    driver: local
+  omnikb-cache:
+    driver: local
+  # qdrant-storage:
+  #   driver: local

@@ -53,4 +53,9 @@ tg_bot/
 # ── Docs & Tests ───────────────────────────────────────────────
 PRD.md
 docs/
-tests/
+
+# Tests: keep code, exclude per-run artifacts and large evaluation dumps.
+tests/.DS_Store
+tests/**/__pycache__/
+tests/qa_results/
+tests/python_async_eval_*.json
