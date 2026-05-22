@@ -25,7 +25,6 @@ generation is disabled or fails.
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -33,6 +32,7 @@ from pathlib import Path
 from typing import Any
 
 from storage.metadata_db import append_wiki_event
+from workers import BackgroundWorker
 
 logger = logging.getLogger(__name__)
 
@@ -53,15 +53,24 @@ class WikiEvent:
     source_metadata: dict[str, Any] = field(default_factory=dict)
 
 
-class WikiWorker:
-    """Single-consumer async worker over ``data/wiki/`` and DB tables."""
+class WikiWorker(BackgroundWorker):
+    """Single-consumer async worker over ``data/wiki/`` and DB tables.
+
+    Queue-driven: producers push :class:`WikiEvent` instances via
+    :meth:`enqueue`; the inherited :meth:`start`/:meth:`stop` lifecycle
+    spawns / cancels a single consumer ``asyncio.Task`` that pulls from
+    that queue. We override :meth:`_run` for full custody of the wait
+    semantics and :meth:`_drain` to flush in-flight events on shutdown.
+    """
+
+    name = "wiki-worker"
+    DRAIN_TIMEOUT_S = 30.0
 
     # Queue depth. Picked deliberately small — wiki maintenance is
     # CPU + LLM bound, NOT throughput bound. If the queue fills up
     # something is wrong (huge folder import) and we'd rather drop new
     # work and log loudly than silently fall hours behind.
     QUEUE_MAX = 256
-    DRAIN_TIMEOUT = 30.0    # seconds to wait for in-flight work on stop()
 
     def __init__(
         self,
@@ -69,49 +78,13 @@ class WikiWorker:
         *,
         generator: Any | None = None,
     ):
+        super().__init__()
         self._data_dir = Path(data_dir).expanduser()
         self._queue: asyncio.Queue[WikiEvent] = asyncio.Queue(maxsize=self.QUEUE_MAX)
-        self._task: asyncio.Task | None = None
-        self._stopping = asyncio.Event()
-        self._processed = 0
-        self._failed = 0
         # Lazy-built — first event triggers construction. Keeps the
         # worker importable without dragging the LLM stack into module
         # init time (see the test harness).
         self._generator = generator
-
-    # ── lifecycle ──────────────────────────────────────────────
-
-    async def start(self) -> None:
-        """Spawn the consumer task. Idempotent."""
-        if self._task is not None and not self._task.done():
-            return
-        self._stopping.clear()
-        self._task = asyncio.create_task(self._run(), name="wiki-worker")
-        logger.info("wiki worker: started (data_dir=%s)", self._data_dir)
-
-    async def stop(self) -> None:
-        """Signal the consumer to exit, drain in-flight events, then cancel."""
-        if self._task is None:
-            return
-        self._stopping.set()
-        # Best-effort drain — give the consumer a chance to finish whatever
-        # it picked up before we cancel.
-        try:
-            await asyncio.wait_for(self._queue.join(), timeout=self.DRAIN_TIMEOUT)
-        except asyncio.TimeoutError:
-            logger.warning(
-                "wiki worker: drain timeout, %d events still queued",
-                self._queue.qsize(),
-            )
-        self._task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await self._task
-        self._task = None
-        logger.info(
-            "wiki worker: stopped (processed=%d, failed=%d)",
-            self._processed, self._failed,
-        )
 
     # ── public producer API ────────────────────────────────────
 
@@ -119,30 +92,39 @@ class WikiWorker:
         """Submit an event. Returns False (and logs) when the queue is full
         — callers should treat that as 'fire and forget' rather than
         propagating to the user-facing request."""
-        if self._task is None:
-            logger.warning("wiki worker: enqueue called before start(); dropping %s", event.kind)
+        if not self.is_running:
+            self._logger.warning("enqueue called before start(); dropping %s", event.kind)
             return False
         try:
             self._queue.put_nowait(event)
             return True
         except asyncio.QueueFull:
-            logger.error(
-                "wiki worker: queue full (%d items) — dropping %s event for %s",
+            self._logger.error(
+                "queue full (%d items) — dropping %s event for %s",
                 self._queue.qsize(), event.kind, event.source_id,
             )
             return False
 
     def stats(self) -> dict[str, int]:
+        # Augment the base stats with the queue depth (queue-specific).
         return {
-            "queued":    self._queue.qsize(),
-            "processed": self._processed,
-            "failed":    self._failed,
+            "queued": self._queue.qsize(),
+            **super().stats(),
         }
+
+    # ── lifecycle hooks (override base) ────────────────────────
+
+    async def _drain(self) -> None:
+        """Wait for the queue to flush before stop() forces cancel.
+
+        Inherited stop() wraps this in a DRAIN_TIMEOUT_S guard.
+        """
+        await self._queue.join()
 
     # ── consumer loop ──────────────────────────────────────────
 
     async def _run(self) -> None:
-        logger.debug("wiki worker: consumer loop entered")
+        self._logger.debug("consumer loop entered")
         while True:
             try:
                 # Use a short timeout instead of pure await so the loop
@@ -150,7 +132,7 @@ class WikiWorker:
                 try:
                     event = await asyncio.wait_for(self._queue.get(), timeout=1.0)
                 except asyncio.TimeoutError:
-                    if self._stopping.is_set() and self._queue.empty():
+                    if self._should_stop() and self._queue.empty():
                         return
                     continue
             except asyncio.CancelledError:
@@ -161,7 +143,7 @@ class WikiWorker:
                 self._processed += 1
             except Exception as exc:  # noqa: BLE001 — never let one event take the worker down
                 self._failed += 1
-                logger.exception("wiki worker: handler raised on %s: %s", event.kind, exc)
+                self._logger.exception("handler raised on %s: %s", event.kind, exc)
             finally:
                 self._queue.task_done()
 

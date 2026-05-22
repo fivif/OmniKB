@@ -209,6 +209,32 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("research-task recovery failed (non-fatal): %s", exc)
 
+    # Optional: scheduled auto-research worker. Off by default; needs
+    # both the master switch AND a non-zero interval.
+    app.state.scheduled_research_worker = None
+    if (
+        getattr(settings, "wiki_auto_research_enabled", False)
+        and float(getattr(settings, "wiki_auto_research_interval_hours", 0.0)) > 0.0
+    ):
+        try:
+            from wiki.scheduled_research import ScheduledResearchWorker
+            srw = ScheduledResearchWorker(
+                settings.data_dir,
+                interval_seconds=settings.wiki_auto_research_interval_hours * 3600.0,
+                max_per_run=settings.wiki_auto_research_max_per_run,
+                cooldown_hours=settings.wiki_auto_research_cooldown_hours,
+            )
+            await srw.start()
+            app.state.scheduled_research_worker = srw
+            logger.info(
+                "Scheduled research worker started (interval=%.1fh, max=%d, cooldown=%dh)",
+                settings.wiki_auto_research_interval_hours,
+                settings.wiki_auto_research_max_per_run,
+                settings.wiki_auto_research_cooldown_hours,
+            )
+        except Exception as exc:
+            logger.warning("scheduled research worker start failed (non-fatal): %s", exc)
+
     logger.info("OmniKB startup complete")
     yield
 
@@ -227,6 +253,11 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.debug("wiki worker stop: %s", exc)
     _wiki_pkg.WORKER = None
+    if getattr(app.state, "scheduled_research_worker", None) is not None:
+        try:
+            await app.state.scheduled_research_worker.stop()
+        except Exception as exc:
+            logger.debug("scheduled research worker stop: %s", exc)
     try:
         await close_db()
     except Exception as exc:

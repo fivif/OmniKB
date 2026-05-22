@@ -164,6 +164,11 @@ class Settings(BaseSettings):
     # 24h is a reasonable trade-off: long enough for fresh content to
     # emerge on the open web, short enough to keep gaps shrinking.
     wiki_auto_research_cooldown_hours: int = 24
+    # If non-zero AND wiki_auto_research_enabled, a periodic background
+    # worker (`ScheduledResearchWorker`) ticks every N hours and runs
+    # the same auto-dispatch logic as `?auto_research=true`. 0 disables
+    # the worker entirely (manual /insights polling is still available).
+    wiki_auto_research_interval_hours: float = 0.0
 
     # ── Web agent budget caps (BudgetTracker defaults) ─────────────
     # Soft caps enforced by agent_core.budget.BudgetTracker. Set to 0 to
