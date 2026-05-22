@@ -18,6 +18,62 @@ pip install -r requirements.txt
 python main.py          # http://localhost:6886
 ```
 
+## 界面预览
+
+### 摄入面板
+
+![Upload](docs/screenshots/01-upload.png)
+
+支持文件拖拽、URL 智能抓取、文本粘贴、批量任务队列。
+
+### 检索工作台
+
+![Search](docs/screenshots/02-search.png)
+
+混合语义检索，Dense + BM25 + RRF 融合，按来源/类型/标签过滤。
+
+### RAG 流式对话
+
+![Chat](docs/screenshots/03-chat.png)
+
+SSE 流式输出，引用溯源，Agent 自主调用检索工具。
+
+### 知识库管理
+
+![KB Manager](docs/screenshots/04-kb-manager.png)
+
+来源列表、标签管理、批量操作、数据导出。
+
+### 场景/问答管理
+
+![Scenarios](docs/screenshots/05-scenarios.png)
+
+创建限定范围的公开 Q&A API，独立 LLM 配置和 API Key。
+
+### 设置面板
+
+![Settings](docs/screenshots/06-settings.png)
+
+LLM 提供商、模型、代理、系统提示词等运行时配置。
+
+### Agent 实时控制台
+
+![Agent Console](docs/screenshots/09-agent-console.png)
+
+类型化事件流实时广播，任务状态追踪。
+
+### 独立知识库问答页
+
+![KB Chat](docs/screenshots/07-kb-chat-standalone.png)
+
+可嵌入外部站点的独立问答页面。
+
+### 场景 API 调试页
+
+![Scenario API](docs/screenshots/08-scenario-api.png)
+
+场景 API 接入文档与在线调试工具。
+
 ## 核心功能
 
 ### 数据摄入
