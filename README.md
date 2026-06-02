@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://github.com/fivif/OmniKB"><img src="https://img.shields.io/badge/GitHub-OmniKB-blue?logo=github" alt="GitHub"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT"></a>
+  <a href="https://github.com/fivif/OmniKB/blob/master/LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT"></a>
   <a href="#"><img src="https://img.shields.io/badge/python-3.13+-blue?logo=python" alt="Python 3.13+"></a>
   <a href="#"><img src="https://img.shields.io/badge/LLM-DeepSeek_V4-536DFE" alt="DeepSeek"></a>
   <a href="#"><img src="https://img.shields.io/badge/storage-SQLite-orange?logo=sqlite" alt="SQLite"></a>
@@ -137,7 +137,7 @@ python backend/main.py
 
 ## 📜 License
 
-MIT
+[MIT](https://github.com/fivif/OmniKB/blob/master/LICENSE)
 
 ---
 
@@ -215,4 +215,4 @@ python backend/main.py
 
 ## 📜 License
 
-MIT
+[MIT](https://github.com/fivif/OmniKB/blob/master/LICENSE)
