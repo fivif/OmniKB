@@ -97,11 +97,12 @@ python backend/main.py
 
 ### 鉴权机制
 
+设置 `ADMIN_PASSWORD` 后，**所有路径均需登录**，仅 `/login.html` 和 `/auth/*` 免鉴权（否则无法登录）。
+
 | 路径 | 鉴权要求 |
 |---|---|
-| `/` `/admin` `/index.html` 管理面板 | 需登录 |
-| `/api/*` 管理 API | 需登录（Cookie 或自动转发） |
-| `/login.html` `/kb-chat.html` `/kb-api/*` `/mcp/*` `/scenario-api.html` | 免鉴权 |
+| 全部路径 | 需登录 |
+| `/login.html` `/auth/*` | 免鉴权（登录流程必须） |
 
 - **开启鉴权**：在 `.env` 中设置 `ADMIN_PASSWORD=your_password`，或在 Web UI 设置面板热更新
 - **关闭鉴权**：留空 `ADMIN_PASSWORD`，所有请求直接放行

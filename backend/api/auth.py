@@ -1,7 +1,7 @@
-"""Cookie-based admin authentication — simple password gate for the management SPA.
+"""Cookie-based admin authentication — simple password gate for the whole app.
 
-Protected:  /, /admin, /index.html, all /api/* except exempt below
-Exempt:    /login.html, /kb-chat.html, /kb-api/*, /health, /mcp/*, /scenario-api.html
+Protected:  all paths
+Exempt:    /auth/*, /login.html (otherwise you can't log in)
 Auth off:  when ADMIN_PASSWORD is empty in .env
 """
 
@@ -17,15 +17,10 @@ from starlette.middleware.base import BaseHTTPMiddleware
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# ── Paths that do NOT require admin auth ──────────────────────────
+# ── Paths that do NOT require admin auth (login flow only) ───────
 _AUTH_EXEMPT_PREFIXES = (
     "/auth/",
     "/login.html",
-    "/kb-chat.html",
-    "/kb-api/",
-    "/health",
-    "/mcp/",
-    "/scenario-api.html",
 )
 
 
