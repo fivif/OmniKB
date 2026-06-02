@@ -132,7 +132,7 @@ MIT
 
 ## 🙏 致谢
 
-- [DeepSeek](https://deepseek.com) — 1M 上下文大模型支持
+- [DeepSeek](https://deepseek.com) — 梁圣恩情还不完
 - [LINUX DO](https://linux.do) — 技术社区与测试支持
 - [Andrej Karpathy](https://github.com/karpathy) — LLM-Wiki 范式先驱
 - [nashsu/llm_wiki](https://github.com/nashsu/llm_wiki) — 参考实现
