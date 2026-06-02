@@ -131,16 +131,6 @@ python backend/main.py
 
 ---
 
-## 📖 文档
-
-| 文档 | 路径 |
-|---|---|
-| API 参考 | [`docs/API.md`](docs/API.md) |
-| 部署指南 | [`docs/DEPLOY.md`](docs/DEPLOY.md) |
-| 环境变量 | [`.env.example`](.env.example) |
-| 演进日志 | [`progress.md`](progress.md) |
-
----
 
 ## 📜 License
 
