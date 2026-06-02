@@ -60,3 +60,8 @@ tests/**/__pycache__/
 tests/qa_results/
 tests/python_async_eval_*.json
 .dscode/
+.dscode/
+.github/
+Dockerfile
+docker-compose.yml
+.dockerignore
