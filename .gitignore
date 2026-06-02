@@ -59,3 +59,4 @@ tests/.DS_Store
 tests/**/__pycache__/
 tests/qa_results/
 tests/python_async_eval_*.json
+.dscode/
