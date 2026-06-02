@@ -20,8 +20,8 @@ const TAB_META = {
     subtitle: '混合语义检索、重排序与结果复核都在这里完成',
   },
   chat: {
-    title: 'RAG 对话',
-    subtitle: '围绕知识库上下文进行多轮问答，并保留引用链路',
+    title: 'AI 对话',
+    subtitle: '基于 Wiki 知识图谱与大上下文 LLM 进行智能问答',
   },
   kb: {
     title: '知识库管理',
@@ -50,6 +50,7 @@ function loadSettings() {
   }
 }
 function saveSettings(obj) {
+  if (!obj || typeof obj !== 'object') return;
   const cur = loadSettings();
   localStorage.setItem('omnikb_settings', JSON.stringify({ ...cur, ...obj }));
 }
@@ -84,7 +85,7 @@ function toast(msg, type = 'info') {
   const container = document.getElementById('toast-container');
   const el = document.createElement('div');
   el.className = 'toast ' + type;
-  el.innerHTML = msg;
+  el.textContent = msg;
   container.appendChild(el);
   setTimeout(() => {
     el.style.opacity = '0';
@@ -195,6 +196,27 @@ document.getElementById('tab-scenarios').dataset.flex = '1';
 const _wikiTab = document.getElementById('tab-wiki');
 if (_wikiTab) _wikiTab.dataset.flex = '1';
 
+// ── Collapsible sidebar toggle ──────────────────────────────
+(function initSidebarCollapse() {
+  const sidebar = document.getElementById('omni-sidebar');
+  const btn = document.getElementById('sidebar-collapse-btn');
+  if (!sidebar || !btn) return;
+
+  // Restore persisted state
+  if (localStorage.getItem('omnikb-sidebar-collapsed') === '1') {
+    sidebar.classList.add('collapsed');
+  }
+
+  btn.addEventListener('click', () => {
+    const isNowCollapsed = sidebar.classList.toggle('collapsed');
+    localStorage.setItem('omnikb-sidebar-collapsed', isNowCollapsed ? '1' : '0');
+    // Re-render Lucide icons after the chevron rotates
+    if (window.lucide && typeof window.lucide.createIcons === 'function') {
+      setTimeout(() => window.lucide.createIcons(), 50);
+    }
+  });
+})();
+
 // Route on load
 const initialTab = window.location.hash.replace('#', '') || 'upload';
 showTab(initialTab);
@@ -204,7 +226,12 @@ async function refreshStats() {
   try {
     const data = await apiJson('/kb/stats');
     document.getElementById('stat-sources').textContent = `${data.total_sources} 来源`;
-    document.getElementById('stat-chunks').textContent = `${data.total_chunks} 片段`;
+    try {
+      const wiki = await apiJson('/wiki/stats');
+      document.getElementById('stat-chunks').textContent = `${wiki.total_pages || 0} Wiki 页`;
+    } catch {
+      document.getElementById('stat-chunks').textContent = '—';
+    }
   } catch {}
 }
 refreshStats();

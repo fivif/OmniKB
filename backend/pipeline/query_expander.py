@@ -83,6 +83,8 @@ _DOMAIN_EXPANSIONS: dict[str, list[str]] = {
 
 def should_expand(query: str) -> bool:
     """Check if a query is broad enough to warrant expansion."""
+    if len(query.strip()) < 4:
+        return False
     for pattern in _BROAD_PATTERNS:
         if re.search(pattern, query, re.IGNORECASE):
             return True
@@ -108,10 +110,13 @@ def expand_query(query: str, top_k: int = 5) -> list[str]:
                 if len(part) > 3 and part not in sub_queries:
                     sub_queries.append(part)
 
-    # Domain-specific expansion
+    # Domain-specific expansion.
+    # Only apply when the query contains at least one CJK character,
+    # preventing false-positives on short/accidental ASCII keyword matches.
     query_lower = query.lower()
+    _has_cjk = any('一' <= ch <= '鿿' for ch in query)
     for keyword, expansions in _DOMAIN_EXPANSIONS.items():
-        if keyword in query_lower:
+        if keyword in query_lower and (keyword.isascii() or _has_cjk):
             sub_queries.extend(expansions)
 
     # Deduplicate while preserving order

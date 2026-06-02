@@ -1,12 +1,12 @@
 /* ═══════════════════════════════════════════════════════════════
-   OmniKB — Design System v4 | macOS × Linear × Raycast
+   OmniKB — Design System v5 | AURA UI
    Entry: imports tokens, reset, layout, components, panels.
    Tailwind CDN handles all utility classes (flex, text-xs, etc.)
    ═══════════════════════════════════════════════════════════════ */
 
-@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap');
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&display=swap');
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 @import 'tokens.css';
 @import 'reset.css';
@@ -34,6 +34,18 @@
 @import 'panels/scenarios.css';
 @import 'panels/settings.css';
 
+/* ─── Global utility ──────────────────────────────────────── */
+.spring-transition {
+  transition: all 400ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.glass {
+  background: var(--bg-glass);
+  backdrop-filter: blur(20px) saturate(190%);
+  -webkit-backdrop-filter: blur(20px) saturate(190%);
+  border: 1px solid var(--bd-default);
+}
+
 /* ─── Page headings (all panels) ──────────────────────────── */
 .page-heading {
   font-size: 22px;
@@ -47,7 +59,7 @@
   margin-top: 4px;
 }
 
-/* ─── Page headings (all panels) ──────────────────────────── */
+/* ─── Drop zone ───────────────────────────────────────────── */
 .drop-zone {
   border: 2px dashed var(--bd);
   border-radius: var(--r-lg);
@@ -70,7 +82,7 @@ mark {
 }
 .result-card {
   background: var(--bg-card);
-  border: 1px solid var(--bd);
+  border: 2px solid var(--bd);
   border-radius: var(--r-lg);
   padding: 16px 20px;
   transition: border-color var(--ft), box-shadow var(--ft);
@@ -90,34 +102,13 @@ mark {
   white-space: nowrap;
 }
 
-/* ─── Chat bubbles ─────────────────────────────────────────── */
-.bubble-user {
-  background: var(--accent);
-  color: #fff;
-  border-radius: 18px 18px 4px 18px;
-}
-.bubble-ai {
-  background: var(--bg-card);
-  border-radius: 18px 18px 18px 4px;
-  border: 1px solid var(--bd);
-  color: var(--t2);
-}
-
-/* ─── Streaming cursor ─────────────────────────────────────── */
-.typing-cursor::after {
-  content: '▋';
-  animation: omni-blink 0.7s step-end infinite;
-  color: var(--accent);
-}
-@keyframes omni-blink { 50% { opacity: 0; } }
-.typing-placeholder { opacity: 0.4; }
 
 /* ─── Glass header (chat panel) ────────────────────────────── */
 .glass-header {
   background: var(--topbar-bg);
   backdrop-filter: var(--blur-md);
   -webkit-backdrop-filter: var(--blur-md);
-  border-bottom: 1px solid var(--bd);
+  border-bottom: 1px solid var(--bd-default);
 }
 
 /* ─── Citations ────────────────────────────────────────────── */
@@ -204,16 +195,6 @@ mark {
   color: var(--t2);
 }
 
-/* ─── Prose for markdown in chat ───────────────────────────── */
-.prose-light p     { margin: 0.5em 0; color: inherit; }
-.prose-light ul    { list-style: disc; padding-left: 1.5em; margin: 0.5em 0; color: inherit; }
-.prose-light ol    { list-style: decimal; padding-left: 1.5em; margin: 0.5em 0; color: inherit; }
-.prose-light pre   { background: var(--bg-muted); padding: 0.75em 1em; border-radius: var(--r-md); overflow-x: auto; margin: 0.75em 0; font-size: 0.85em; }
-.prose-light code  { font-family: var(--mono); font-size: 0.875em; }
-.prose-light :not(pre) > code { background: var(--bg-muted); padding: 0.1em 0.35em; border-radius: var(--r-xs); }
-.prose-light h1,
-.prose-light h2,
-.prose-light h3 { font-weight: 600; margin: 0.75em 0 0.35em; color: var(--t1); }
 
 /* ─── Status badges ────────────────────────────────────────── */
 .badge-pending    { background: var(--bg-muted); color: var(--t3); }
@@ -225,7 +206,7 @@ mark {
 /* ─── Stat cards (KB panel, upload tasks) ──────────────────── */
 .stat-card {
   background: var(--bg-card);
-  border: 1px solid var(--bd);
+  border: 2px solid var(--bd);
   border-radius: var(--r-lg);
   padding: 16px;
   transition: border-color var(--ft);
@@ -250,7 +231,7 @@ mark {
 /* ─── Table card (KB panel) ────────────────────────────────── */
 .table-card {
   background: var(--bg-card);
-  border: 1px solid var(--bd);
+  border: 2px solid var(--bd);
   border-radius: var(--r-lg);
   overflow: hidden;
 }
@@ -274,7 +255,7 @@ mark {
   font-weight: 500;
   color: var(--t3);
   background: transparent;
-  border: 1px solid var(--bd);
+  border: 2px solid var(--bd);
   border-radius: var(--r-md);
   cursor: pointer;
   transition: all var(--ft);
@@ -335,7 +316,7 @@ mark {
   gap: 18px;
   padding: 22px;
   border-radius: 26px;
-  border: 1px solid var(--bd-subtle);
+  border: 2px solid var(--bd-default);
   background: var(--panel-hero-bg);
   box-shadow: var(--sh-lg);
   overflow: hidden;
@@ -366,7 +347,7 @@ mark {
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--accent);
+  color: var(--gold);
 }
 
 .panel-hero-title {
@@ -404,7 +385,7 @@ mark {
 
 .hero-kpi-label {
   display: block;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -429,33 +410,34 @@ mark {
   color: var(--t-secondary);
 }
 
+/* ─── Panel CSS variables (AURA slate + indigo + gold) ──── */
 :root {
-  --panel-surface-bg: rgba(255, 253, 247, 0.9);
+  --panel-surface-bg: rgba(255, 255, 255, 0.9);
   --panel-chip-surface: rgba(255, 255, 255, 0.74);
-  --panel-mode-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(247, 241, 231, 0.88));
-  --panel-mode-active-bg: linear-gradient(135deg, rgba(21, 94, 239, 0.12), rgba(255, 255, 255, 0.95));
+  --panel-mode-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(241, 245, 249, 0.88));
+  --panel-mode-active-bg: linear-gradient(135deg, rgba(79, 70, 229, 0.12), rgba(255, 255, 255, 0.95));
   --panel-mode-badge-bg: rgba(255, 255, 255, 0.78);
   --panel-soft-surface-bg: rgba(255, 255, 255, 0.72);
   --panel-result-surface-bg: rgba(255, 255, 255, 0.84);
-  --panel-hero-bg: radial-gradient(circle at top left, rgba(21, 94, 239, 0.12), transparent 42%), linear-gradient(135deg, rgba(255, 253, 247, 0.98), rgba(247, 241, 231, 0.92));
-  --panel-hero-orb-bg: radial-gradient(circle, rgba(21, 94, 239, 0.14), transparent 68%);
+  --panel-hero-bg: radial-gradient(circle at top left, rgba(79, 70, 229, 0.10), transparent 44%), linear-gradient(135deg, rgba(241, 245, 249, 0.98), rgba(226, 232, 240, 0.92));
+  --panel-hero-orb-bg: radial-gradient(circle, rgba(145, 114, 73, 0.14), transparent 68%);
   --panel-hero-kpi-bg: rgba(255, 255, 255, 0.7);
-  --panel-hero-kpi-border: rgba(21, 94, 239, 0.16);
-  --panel-hero-kpi-shadow: 0 10px 24px rgba(36, 28, 21, 0.06);
+  --panel-hero-kpi-border: rgba(79, 70, 229, 0.16);
+  --panel-hero-kpi-shadow: 0 10px 24px rgba(2, 6, 23, 0.06);
 }
 
 [data-theme="dark"] {
   --panel-surface-bg: var(--bg-surface);
   --panel-chip-surface: var(--bg-elevated);
-  --panel-mode-bg: linear-gradient(180deg, rgba(33, 36, 41, 0.94), rgba(24, 26, 29, 0.94));
-  --panel-mode-active-bg: linear-gradient(135deg, var(--accent-bg), rgba(33, 36, 41, 0.96));
-  --panel-mode-badge-bg: rgba(91, 140, 255, 0.14);
+  --panel-mode-bg: linear-gradient(180deg, rgba(30, 41, 59, 0.94), rgba(15, 23, 42, 0.94));
+  --panel-mode-active-bg: linear-gradient(135deg, var(--accent-bg), rgba(30, 41, 59, 0.96));
+  --panel-mode-badge-bg: rgba(129, 140, 248, 0.14);
   --panel-soft-surface-bg: var(--bg-elevated);
   --panel-result-surface-bg: var(--bg-elevated);
-  --panel-hero-bg: radial-gradient(circle at top left, rgba(91, 140, 255, 0.18), transparent 42%), linear-gradient(135deg, rgba(24, 26, 29, 0.98), rgba(17, 18, 19, 0.94));
-  --panel-hero-orb-bg: radial-gradient(circle, rgba(91, 140, 255, 0.2), transparent 68%);
-  --panel-hero-kpi-bg: rgba(33, 36, 41, 0.88);
-  --panel-hero-kpi-border: rgba(91, 140, 255, 0.18);
+  --panel-hero-bg: radial-gradient(circle at top left, rgba(129, 140, 248, 0.16), transparent 44%), linear-gradient(135deg, rgba(15, 23, 42, 0.98), rgba(2, 6, 23, 0.94));
+  --panel-hero-orb-bg: radial-gradient(circle, rgba(223, 197, 159, 0.16), transparent 68%);
+  --panel-hero-kpi-bg: rgba(30, 41, 59, 0.88);
+  --panel-hero-kpi-border: rgba(129, 140, 248, 0.18);
   --panel-hero-kpi-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
 }
 
@@ -463,22 +445,22 @@ mark {
   :root:not([data-theme="light"]) {
     --panel-surface-bg: var(--bg-surface);
     --panel-chip-surface: var(--bg-elevated);
-    --panel-mode-bg: linear-gradient(180deg, rgba(33, 36, 41, 0.94), rgba(24, 26, 29, 0.94));
-    --panel-mode-active-bg: linear-gradient(135deg, var(--accent-bg), rgba(33, 36, 41, 0.96));
-    --panel-mode-badge-bg: rgba(91, 140, 255, 0.14);
+    --panel-mode-bg: linear-gradient(180deg, rgba(30, 41, 59, 0.94), rgba(15, 23, 42, 0.94));
+    --panel-mode-active-bg: linear-gradient(135deg, var(--accent-bg), rgba(30, 41, 59, 0.96));
+    --panel-mode-badge-bg: rgba(129, 140, 248, 0.14);
     --panel-soft-surface-bg: var(--bg-elevated);
     --panel-result-surface-bg: var(--bg-elevated);
-    --panel-hero-bg: radial-gradient(circle at top left, rgba(91, 140, 255, 0.18), transparent 42%), linear-gradient(135deg, rgba(24, 26, 29, 0.98), rgba(17, 18, 19, 0.94));
-    --panel-hero-orb-bg: radial-gradient(circle, rgba(91, 140, 255, 0.2), transparent 68%);
-    --panel-hero-kpi-bg: rgba(33, 36, 41, 0.88);
-    --panel-hero-kpi-border: rgba(91, 140, 255, 0.18);
+    --panel-hero-bg: radial-gradient(circle at top left, rgba(129, 140, 248, 0.16), transparent 44%), linear-gradient(135deg, rgba(15, 23, 42, 0.98), rgba(2, 6, 23, 0.94));
+    --panel-hero-orb-bg: radial-gradient(circle, rgba(223, 197, 159, 0.16), transparent 68%);
+    --panel-hero-kpi-bg: rgba(30, 41, 59, 0.88);
+    --panel-hero-kpi-border: rgba(129, 140, 248, 0.18);
     --panel-hero-kpi-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
   }
 }
 
 .section-card {
   background: var(--panel-surface-bg);
-  border: 1px solid var(--bd-subtle);
+  border: 2px solid var(--bd-default);
   border-radius: 24px;
   box-shadow: var(--sh-md);
   overflow: hidden;
@@ -553,7 +535,7 @@ mark {
   gap: 8px;
   padding: 8px 12px;
   border-radius: 999px;
-  border: 1px solid var(--bd-default);
+  border: 2px solid var(--bd-default);
   background: var(--panel-chip-surface);
   color: var(--t-secondary);
   font-size: 12px;
@@ -574,11 +556,11 @@ mark {
   min-height: 140px;
   padding: 18px;
   border-radius: 22px;
-  border: 1px solid var(--bd-default);
+  border: 2px solid var(--bd-default);
   background: var(--panel-mode-bg);
   color: var(--t-secondary);
   cursor: pointer;
-  transition: transform var(--dur-base) var(--ease-out), border-color var(--dur-base) var(--ease-out), box-shadow var(--dur-base) var(--ease-out), background var(--dur-base) var(--ease-out);
+  transition: transform var(--dur-base) var(--ease-spring), border-color var(--dur-base) var(--ease-spring), box-shadow var(--dur-base) var(--ease-spring), background var(--dur-base) var(--ease-spring);
 }
 
 .mode-card:hover {
@@ -642,7 +624,7 @@ mark {
 .stats-card {
   padding: 18px;
   border-radius: 22px;
-  border: 1px solid var(--bd-subtle);
+  border: 2px solid var(--bd-default);
   background: var(--panel-soft-surface-bg);
   box-shadow: var(--sh-sm);
 }
@@ -657,7 +639,7 @@ mark {
 
 .stats-card-label {
   margin-top: 8px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -677,7 +659,7 @@ mark {
 .result-surface {
   padding: 18px;
   border-radius: 22px;
-  border: 1px solid var(--bd-subtle);
+  border: 2px solid var(--bd-default);
   background: var(--panel-result-surface-bg);
   box-shadow: var(--sh-sm);
 }
@@ -709,7 +691,7 @@ mark {
    agent-console.js injects hardcoded light-mode colors.
    These overrides fix dark mode appearance. ─────────────────── */
 [data-theme="dark"] #agent-console {
-  background: rgba(20, 20, 24, 0.92) !important;
+  background: rgba(2, 6, 23, 0.92) !important;
   color: var(--t1) !important;
   border-top-color: rgba(255, 255, 255, 0.06) !important;
   border-left-color: rgba(255, 255, 255, 0.04) !important;
@@ -744,7 +726,7 @@ mark {
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) #agent-console {
-    background: rgba(20, 20, 24, 0.92) !important;
+    background: rgba(2, 6, 23, 0.92) !important;
     color: var(--t1) !important;
     border-top-color: rgba(255, 255, 255, 0.06) !important;
     border-left-color: rgba(255, 255, 255, 0.04) !important;

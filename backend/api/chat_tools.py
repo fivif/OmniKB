@@ -196,36 +196,16 @@ def build_chat_tools(ctx: ChatContext):
         _wiki_on = False
         _data_dir = "data"
 
-    if not _wiki_on:
-        return [search_kb, list_sources, list_tags, get_source_chunks, fetch_url_preview]
-
-    @_lc_tool
-    async def search_wiki(query: str, top_k: int = 5) -> str:
-        """Search the LLM-Wiki layer (entity / concept / source pages).
-
-        Prefer this over ``search_kb`` when the user's question asks
-        about a named entity, a defined concept, or wants synthesis
-        across multiple sources. Returns a JSON list of
-        ``{page_id, type, title, summary, score, matched}`` — call
-        ``read_wiki_page`` next to fetch the full body of any hit.
-        """
-        from wiki.retriever import search_wiki_pages
-        try:
-            hits = await search_wiki_pages(query=query, top_k=max(1, min(top_k, 20)))
-        except Exception as exc:
-            return f"[search_wiki error: {exc}]"
-        if not hits:
-            return "[search_wiki: no matching pages]"
-        return json.dumps([h.to_dict() for h in hits], ensure_ascii=False)
-
+    # Wiki-only mode: only expose read_wiki_page + fetch_url_preview.
+    # Wiki index is provided in system prompt — no search/listing needed.
     @_lc_tool
     async def read_wiki_page(page_id: str) -> str:
         """Read the full markdown body of a wiki page by id.
 
         ``page_id`` follows the form ``<type>:<slug>``, e.g.
-        ``entity:andrej-karpathy`` or ``concept:llm-wiki``. Use after
-        ``search_wiki`` finds a candidate, or when you already know
-        which page you want.
+        ``entity:andrej-karpathy`` or ``concept:llm-wiki``. Use when a
+        page listed in ``<wiki_index>`` seems relevant to the user's
+        question, or when you already know which page you want.
         """
         from wiki.retriever import read_page_body
         try:
@@ -241,5 +221,6 @@ def build_chat_tools(ctx: ChatContext):
             )
         return body
 
-    return [search_kb, list_sources, list_tags, get_source_chunks,
-            fetch_url_preview, search_wiki, read_wiki_page]
+    # Wiki-only mode: only wiki reading + URL fetching.
+    # The wiki index is already in the system prompt — no need for search/listing tools.
+    return [read_wiki_page, fetch_url_preview]

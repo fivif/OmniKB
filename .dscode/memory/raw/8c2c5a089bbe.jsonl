@@ -1,0 +1,4 @@
+{"id":"214a5468d035","session_id":"8c2c5a089bbe","task_id":null,"timestamp":1780084788.6285388,"step_number":0,"event_type":"user_message","data":{"content":"test"}}
+{"id":"37716a76cde4","session_id":"8c2c5a089bbe","task_id":null,"timestamp":1780084790.984477,"step_number":1,"event_type":"user_message","data":{"content":"test"}}
+{"id":"a4fc5a254b18","session_id":"8c2c5a089bbe","task_id":null,"timestamp":1780084802.242144,"step_number":2,"event_type":"user_message","data":{"content":"你是谁"}}
+{"id":"26d60cc1de4e","session_id":"8c2c5a089bbe","task_id":null,"timestamp":1780084805.9605381,"step_number":3,"event_type":"user_message","data":{"content":"你是谁"}}

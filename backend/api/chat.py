@@ -1,5 +1,4 @@
 from __future__ import annotations
-import asyncio
 import json
 import re
 import uuid
@@ -10,16 +9,11 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from config import settings
-from pipeline.embedder import embed_dense, embed_sparse
-from storage.vector_store import hybrid_search
 
 # Pattern for inline citation markers like ``[1]`` or ``[1, 3]`` that the LLM
 # emits per the RAG system prompt. We only count digits 1-99 to avoid matching
 # arbitrary bracketed text (footnotes, regex literals, etc.).
 _CITATION_RE = re.compile(r"\[(\d{1,2}(?:\s*,\s*\d{1,2})*)\]")
-# How many of the most recent user turns to merge into the retrieval query.
-# Pure last-message retrieval breaks on follow-up questions like "它的优势是什么？"
-_RETRIEVAL_HISTORY_TURNS = 3
 
 router = APIRouter()
 
@@ -74,30 +68,6 @@ class ChatRequest(BaseModel):
     """
 
 
-async def _retrieve(query: str, top_k: int, filters: dict | None, qdrant_filter: object = None) -> list[dict]:
-    from pipeline.retrieval import retrieve_chunks
-
-    retrieval = await retrieve_chunks(
-        query=query,
-        top_k=top_k,
-        filters=filters,
-        mode="hybrid",
-        rerank=True,
-        diversify=True,
-        expand=True,
-        qdrant_filter=qdrant_filter,
-    )
-    return retrieval.results
-
-
-def _build_context(chunks: list[dict]) -> str:
-    parts = []
-    for i, c in enumerate(chunks, 1):
-        src = c["metadata"].get("source_name") or c["metadata"].get("source_url", "unknown")
-        parts.append(f"[{i}] Source: {src}\n{c['content']}")
-    return "\n\n---\n\n".join(parts)
-
-
 def _get_llm(provider: str, model: str, *, base_url: str | None = None, api_key: str | None = None):
     from agents.llm import build_chat_model, normalize_provider
 
@@ -113,55 +83,33 @@ def _get_llm(provider: str, model: str, *, base_url: str | None = None, api_key:
     )
 
 
-def _build_retrieval_query(messages: list[Message], turns: int = _RETRIEVAL_HISTORY_TURNS) -> tuple[str, str]:
-    """Construct the retrieval query and the latest user question.
-
-    The latest user message is what the LLM ultimately answers, but using only
-    that for retrieval breaks pronoun references in follow-up turns. We
-    therefore concatenate the last ``turns`` user messages — older turns first,
-    most recent last — so dense + sparse embeddings see the broader topic
-    while still being dominated by the freshest phrasing.
-    """
-    user_msgs = [m.content for m in messages if m.role == "user" and m.content]
-    if not user_msgs:
-        return "", ""
-    latest = user_msgs[-1]
-    if len(user_msgs) == 1 or turns <= 1:
-        return latest, latest
-    history = user_msgs[-turns:]
-    # Latest message repeated at the end strengthens its weight in BM25 and
-    # caps a useful context boundary for the dense embedding model.
-    merged = "\n".join(history) + "\n" + latest
-    return merged, latest
+def _get_last_user_message(messages: list[Message]) -> str:
+    """Return the last user message content, or empty string if none."""
+    for m in reversed(messages):
+        if m.role == "user" and m.content:
+            return m.content
+    return ""
 
 
 _AGENTIC_SYSTEM_SUFFIX = """\
 
 ## Agent tools
 
-You may call any of the following tools to ground your answer:
-
-* `search_kb(query, top_k=5)` — hybrid (dense + sparse) search of the user's KB.
-  Returns numbered chunks. Cite each chunk you use as `[n]` in your final
-  answer using the same numbers the tool returned.
-* `list_sources(tag="", limit=20)` — list ingested documents.
-* `list_tags()` — list every tag in the KB.
-* `get_source_chunks(source_id, limit=5)` — read a known source verbatim.
-* `fetch_url_preview(url, intent="")` — fetch a fresh URL (≤ 30 s, no auth).
+* `read_wiki_page(page_id)` — read the full markdown body of a wiki page.
+  page_id format: ``<type>:<slug>`` (e.g. ``entity:minimind-model``).
+  The complete wiki index is provided above in ``<wiki_index>``.
+  Only read pages listed there — do not guess page IDs.
+* `fetch_url_preview(url)` — fetch a fresh URL (≤ 30 s, no auth).
 
 Workflow:
-1. If the question can plausibly be answered from the KB, call `search_kb`
-   first with a focused query. Use multiple targeted searches over one
-   broad search when the question has sub-parts.
-2. If retrieval results are thin, try `list_sources` + `get_source_chunks`
-   or a tighter `search_kb(query=..., top_k=...)` call.
-3. Use `fetch_url_preview` only when the user explicitly references a URL
-   not in the KB or asks for live/current information.
-4. Once you have enough, stop calling tools and write the final answer.
-   Cite KB excerpts inline as `[1]`, `[2]`, etc. — these numbers come
-   straight from the tool outputs. Never invent citations.
+1. Read the ``<wiki_index>`` to understand what knowledge is available.
+2. If a page seems relevant, call ``read_wiki_page`` to get its full content.
+3. Answer based on the wiki pages you read. The wiki index is the complete
+   and authoritative listing — do not claim to have knowledge beyond it.
+4. Only use ``fetch_url_preview`` for URLs the user explicitly asks about.
 
-Be terse. Do not narrate your tool plan in the final answer."""
+Be terse. Do not narrate your tool plan in the final answer.
+If the wiki index contains no relevant pages, honestly say so."""
 
 
 def _build_agentic_llm(provider: str, model: str, *, base_url: str | None = None, api_key: str | None = None):
@@ -188,6 +136,7 @@ async def _stream_agentic(
     base_url: str | None = None,
     api_key: str | None = None,
     qdrant_filter: object = None,
+        wiki_source_ids: list[str] | None = None,
 ) -> AsyncGenerator[str, None]:
     """Agentic chat path: LLM may call KB / web tools mid-conversation.
 
@@ -208,12 +157,29 @@ async def _stream_agentic(
     _api_key = api_key or settings.llm_api_key
     thread_id = req.thread_id or str(uuid.uuid4())
 
-    _retrieval_query, user_query = _build_retrieval_query(req.messages)
+    user_query = _get_last_user_message(req.messages)
     ctx = ChatContext(kb_filter=req.kb_filter, qdrant_filter=qdrant_filter)
     tools = build_chat_tools(ctx)
     tool_map = {t.name: t for t in tools}
 
     sys_prompt = system_prompt or get_rag_system_prompt()
+
+    # ── Wiki index disclosure (Karpathy progressive disclosure pattern) ──
+    if getattr(settings, "wiki_retrieval_enabled", False):  # wiki always on, RAG removed
+        try:
+            from wiki.retriever import load_wiki_index
+            wiki_index = await load_wiki_index(
+                source_ids=wiki_source_ids,
+            )
+            if wiki_index:
+                sys_prompt = (
+                    f"<wiki_index>\n{wiki_index}\n</wiki_index>\n\n"
+                    f"Use read_wiki_page(id) to fetch any page's full content.\n\n"
+                    + sys_prompt
+                )
+        except Exception:
+            pass  # wiki is best-effort, never break chat
+
     sys_prompt += _AGENTIC_SYSTEM_SUFFIX
     lc_msgs: list = [SystemMessage(content=sys_prompt)]
     for m in req.messages[:-1]:
@@ -233,7 +199,9 @@ async def _stream_agentic(
         async for evt in _stream(req, system_prompt=system_prompt,
                                   provider=provider, model=model,
                                   base_url=base_url, api_key=api_key,
-                                  qdrant_filter=qdrant_filter):
+                                  qdrant_filter=qdrant_filter,
+                                  
+                                  wiki_source_ids=wiki_source_ids):
             yield evt
         return
 
@@ -255,18 +223,18 @@ async def _stream_agentic(
             # token-by-token by re-issuing as a streaming call against the
             # same context, so the user sees progressive output.
             if not tool_calls:
-                # If the model already produced content in the non-stream call,
-                # emit it as a single chunk; otherwise stream a fresh response.
-                if resp.content:
+                # Always stream the final answer token-by-token
+                stream_llm = _get_llm(_provider, _model, base_url=_base_url, api_key=_api_key)
+                async for chunk in stream_llm.astream(lc_msgs[:-1]):
+                    tok = getattr(chunk, "content", "") or ""
+                    if tok:
+                        final_text += tok
+                        yield f"data: {json.dumps({'type': 'token', 'content': tok})}\n\n"
+                # Fallback: if streaming produced nothing (empty response),
+                # use the non-stream content as a single chunk
+                if not final_text and resp.content:
                     final_text = str(resp.content)
                     yield f"data: {json.dumps({'type': 'token', 'content': final_text})}\n\n"
-                else:
-                    stream_llm = _get_llm(_provider, _model, base_url=_base_url, api_key=_api_key)
-                    async for chunk in stream_llm.astream(lc_msgs[:-1]):
-                        tok = getattr(chunk, "content", "") or ""
-                        if tok:
-                            final_text += tok
-                            yield f"data: {json.dumps({'type': 'token', 'content': tok})}\n\n"
                 break
 
             # Execute the requested tools (sequentially — most are cheap
@@ -327,7 +295,9 @@ async def _stream_agentic(
         async for evt in _stream(req, system_prompt=system_prompt,
                                   provider=provider, model=model,
                                   base_url=base_url, api_key=api_key,
-                                  qdrant_filter=qdrant_filter):
+                                  qdrant_filter=qdrant_filter,
+                                  
+                                  wiki_source_ids=wiki_source_ids):
             yield evt
         return
 
@@ -351,7 +321,7 @@ async def _stream_agentic(
     citations = [
         {
             "index": idx,
-            "chunk_id": c["id"],
+            "chunk_id": c.get("id", ""),
             "content": (c.get("content") or "")[:300],
             "source": c["metadata"].get("source_name") or c["metadata"].get("source_url", ""),
             "score": round(c.get("rerank_score", c.get("score", 0)) or 0, 4),
@@ -391,6 +361,7 @@ async def _stream(
     api_key: str | None = None,
     qdrant_filter: object = None,
     skip_session: bool = False,
+        wiki_source_ids: list[str] | None = None,
 ) -> AsyncGenerator[str, None]:
     import logging as _lg
     from storage.metadata_db import upsert_session
@@ -401,10 +372,28 @@ async def _stream(
     _api_key = api_key or settings.llm_api_key
     thread_id = req.thread_id or str(uuid.uuid4())
 
-    retrieval_query, user_query = _build_retrieval_query(req.messages)
+    user_query = _get_last_user_message(req.messages)
 
-    # Single-pass retrieval — generous top_k, LLM filters via citations
-    chunks = await _retrieve(retrieval_query, max(req.top_k, 10), req.kb_filter, qdrant_filter=qdrant_filter)
+    # ── Agent console event (v1 bus) ─────────────────────────
+    from utils.agent_bus import emit
+    task_id = thread_id
+
+    # ── Wiki index disclosure (Karpathy progressive disclosure pattern) ──
+    wiki_context = ""
+    if getattr(settings, "wiki_retrieval_enabled", False):  # wiki always on, RAG removed
+        try:
+            from wiki.retriever import load_wiki_index
+            wiki_index = await load_wiki_index(
+                source_ids=wiki_source_ids,
+            )
+            if wiki_index:
+                wiki_context = (
+                    f"<wiki_index>\n{wiki_index}\n</wiki_index>\n\n"
+                    f"Use read_wiki_page(id) to fetch any page's full content."
+                )
+                emit(f"📝 Wiki 索引: 已公开", kind="success", agent="rag", task_id=task_id)
+        except Exception:
+            pass  # wiki is best-effort, never break chat
 
     llm = _get_llm(_provider, _model, base_url=_base_url, api_key=_api_key)
 
@@ -417,55 +406,23 @@ async def _stream(
         elif msg.role == "assistant":
             lc_msgs.append(AIMessage(content=msg.content))
 
-    if chunks:
-        ctx_str = _build_context(chunks)
-        final_user = _CTX_TEMPLATE.format(chunks=ctx_str, question=user_query)
+    if wiki_context:
+        final_user = _CTX_TEMPLATE.format(chunks=wiki_context, question=user_query)
     else:
         final_user = _NO_CTX_TEMPLATE.format(question=user_query)
     lc_msgs.append(HumanMessage(content=final_user))
 
+    emit(f"💬 LLM 生成中...", kind="progress", agent="rag", task_id=task_id)
     full_text = ""
     async for chunk in llm.astream(lc_msgs):
         token = chunk.content
         if token:
             full_text += token
             yield f"data: {json.dumps({'type': 'token', 'content': token})}\n\n"
+    emit(f"✅ 回答完成 ({len(full_text)} 字)", kind="success", agent="rag", task_id=task_id)
 
-    # Real attribution: keep only the chunks the LLM actually cited via [n]
-    # markers in its output. This avoids the previous behaviour of always
-    # returning the entire candidate list — which made the UI's citation chain
-    # show retrieved-but-unused sources as if they were answers.
-    referenced_indices: set[int] = set()
-    for m in _CITATION_RE.finditer(full_text):
-        for raw in m.group(1).split(","):
-            try:
-                referenced_indices.add(int(raw.strip()))
-            except ValueError:
-                pass
-
-    if referenced_indices and chunks:
-        cited_chunks = [
-            (i, c) for i, c in enumerate(chunks, 1)
-            if i in referenced_indices
-        ]
-    else:
-        # Fallback: LLM didn't emit any citation markers — return the full
-        # candidate set so the user still sees "what was retrieved", but tag
-        # them as ``unverified`` so the UI can render them differently.
-        cited_chunks = [(i, c) for i, c in enumerate(chunks, 1)]
-
-    citations = [
-        {
-            "index": idx,
-            "chunk_id": c["id"],
-            "content": c["content"][:300],
-            "source": c["metadata"].get("source_name") or c["metadata"].get("source_url", ""),
-            "score": round(c.get("rerank_score", c.get("score", 0)), 4),
-            "verified": idx in referenced_indices,
-        }
-        for idx, c in cited_chunks
-    ]
-    yield f"data: {json.dumps({'type': 'citations', 'citations': citations})}\n\n"
+    # RAG removed — no chunk retrieval, citations always empty
+    yield f"data: {json.dumps({'type': 'citations', 'citations': []})}\n\n"
 
     # Persist session to DB (skip for external/scenario API)
     if not skip_session:
@@ -519,14 +476,17 @@ async def list_models():
     try:
         if provider in {"deepseek", "custom"}:
             base = (resolve_base_url(provider, settings.llm_base_url) or "").rstrip("/")
-            key = settings.llm_api_key or "none"
+            key = settings.llm_api_key
         else:
             return {"models": [], "default": settings.llm_model}
 
+        headers = {}
+        if key:
+            headers["Authorization"] = f"Bearer {key}"
         async with httpx.AsyncClient(timeout=8) as client:
             resp = await client.get(
                 f"{base}/models",
-                headers={"Authorization": f"Bearer {key}"},
+                headers=headers,
             )
             resp.raise_for_status()
             data = resp.json()

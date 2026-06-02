@@ -15,15 +15,14 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # Qdrant
+    # OpenAI key kept for legacy .env compatibility only
+
+    # Qdrant storage (needed for ingest pipeline, not for RAG)
     qdrant_url: str = "http://localhost:6333"
     qdrant_collection: str = "omnikb"
-    # qdrant_mode: remote | local | memory
-    # remote = 连接独立 Qdrant 服务; local = 本地文件持久化(无需服务); memory = 内存临时存储
     qdrant_mode: str = "local"
     qdrant_local_path: str = "./data/qdrant"
-
-    # OpenAI key is still used by the optional embedding provider and old .env files.
+    siliconflow_base_url: str = "https://api.siliconflow.cn/v1"
     openai_api_key: str = ""
 
     # Legacy Anthropic key kept only so older .env files still parse cleanly.
@@ -45,19 +44,7 @@ class Settings(BaseSettings):
     llm_provider: str = "deepseek"
     llm_model: str = "deepseek-v4-pro"
 
-    # Embedding — SiliconFlow BGE-M3 (OpenAI-compatible)
-    embedding_provider: Literal["openai", "siliconflow"] = "siliconflow"
-    embedding_model: str = "BAAI/bge-m3"
-    embedding_dimensions: int = 1024  # BGE-M3=1024, text-embedding-3-small=1536
     siliconflow_api_key: str = ""
-    siliconflow_base_url: str = "https://api.siliconflow.cn/v1"
-    # Max concurrent embedding API calls (prevents RPM 403 on SiliconFlow free tier)
-    embedding_concurrency: int = 3
-    # Texts per API call (SiliconFlow recommends <=32 per request)
-    embedding_batch_size: int = 32
-    # Max embedding API requests per minute (0 = disabled). Set to your provider's RPM quota.
-    # SiliconFlow free tier ≈ 10 RPM; paid tier is higher. Proactively throttles before hitting 403.
-    embedding_rpm_limit: int = 10
 
     # MCP
     mcp_api_key: str = "changeme-replace-with-strong-secret"
@@ -72,10 +59,6 @@ class Settings(BaseSettings):
     # Sizes: tiny | base | small | medium | large-v2
     whisper_model_size: str = "base"
 
-    # Re-ranker (sentence-transformers CrossEncoder)
-    # Set to False by default — requires large model download on first use
-    reranker_enabled: bool = False
-    reranker_model: str = "BAAI/bge-reranker-v2-m3"
 
     # Auto-tag (LLM-based, uses LLM credits)
     autotag_enabled: bool = False
@@ -106,21 +89,17 @@ class Settings(BaseSettings):
     # Leave empty to use the default huggingface.co.
     hf_endpoint: str = ""
 
-    # Persistent directory for fastembed-managed models (BM25 / sparse).
-    # When empty, ``main.py`` anchors fastembed to ``~/.cache/fastembed``
-    # so the BM25 model survives reboots instead of being repeatedly
-    # redownloaded from $TMPDIR (which macOS / containers purge).
-    fastembed_cache_path: str = ""
 
     # ── Chat ─────────────────────────────────────────────────
-    # System prompt for RAG chat. Overridable at runtime via settings API.
+    # System prompt for wiki chat. Overridable at runtime via settings API.
     rag_system_prompt: str = (
         "You are OmniKB, a knowledgeable AI assistant. "
-        "When relevant reference material from the user's knowledge base is provided, "
-        "use it to supplement and enrich your answer. "
-        "You are NOT limited to the provided context — draw on your own knowledge freely. "
-        "Cite knowledge-base sources inline as [1], [2], etc. only when you actually use them. "
-        "Never refuse to answer just because the context is limited."
+        "Your knowledge base is structured as a wiki — the `<wiki_index>` in your "
+        "system prompt lists all available pages. Use `read_wiki_page(id)` to fetch "
+        "full content of any page that seems relevant. "
+        "The wiki index is your authoritative knowledge source — answer based on it. "
+        "You may use your own knowledge only when the wiki has no relevant information. "
+        "Be honest when the wiki lacks information on a topic."
     )
 
     # ── Network proxy ──────────────────────────────────────────
@@ -149,7 +128,7 @@ class Settings(BaseSettings):
     wiki_generation_concurrency: int = 3
     # Whether the chat / MCP retrieval path also reads wiki pages.
     # P4 turns this on by default once we trust the generated content.
-    wiki_retrieval_enabled: bool = False
+    wiki_retrieval_enabled: bool = True
 
     # Auto-trigger Deep Research from lint knowledge_gap insights.
     # Default OFF because this opens a wallet faucet — every gap page
@@ -170,14 +149,11 @@ class Settings(BaseSettings):
     # the worker entirely (manual /insights polling is still available).
     wiki_auto_research_interval_hours: float = 0.0
 
-    # ── Web agent budget caps (BudgetTracker defaults) ─────────────
-    # Soft caps enforced by agent_core.budget.BudgetTracker. Set to 0 to
-    # disable a specific cap. Triggered run terminates cleanly with
-    # final_status="budget_exceeded" and snapshot in the agent_end event.
-    web_agent_max_input_tokens: int = 200_000
-    web_agent_max_output_tokens: int = 50_000
-    web_agent_max_seconds: float = 300.0
-    web_agent_max_tool_calls: int = 0  # 0 = disabled
+    # ── Web agent budget caps — 0 = unlimited, compaction handles safety ──
+    web_agent_max_input_tokens: int = 0  # 0 = unlimited
+    web_agent_max_output_tokens: int = 0  # 0 = unlimited
+    web_agent_max_seconds: float = 0  # 0 = unlimited
+    web_agent_max_tool_calls: int = 0  # 0 = unlimited
     # Inject a reflection prompt every N tool calls so the agent reviews
     # progress and re-plans — replaces hard tool-call caps. 0 = disabled.
     web_agent_reflection_interval: int = 8
@@ -263,17 +239,6 @@ def verify_settings() -> list[str]:
             "need an OpenAI-compatible endpoint URL"
         )
 
-    # Embeddings
-    if settings.embedding_provider == "siliconflow" and not settings.siliconflow_api_key:
-        issues.append(
-            "EMBEDDING_PROVIDER=siliconflow but SILICONFLOW_API_KEY is empty — "
-            "embedding calls will fail"
-        )
-    elif settings.embedding_provider == "openai" and not settings.openai_api_key:
-        issues.append(
-            "EMBEDDING_PROVIDER=openai but OPENAI_API_KEY is empty"
-        )
-
     # Vision (only if enabled)
     if settings.vision_enabled:
         # Vision falls back to llm_* credentials when its own are blank,
@@ -290,13 +255,6 @@ def verify_settings() -> list[str]:
         issues.append(
             "MCP_API_KEY is still the default placeholder — anyone reaching "
             "/mcp can call your tools. Rotate it before exposing the port."
-        )
-
-    # Qdrant mode
-    if settings.qdrant_mode not in {"remote", "local", "memory"}:
-        issues.append(
-            f"QDRANT_MODE={settings.qdrant_mode!r} is invalid; expected "
-            "'remote', 'local', or 'memory'"
         )
 
     # Budget sanity

@@ -44,6 +44,7 @@ AGENT_META: dict[str, tuple[str, str]] = {
     "vision_agent":  ("VisionAgent",   "👁️"),
     "system":        ("System",        "⚙️"),
     "ingest":        ("Ingest",        "📥"),
+    "wiki":          ("Wiki",          "📝"),
 }
 
 _subscribers: list[Queue[str]] = []

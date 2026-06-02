@@ -4,7 +4,7 @@ Same 24 questions as v1, testing the optimized pipeline.
 """
 import asyncio, json, time, httpx, os
 
-BASE = "http://localhost:8000"
+BASE = os.environ.get("OMNIKB_BASE_URL", "http://localhost:6886")
 REPORT_DIR = "tests/qa_results"
 
 PASS, FAIL, PARTIAL = 0, 0, 0

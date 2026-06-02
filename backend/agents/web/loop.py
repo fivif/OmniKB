@@ -46,15 +46,25 @@ _URL_TOOL_NAMES = {"http_get", "http_get_batch", "get_links", "browser_get_text"
 
 
 def _extract_urls_from_args(args: dict) -> list[str]:
-    """Best-effort extract URL strings from tool args."""
+    """Best-effort extract URL strings from tool args.
+
+    Supports absolute (http://, https://) and protocol-relative (//) URLs.
+    Protocol-relative URLs are upgraded to https: at extraction time.
+    """
     urls: list[str] = []
     for v in args.values():
-        if isinstance(v, str) and v.startswith(("http://", "https://")):
-            urls.append(v)
+        if isinstance(v, str):
+            if v.startswith(("http://", "https://")):
+                urls.append(v)
+            elif v.startswith("//"):
+                urls.append("https:" + v)
         elif isinstance(v, list):
             for s in v:
-                if isinstance(s, str) and s.startswith(("http://", "https://")):
-                    urls.append(s)
+                if isinstance(s, str):
+                    if s.startswith(("http://", "https://")):
+                        urls.append(s)
+                    elif s.startswith("//"):
+                        urls.append("https:" + s)
     return urls
 
 

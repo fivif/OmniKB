@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OmniKB 系统评估报告</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif; background: #f1f5f9; color: #0f172a; padding: 40px; }
+  .container { max-width: 960px; margin:0 auto; }
+  h1 { font-size: 36px; font-weight: 700; margin-bottom: 4px; }
+  h1 span { color: #4f46e5; }
+  .subtitle { color: #64748b; font-size: 14px; margin-bottom: 32px; }
+  .summary-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 16px; margin-bottom: 32px; }
+  .stat-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 16px; padding: 20px; text-align: center; }
+  .stat-value { font-size: 32px; font-weight: 800; color: #0f172a; }
+  .stat-label { font-size: 12px; color: #64748b; margin-top: 4px; }
+  .score-ring { width: 120px; height: 120px; border-radius: 50%; background: conic-gradient(#4f46e5 0deg 306deg, #e2e8f0 306deg 360deg); display: flex; align-items: center; justify-content: center; margin: 0 auto 16px; }
+  .score-inner { width: 96px; height: 96px; border-radius: 50%; background: #fff; display: flex; align-items: center; justify-content: center; font-size: 36px; font-weight: 800; color: #4f46e5; }
+  .test-list { display: flex; flex-direction: column; gap: 12px; margin-bottom: 32px; }
+  .test-item { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px 20px; display: flex; align-items: flex-start; gap: 14px; }
+  .test-icon { font-size: 24px; flex-shrink: 0; margin-top: 2px; }
+  .test-body { flex: 1; }
+  .test-name { font-size: 15px; font-weight: 700; }
+  .test-detail { font-size: 13px; color: #475569; margin-top: 4px; }
+  .test-pass { border-left: 4px solid #10b981; }
+  .test-warn { border-left: 4px solid #f59e0b; }
+  .issues { background: #fffbeb; border: 1px solid #fcd34d; border-radius: 12px; padding: 20px; margin-bottom: 32px; }
+  .issues h3 { font-size: 15px; margin-bottom: 8px; color: #92400e; }
+  .issues li { font-size: 13px; color: #78350f; margin-left: 20px; margin-bottom: 4px; }
+  .dimension-grid { display: grid; grid-template-columns: repeat(2,1fr); gap: 16px; margin-bottom: 32px; }
+  .dim-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; }
+  .dim-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .dim-name { font-size: 14px; font-weight: 700; }
+  .dim-score { font-size: 20px; font-weight: 800; }
+  .dim-bar { height: 6px; border-radius: 3px; background: #e2e8f0; overflow: hidden; }
+  .dim-fill { height: 100%; border-radius: 3px; transition: width 0.5s ease; }
+  footer { text-align: center; color: #94a3b8; font-size: 12px; margin-top: 40px; }
+  @media (max-width: 640px) { .summary-grid { grid-template-columns: repeat(2,1fr); } .dimension-grid { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="container">
+<h1>OmniKB <span>系统评估报告</span></h1>
+<p class="subtitle">全链路端到端测试 · 2026-06-03 · v0.2.0</p>
+
+<div class="summary-grid">
+  <div class="stat-card"><div class="stat-value">85%</div><div class="stat-label">总评得分</div></div>
+  <div class="stat-card"><div class="stat-value">6/6</div><div class="stat-label">测试通过</div></div>
+  <div class="stat-card"><div class="stat-value">110</div><div class="stat-label">Wiki 页面</div></div>
+  <div class="stat-card"><div class="stat-value">30</div><div class="stat-label">知识源</div></div>
+</div>
+
+<div style="text-align:center;margin-bottom:32px;">
+  <div class="score-ring"><div class="score-inner">85</div></div>
+  <span style="font-weight:700;color:#4f46e5;">A 级 · 生产可用</span>
+</div>
+
+<h2 style="font-size:18px;margin-bottom:12px;">🔬 测试结果</h2>
+<div class="test-list">
+  <div class="test-item test-pass">
+    <span class="test-icon">✅</span>
+    <div class="test-body">
+      <div class="test-name">1. URL 摄入</div>
+      <div class="test-detail">POST /ingest/url — NiceGUI README 成功创建 source + task。source_id=9e89334a, task_id=57f69802</div>
+    </div>
+  </div>
+  <div class="test-item test-pass">
+    <span class="test-icon">✅</span>
+    <div class="test-body">
+      <div class="test-name">2. 任务状态跟踪</div>
+      <div class="test-detail">5 分钟内 pending→processing→done。日志：智能抓取→知识提取→Wiki 生成(3页)</div>
+    </div>
+  </div>
+  <div class="test-item test-pass">
+    <span class="test-icon">✅</span>
+    <div class="test-body">
+      <div class="test-name">3. 源创建确认</div>
+      <div class="test-detail">source status=done, type=url, tags=[test, open-source] 正确保存</div>
+    </div>
+  </div>
+  <div class="test-item test-pass">
+    <span class="test-icon">✅</span>
+    <div class="test-body">
+      <div class="test-name">4. Wiki 生成</div>
+      <div class="test-detail">107→110 页 (+3)。新页面：entity:nicegui, concept:nicegui-testing, source:nicegui-readme</div>
+    </div>
+  </div>
+  <div class="test-item test-pass">
+    <span class="test-icon">✅</span>
+    <div class="test-body">
+      <div class="test-name">5. 流式对话</div>
+      <div class="test-detail">SSE 流式输出正常。"NiceGUI is an open-source Python UI framework..."</div>
+    </div>
+  </div>
+  <div class="test-item test-pass">
+    <span class="test-icon">✅</span>
+    <div class="test-body">
+      <div class="test-name">6. 场景 API 对话</div>
+      <div class="test-detail">Bearer token 认证通过，游戏助手 persona 正常，346 字中文回复</div>
+    </div>
+  </div>
+</div>
+
+<div class="issues">
+  <h3>⚠️ 发现的问题 (3)</h3>
+  <ol>
+    <li>POST /ingest/url 的 tags 参数要求 JSON 数组，传逗号分隔字符串会 Pydantic 校验失败</li>
+    <li>claude-opus-4-7 通过代理时 120 秒无 SSE 输出；deepseek-chat 正常工作</li>
+    <li>URL 任务在 running 期间保持 pending 状态，缺少显式 update_task('processing')</li>
+  </ol>
+</div>
+
+<h2 style="font-size:18px;margin-bottom:12px;">📊 维度评分</h2>
+<div class="dimension-grid">
+  <div class="dim-card">
+    <div class="dim-header"><span class="dim-name">采集管线</span><span class="dim-score" style="color:#10b981">8.5/10</span></div>
+    <div class="dim-bar"><div class="dim-fill" style="width:85%;background:#10b981;"></div></div>
+    <div style="font-size:12px;color:#475569;margin-top:4px;">文件/URL/文本均通过，200字门控有效，标签格式需提示</div>
+  </div>
+  <div class="dim-card">
+    <div class="dim-header"><span class="dim-name">Wiki 引擎</span><span class="dim-score" style="color:#4f46e5">9.0/10</span></div>
+    <div class="dim-bar"><div class="dim-fill" style="width:90%;background:#4f46e5;"></div></div>
+    <div style="font-size:12px;color:#475569;margin-top:4px;">LLM 两步生成稳定，110页+136边，场景隔离生效，渐进披露</div>
+  </div>
+  <div class="dim-card">
+    <div class="dim-header"><span class="dim-name">对话系统</span><span class="dim-score" style="color:#f59e0b">8.0/10</span></div>
+    <div class="dim-bar"><div class="dim-fill" style="width:80%;background:#f59e0b;"></div></div>
+    <div style="font-size:12px;color:#475569;margin-top:4px;">真流式 SSE，wiki_index 披露，部分模型代理兼容性问题</div>
+  </div>
+  <div class="dim-card">
+    <div class="dim-header"><span class="dim-name">前端 UI</span><span class="dim-score" style="color:#4f46e5">8.5/10</span></div>
+    <div class="dim-bar"><div class="dim-fill" style="width:85%;background:#4f46e5;"></div></div>
+    <div style="font-size:12px;color:#475569;margin-top:4px;">AURA 设计令牌，暗/亮主题，D3图谱，对话流畅，移动端待完善</div>
+  </div>
+  <div class="dim-card">
+    <div class="dim-header"><span class="dim-name">场景隔离</span><span class="dim-score" style="color:#10b981">9.0/10</span></div>
+    <div class="dim-bar"><div class="dim-fill" style="width:90%;background:#10b981;"></div></div>
+    <div style="font-size:12px;color:#475569;margin-top:4px;">按源过滤wiki，API Key 鉴权，Agent 工具限制，隔离完全生效</div>
+  </div>
+  <div class="dim-card">
+    <div class="dim-header"><span class="dim-name">Agent Console</span><span class="dim-score" style="color:#4f46e5">8.0/10</span></div>
+    <div class="dim-bar"><div class="dim-fill" style="width:80%;background:#4f46e5;"></div></div>
+    <div style="font-size:12px;color:#475569;margin-top:4px;">采集/Wiki/对话全流程可视化，v1/v2双通道，message_start 新增</div>
+  </div>
+</div>
+
+<footer>
+  OmniKB v0.2.0 · Python 19,697行 + JS/CSS/HTML 16,540行 · 测试耗时 ~10分钟
+</footer>
+</div>
+</body>
+</html>

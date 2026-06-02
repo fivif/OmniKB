@@ -12,10 +12,13 @@ Routes
 - POST /wiki/research               kick off Deep Research on one page (async)
 - GET  /wiki/research               list recent research tasks (for UI poll)
 - GET  /wiki/research/{task_id}     status + result of one research task
+- POST /wiki/sync                   trigger wiki generation for selected sources
 """
 from __future__ import annotations
 
+import asyncio
 import logging
+import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -25,8 +28,11 @@ from config import settings
 from storage.metadata_db import (
     WIKI_PAGE_TYPES,
     count_wiki_pages_by_type,
+    count_wikilinks,
+    get_source,
     get_wiki_page,
     graph_neighbors,
+    list_chunks_by_source,
     list_wiki_events,
     list_wiki_pages,
     list_wikilinks,
@@ -73,6 +79,16 @@ class WikiGraph(BaseModel):
     edges: list[WikiEdge]
 
 
+class WikiSyncRequest(BaseModel):
+    source_ids: list[str]
+
+
+class WikiSyncResponse(BaseModel):
+    task_id: str
+    accepted: int
+    rejected: int
+
+
 # ── Helpers ──────────────────────────────────────────────────────────
 
 
@@ -98,13 +114,7 @@ def _read_body(file_path: str) -> str | None:
 @router.get("/stats", response_model=WikiStats)
 async def wiki_stats(request: Request) -> WikiStats:
     counts = await count_wiki_pages_by_type()
-    edges = await list_wikilinks(limit=1)  # cheap probe — total counted next
-    # Total edges is interesting; do one extra fast query.
-    from storage.metadata_db import _connect  # local: avoid leaking the helper
-    async with _connect() as db:
-        async with db.execute("SELECT COUNT(*) FROM wikilinks") as cur:
-            row = await cur.fetchone()
-            total_edges = int(row[0]) if row else 0
+    total_edges = await count_wikilinks()
 
     worker_stats: dict[str, int] | None = None
     w = getattr(request.app.state, "wiki_worker", None)
@@ -350,3 +360,126 @@ async def get_deep_research_task(task_id: str) -> DeepResearchTaskOut:
     if task is None:
         raise HTTPException(404, f"unknown research task: {task_id}")
     return DeepResearchTaskOut(**task.to_dict())
+
+
+# ── Wiki Sync ────────────────────────────────────────────────────────
+
+
+@router.post("/sync", response_model=WikiSyncResponse, status_code=202)
+async def sync_sources(req: WikiSyncRequest):
+    """Trigger wiki generation for selected knowledge base sources.
+
+    Runs in background. The caller receives an immediate 202 with a
+    task_id that can be used to track progress in the Agent Console.
+    """
+    task_id = f"wiki-sync-{uuid.uuid4().hex[:12]}"
+    accepted = 0
+    rejected = 0
+
+    # Validate sources exist and have chunks
+    valid_ids = []
+    for sid in req.source_ids:
+        src = await get_source(sid)
+        if src is None:
+            rejected += 1
+            continue
+        chunks = await list_chunks_by_source(sid, limit=5000)
+        if not chunks:
+            rejected += 1
+            continue
+        valid_ids.append(sid)
+        accepted += 1
+
+    if valid_ids:
+        asyncio.create_task(_run_wiki_sync(task_id, valid_ids))
+
+    return WikiSyncResponse(task_id=task_id, accepted=accepted, rejected=rejected)
+
+
+async def _run_wiki_sync(task_id: str, source_ids: list[str]) -> None:
+    """Background: fetch source chunks and run wiki generator for each source."""
+    from wiki.generator import WikiGenerator
+    from agent_core.events import AgentEvent, get_event_stream
+    from utils.agent_bus import emit
+
+    logger = logging.getLogger(__name__)
+    gen = WikiGenerator(settings.data_dir)
+    total_created = 0
+    total_updated = 0
+    total_failed = 0
+
+    # Publish batch start
+    try:
+        stream = get_event_stream()
+        await stream.publish(AgentEvent(
+            type="wiki_batch_start",
+            task_id=task_id,
+            data={"source_count": len(source_ids)},
+        ))
+    except Exception:
+        pass
+
+    # Emit to v1 agent_bus for Agent Console visibility
+    try:
+        emit(f"📝 Wiki 同步: {len(source_ids)} 个来源", kind="progress", agent="wiki", task_id=task_id)
+    except Exception:
+        pass
+
+    for sid in source_ids:
+        src = await get_source(sid)
+        if src is None:
+            continue
+        chunks = await list_chunks_by_source(sid, limit=5000)
+        if not chunks:
+            continue
+
+        # Emit per-source progress to Agent Console
+        try:
+            emit(f"🧠 Wiki 生成: {src.get('name', sid)[:50]}", kind="progress", agent="wiki", task_id=task_id)
+        except Exception:
+            pass
+
+        # Sort by chunk_index and concatenate
+        chunks_sorted = sorted(chunks, key=lambda c: c.get("chunk_index", 0))
+        source_text = "\n\n".join(c.get("content", "") for c in chunks_sorted)
+        meta = {
+            "title": src.get("name", sid),
+            "type": src.get("type", "unknown"),
+            "source_url": src.get("url", ""),
+            "tags": src.get("tags", []),
+        }
+        try:
+            result = await gen.generate(
+                source_id=sid,
+                source_text=source_text,
+                source_metadata=meta,
+                task_id=task_id,
+            )
+            total_created += result.pages_created
+            total_updated += result.pages_updated
+            total_failed += result.pages_failed
+        except Exception as exc:
+            total_failed += 1
+            logger.exception("wiki sync failed for source %s: %s", sid, exc)
+
+    # Publish batch complete
+    try:
+        stream = get_event_stream()
+        await stream.publish(AgentEvent(
+            type="wiki_sync_complete",
+            task_id=task_id,
+            data={
+                "total_sources": len(source_ids),
+                "total_created": total_created,
+                "total_updated": total_updated,
+                "total_failed": total_failed,
+            },
+        ))
+    except Exception:
+        pass
+
+    # Emit completion to Agent Console
+    try:
+        emit(f"✅ Wiki 完成: {total_created} 创建 / {total_updated} 更新", kind="success", agent="wiki", task_id=task_id)
+    except Exception:
+        pass

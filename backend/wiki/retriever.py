@@ -24,6 +24,7 @@ don't return bodies here to keep tool responses bounded.
 """
 from __future__ import annotations
 
+import json
 import logging
 import re
 from dataclasses import dataclass
@@ -87,6 +88,58 @@ def _tokenize(text: str) -> list[str]:
 # ── Public API ──────────────────────────────────────────────────────
 
 
+async def load_wiki_index(source_ids: list[str] | None = None) -> str:
+    """Return the wiki index, optionally filtered to pages referencing given source IDs.
+
+    Uses the Karpathy progressive disclosure pattern: give the LLM the
+    full catalog (title + slug + type + summary) so it can decide which
+    pages to read with ``read_wiki_page``, rather than embedding search.
+
+    If ``index.md`` exists on disk it is read verbatim; otherwise a
+    minimal index is built from the DB. When ``source_ids`` is provided,
+    the index is always built from the DB so filtering can be applied.
+    """
+    from config import settings
+
+    index_path = Path(settings.data_dir) / "wiki" / "index.md"
+
+    if source_ids is None:
+        # No filtering — return full index
+        if index_path.exists():
+            return index_path.read_text(encoding="utf-8")
+        # Fallback from DB
+        pages = await list_wiki_pages(limit=500)
+        if not pages:
+            return ""
+
+        lines = ["# Wiki Index\n"]
+        for p in pages:
+            pid = f"{p['page_type']}:{p['slug']}"
+            summary = (p.get("summary") or "")[:120]
+            lines.append(f"- [[{pid}]] **{p['title']}** — {summary}")
+        return "\n".join(lines)
+
+    # Filter by source_ids — only return pages linked to these sources
+    source_set = set(source_ids)
+    pages = await list_wiki_pages(limit=2000)
+    filtered = []
+    for p in pages:
+        raw_sids = p.get("source_ids", [])
+        p_sids = set(raw_sids if isinstance(raw_sids, list) else json.loads(raw_sids))
+        if source_set & p_sids:
+            filtered.append(p)
+
+    if not filtered:
+        return "# Wiki Index\n\n_该场景尚未关联任何知识源。_\n"
+
+    lines = ["# Wiki Index\n"]
+    for p in filtered:
+        pid = f"{p['page_type']}:{p['slug']}"
+        summary = (p.get("summary") or "")[:120]
+        lines.append(f"- [[{pid}]] **{p['title']}** — {summary}")
+    return "\n".join(lines)
+
+
 @dataclass(slots=True)
 class WikiHit:
     """One scored wiki page result."""
@@ -120,6 +173,7 @@ async def search_wiki_pages(
     top_k: int = 5,
     min_score: float = 0.5,
     page_types: list[str] | None = None,
+    source_ids: list[str] | None = None,
 ) -> list[WikiHit]:
     """Score every wiki page against ``query`` and return the top hits.
 
@@ -136,10 +190,24 @@ async def search_wiki_pages(
 
     # Pull all candidate pages. ``list_wiki_pages`` returns rows newest
     # first; we read up to a hard cap so a runaway DB doesn't OOM us.
-    pages = await list_wiki_pages(limit=2000)
+    _LIMIT = 2000
+    pages = await list_wiki_pages(limit=_LIMIT)
+    if len(pages) >= _LIMIT:
+        logger.warning(
+            "wiki retriever: page count %d reached limit %d — results may be truncated. "
+            "Consider increasing the limit or adding pagination if the wiki grows past %d pages.",
+            len(pages), _LIMIT, _LIMIT,
+        )
     if page_types:
         wanted = set(page_types)
         pages = [p for p in pages if p.get("page_type") in wanted]
+    if source_ids:
+        # Filter to pages whose source_ids JSON array overlaps with the given set
+        wanted_sids = set(source_ids)
+        pages = [
+            p for p in pages
+            if wanted_sids & set(p.get("source_ids") or [])
+        ]
     if not pages:
         return []
 

@@ -5,20 +5,22 @@
   align-items: center;
   justify-content: center;
   gap: var(--sp-2);
-  padding: var(--sp-2) var(--sp-3);
+  padding: var(--sp-2) var(--sp-4);
   border-radius: var(--r-md);
-  font-weight: 500;
+  font-weight: 700;
   font-size: var(--fs-base);
   font-family: inherit;
-  border: 1px solid transparent;
+  border: 2px solid transparent;
   cursor: pointer;
   white-space: nowrap;
   user-select: none;
-  transition: all var(--dur-base) var(--ease-out);
+  transition: all var(--dur-base) var(--ease-spring);
   line-height: 1.4;
 }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn:focus-visible { box-shadow: var(--sh-glow); }
+.btn:hover:not(:disabled) { transform: scale(1.04) translateY(-1px); }
+.btn:active:not(:disabled) { transform: scale(0.98) translateY(0); }
 
 .btn-xs { padding: var(--sp-1) var(--sp-2); font-size: var(--fs-sm); border-radius: var(--r-sm); }
 .btn-sm { padding: var(--sp-2); font-size: var(--fs-sm); }
@@ -29,19 +31,69 @@
 .btn-icon.btn-lg { width: 40px; height: 40px; }
 .btn-icon svg, .btn-icon i { width: 16px; height: 16px; }
 
+/* ─── Premium primary: slate-950 light / white dark ─── */
 .btn-primary {
-  background: var(--accent);
-  color: var(--accent-fg);
-  border-color: var(--accent);
-  box-shadow: var(--sh-sm);
+  background: #0f172a;
+  color: #ffffff;
+  border-color: #0f172a;
+  box-shadow: var(--sh-md);
 }
-.btn-primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
-.btn-primary:active:not(:disabled) { background: var(--accent-active); border-color: var(--accent-active); }
+.btn-primary:hover:not(:disabled) {
+  background: #1e293b;
+  border-color: #1e293b;
+}
+.btn-primary:active:not(:disabled) {
+  background: #020617;
+  border-color: #020617;
+}
+[data-theme="dark"] .btn-primary {
+  background: #ffffff;
+  color: #0f172a;
+  border-color: #ffffff;
+}
+[data-theme="dark"] .btn-primary:hover:not(:disabled) {
+  background: #f1f5f9;
+  border-color: #f1f5f9;
+}
+[data-theme="dark"] .btn-primary:active:not(:disabled) {
+  background: #e2e8f0;
+  border-color: #e2e8f0;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .btn-primary {
+    background: #ffffff;
+    color: #0f172a;
+    border-color: #ffffff;
+  }
+  :root:not([data-theme="light"]) .btn-primary:hover:not(:disabled) {
+    background: #f1f5f9;
+    border-color: #f1f5f9;
+  }
+  :root:not([data-theme="light"]) .btn-primary:active:not(:disabled) {
+    background: #e2e8f0;
+    border-color: #e2e8f0;
+  }
+}
+
+/* ─── Gold accent button ─── */
+.btn-gold {
+  background: var(--gold);
+  color: #ffffff;
+  border-color: var(--gold);
+  box-shadow: var(--sh-md);
+}
+.btn-gold:hover:not(:disabled) {
+  background: var(--gold-hover);
+  border-color: var(--gold-hover);
+}
+.btn-gold:active:not(:disabled) {
+  filter: brightness(0.9);
+}
 
 .btn-secondary {
   background: var(--bg-surface);
   color: var(--t-primary);
-  border-color: var(--bd-default);
+  border: 2px solid var(--bd-default);
 }
 .btn-secondary:hover:not(:disabled) { background: var(--bg-hover); border-color: var(--bd-strong); }
 .btn-secondary:active:not(:disabled) { background: var(--bg-active); }
@@ -57,7 +109,7 @@
   background: var(--danger);
   color: var(--t-inverse);
   border-color: var(--danger);
-  box-shadow: var(--sh-sm);
+  box-shadow: var(--sh-md);
 }
 .btn-danger:hover:not(:disabled) { filter: brightness(0.92); }
 
@@ -65,9 +117,18 @@
   background: var(--success);
   color: var(--t-inverse);
   border-color: var(--success);
-  box-shadow: var(--sh-sm);
+  box-shadow: var(--sh-md);
 }
 .btn-success:hover:not(:disabled) { filter: brightness(0.92); }
+
+.btn-accent {
+  background: var(--accent);
+  color: var(--accent-fg);
+  border-color: var(--accent);
+  box-shadow: var(--sh-md);
+}
+.btn-accent:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
+.btn-accent:active:not(:disabled) { background: var(--accent-active); border-color: var(--accent-active); }
 
 .btn[data-loading="true"] {
   pointer-events: none;

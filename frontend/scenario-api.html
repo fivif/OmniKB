@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>场景 API 接入</title>
+  <title>场景 API 接入 &middot; OmniKB</title>
 
   <script>
     (function () {
@@ -44,17 +44,22 @@
       <section class="sapi-hero">
         <div class="sapi-hero-main">
           <span id="sapi-template" class="sapi-template-badge">Knowledge Q&amp;A</span>
-          <h2 id="sapi-title" class="sapi-title">加载场景中…</h2>
+          <h2 id="sapi-title" class="sapi-title">加载场景中&hellip;</h2>
           <p id="sapi-description" class="sapi-description">正在请求场景的公开配置。</p>
         </div>
         <div class="sapi-hero-side">
           <div class="sapi-stat">
             <span class="sapi-stat-label">场景 ID</span>
-            <span id="sapi-id" class="sapi-stat-value">-</span>
+            <div class="sapi-stat-row">
+              <code id="sapi-id" class="sapi-stat-value">-</code>
+              <button id="sapi-copy-id" class="sapi-copy-mini" title="复制场景 ID">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              </button>
+            </div>
           </div>
           <div class="sapi-stat">
             <span class="sapi-stat-label">API Base</span>
-            <span id="sapi-base" class="sapi-stat-value">-</span>
+            <code id="sapi-base" class="sapi-stat-value">-</code>
           </div>
         </div>
       </section>
@@ -63,16 +68,25 @@
 
       <section class="sapi-grid">
         <article class="sapi-card">
+          <div class="sapi-card-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+          </div>
           <div class="sapi-card-label">场景信息接口</div>
-          <div id="sapi-meta-url" class="sapi-endpoint">-</div>
+          <code id="sapi-meta-url" class="sapi-endpoint">-</code>
           <p class="sapi-card-desc">GET 请求，无需鉴权。返回场景名称、描述以及 ui_config，适合前端初始化页面时先请求。</p>
         </article>
         <article class="sapi-card">
+          <div class="sapi-card-icon sapi-card-icon--stream">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          </div>
           <div class="sapi-card-label">流式问答接口</div>
-          <div id="sapi-chat-url" class="sapi-endpoint">-</div>
+          <code id="sapi-chat-url" class="sapi-endpoint">-</code>
           <p class="sapi-card-desc">POST 请求，响应类型是 text/event-stream。必须带 Authorization: Bearer YOUR_SCENARIO_API_KEY。</p>
         </article>
         <article class="sapi-card">
+          <div class="sapi-card-icon sapi-card-icon--link">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+          </div>
           <div class="sapi-card-label">公开问答页</div>
           <a id="sapi-public-url" class="sapi-link" href="#" target="_blank" rel="noreferrer">-</a>
           <p class="sapi-card-desc">联调时可直接打开真实问答页，验证场景模板、欢迎语和真实对话体验。</p>
@@ -85,10 +99,10 @@
           <h3>接入步骤</h3>
         </div>
         <ol class="sapi-flow-list">
-          <li>先在问答管理的“API 密钥”标签页里为当前场景创建一个密钥。</li>
+          <li>先在问答管理的 <strong style="color:var(--accent);">API 密钥</strong> 标签页里为当前场景创建一个密钥。</li>
           <li>调用场景信息接口，拿到 name、description 和 ui_config 初始化页面。</li>
           <li>再向流式问答接口发送 messages 数组；服务端会基于当前场景绑定的知识片段做检索增强。</li>
-          <li>流中会依次返回 token 和 citations，最后用 [DONE] 结束整个响应。</li>
+          <li>流中会依次返回 token 和 citations，最后用 <code>[DONE]</code> 结束整个响应。</li>
         </ol>
       </section>
 
@@ -96,7 +110,7 @@
         <article class="sapi-code-card sapi-code-card-wide">
           <div class="sapi-code-head">
             <span>场景信息请求示例</span>
-            <span class="sapi-code-badge">GET</span>
+            <span class="sapi-code-badge sapi-code-badge--get">GET</span>
           </div>
           <pre id="sapi-meta-curl" class="sapi-code"></pre>
         </article>
@@ -104,7 +118,7 @@
         <article class="sapi-code-card">
           <div class="sapi-code-head">
             <span>流式问答 curl 示例</span>
-            <span class="sapi-code-badge">POST</span>
+            <span class="sapi-code-badge sapi-code-badge--post">POST</span>
           </div>
           <pre id="sapi-chat-curl" class="sapi-code"></pre>
         </article>
@@ -112,7 +126,7 @@
         <article class="sapi-code-card">
           <div class="sapi-code-head">
             <span>fetch 流式示例</span>
-            <span class="sapi-code-badge">JS</span>
+            <span class="sapi-code-badge sapi-code-badge--js">JS</span>
           </div>
           <pre id="sapi-fetch-example" class="sapi-code"></pre>
         </article>
@@ -120,7 +134,7 @@
         <article class="sapi-code-card sapi-code-card-wide">
           <div class="sapi-code-head">
             <span>SSE 事件格式</span>
-            <span class="sapi-code-badge">STREAM</span>
+            <span class="sapi-code-badge sapi-code-badge--sse">STREAM</span>
           </div>
           <pre id="sapi-stream-example" class="sapi-code"></pre>
         </article>

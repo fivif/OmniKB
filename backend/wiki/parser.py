@@ -20,10 +20,12 @@ This module is pure (no I/O, no async). Tested via ``run_self_check``.
 """
 from __future__ import annotations
 
+import logging
 import re
 import unicodedata
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 
@@ -303,6 +305,36 @@ def extract_wikilinks(body: str) -> list[WikiLinkRef]:
             slug=slug,
         ))
     return out
+
+
+# ── Shared utilities ──────────────────────────────────────────────────
+#  These are consumed by generator.py, deep_research.py, and any other
+#  wiki sub-module that writes files or strips LLM fences.
+
+_FENCE_RE = re.compile(r"^```[a-zA-Z0-9_-]*\s*\n([\s\S]*?)\n```\s*$", re.MULTILINE)
+
+
+def strip_code_fences(text: str) -> str:
+    """Strip the outermost markdown code fence if it wraps the entire response.
+
+    LLMs sometimes wrap page content in ```markdown ... ``` or ```json ... ```
+    despite explicit instructions. This peels exactly one outermost fence
+    (anchored ^ to $) and returns the content inside. If no fence wraps the
+    entire input the text is returned unchanged.
+    """
+    m = _FENCE_RE.match(text.strip())
+    return m.group(1) if m else text
+
+
+logger = logging.getLogger(__name__)
+
+
+def atomic_write(path: Path, content: str) -> None:
+    """Write to ``path.tmp`` then rename — never leaves a partial file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(content, encoding="utf-8")
+    tmp.replace(path)
 
 
 # ── Self-check (runnable as ``python -m wiki.parser``) ──────────────

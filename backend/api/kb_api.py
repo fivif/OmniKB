@@ -18,6 +18,7 @@ from qdrant_client.models import Filter, FieldCondition, MatchAny, HasIdConditio
 from config import settings
 from storage.metadata_db import (
     get_scenario,
+    list_scenario_source_ids,
     list_scenario_sources,
     verify_scenario_key,
 )
@@ -101,6 +102,13 @@ async def kb_chat(
     # Build scenario-scoped filter
     qdrant_filter = _build_qdrant_filter(scenario_sources)
 
+    # Compute wiki source_ids for scenario-scoped wiki retrieval
+    wiki_source_ids: list[str] | None = None
+    if getattr(settings, "wiki_retrieval_enabled", True):
+        wiki_source_ids = await list_scenario_source_ids(scenario_id)
+        if not wiki_source_ids:
+            wiki_source_ids = None
+
     # Scenario LLM overrides
     provider = sc.get("llm_provider") or settings.llm_provider
     model = sc.get("llm_model") or settings.llm_model
@@ -121,7 +129,8 @@ async def kb_chat(
             _stream(chat_req, system_prompt=system_prompt,
                     provider=provider, model=model,
                     base_url=base_url, api_key=api_key,
-                    qdrant_filter=qdrant_filter, skip_session=True),
+                    qdrant_filter=qdrant_filter, skip_session=True,
+                    wiki_source_ids=wiki_source_ids),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
@@ -130,7 +139,8 @@ async def kb_chat(
         _stream_agentic(chat_req, system_prompt=system_prompt,
                         provider=provider, model=model,
                         base_url=base_url, api_key=api_key,
-                        qdrant_filter=qdrant_filter),
+                        qdrant_filter=qdrant_filter,
+                        wiki_source_ids=wiki_source_ids),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

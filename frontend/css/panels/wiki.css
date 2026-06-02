@@ -1,59 +1,146 @@
-/* ── Wiki tab — three-column layout ──────────────────────────────── */
+/* ── Wiki tab — three-column resizable layout ─────────────────────── */
 /*
- * Layout: [Tree (260px)] [Markdown preview (1fr)] [Graph (380px)]
- * Mobile (≤ 900px): tree + graph collapse into off-canvas panes.
+ * Layout: [Tree (220px)] | resizer | [Markdown preview (1fr)] | resizer | [Graph (340px)]
+ *
+ * Side panes are collapsible and resizable via drag dividers.
+ * Graph can be maximized to full width.
+ *
+ * Responsive:
+ *   Tablet (768-1200px): tree+preview side by side, graph toggles as overlay
+ *   Mobile  (< 768px) : stack vertically, each pane toggles independently
  */
 
 #tab-wiki.tab-panel-flex {
+  display: flex;
   flex-direction: row;
   align-items: stretch;
   background: var(--bg-canvas);
   overflow: hidden;
+  height: 100%;
 }
 
 .wiki-pane {
+  position: relative;
   display: flex;
   flex-direction: column;
-  min-width: 0;
+  min-width: 240px;
+  overflow: hidden;
   background: var(--bg-canvas);
   border-right: 1px solid var(--bd-subtle);
+  transition: flex-basis var(--dur-fast) var(--ease-out),
+              min-width var(--dur-fast) var(--ease-out);
 }
 .wiki-pane:last-child { border-right: none; }
 
+/* ── Pane sizing defaults ────────────────────────────────────────── */
+.wiki-tree          { flex: 0 0 220px; }
+.wiki-preview       { flex: 1 1 auto;  }
+.wiki-graph         { flex: 0 0 340px; }
+
+/* ── Resizable dividers between panes ────────────────────────────── */
+.wiki-resizer {
+  width: 4px;
+  min-width: 4px;
+  flex-shrink: 0;
+  cursor: col-resize;
+  background: transparent;
+  transition: background var(--dur-fast) var(--ease-out);
+  user-select: none;
+  z-index: 10;
+  border-left: 1px solid transparent;
+}
+.wiki-resizer:hover,
+.wiki-resizer.is-dragging {
+  background: var(--accent);
+  border-left-color: var(--accent);
+}
+/* Disable text selection across the whole tab while dragging */
+body.wiki-is-resizing {
+  user-select: none;
+  cursor: col-resize;
+}
+
+/* ── Collapsed panes ─────────────────────────────────────────────── */
+.wiki-pane.collapsed {
+  flex: 0 0 0 !important;
+  min-width: 0 !important;
+  overflow: hidden !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-right: 0 !important;
+}
+/* Hide a resizer when either adjacent pane is collapsed */
+.wiki-pane.collapsed + .wiki-resizer,
+.wiki-resizer:has(+ .wiki-pane.collapsed),
+.wiki-resizer.is-hidden {
+  display: none;
+}
+
+/* ── Pane header (compact, consistent height) ────────────────────── */
 .wiki-pane-header {
   flex-shrink: 0;
-  padding: 12px 16px;
+  height: 40px;
+  min-height: 40px;
+  padding: 0 10px;
   border-bottom: 1px solid var(--bd-subtle);
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  gap: 6px;
   background: var(--bg-elevated);
 }
 .wiki-pane-header h3 {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--t1);
   margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 1;
 }
 .wiki-pane-header .wiki-stat {
   font-size: 11px;
   color: var(--t3);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
+/* ── Pane body ───────────────────────────────────────────────────── */
 .wiki-pane-body {
-  flex: 1;
+  flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
   padding: 12px 16px;
 }
 
-/* ── Left: tree ────────────────────────────────────────────────── */
-.wiki-tree {
-  width: 280px;
-  flex: 0 0 280px;
+/* ── Collapse / Maximize / Expand icon buttons ───────────────────── */
+.wiki-collapse-btn,
+.wiki-maximize-btn,
+.wiki-expand-btn {
+  background: transparent;
+  border: 1px solid var(--bd-subtle);
+  color: var(--t2);
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 0;
+  transition: background var(--dur-fast) var(--ease-out),
+              color var(--dur-fast) var(--ease-out);
 }
+.wiki-collapse-btn:hover,
+.wiki-maximize-btn:hover,
+.wiki-expand-btn:hover {
+  background: var(--bg-elevated);
+  color: var(--t1);
+}
+.wiki-expand-btn { display: none; }
+
+/* ── Left: tree ──────────────────────────────────────────────────── */
 .wiki-tree-section {
   margin-bottom: 14px;
 }
@@ -116,7 +203,7 @@
   font-style: italic;
 }
 
-/* ── Middle: markdown preview ─────────────────────────────────── */
+/* ── Middle: markdown preview ───────────────────────────────────── */
 .wiki-preview { flex: 1 1 auto; }
 .wiki-preview-empty {
   display: flex;
@@ -140,7 +227,7 @@
 }
 .wiki-preview-meta strong { color: var(--t1); margin-right: 4px; }
 
-/* Markdown body — minimal styling to override pico/none */
+/* Markdown body */
 .wiki-md { line-height: 1.65; color: var(--t1); }
 .wiki-md h1 { font-size: 24px; margin: 0 0 16px; font-weight: 700; }
 .wiki-md h2 { font-size: 18px; margin: 24px 0 10px; font-weight: 600; border-bottom: 1px solid var(--bd-subtle); padding-bottom: 4px; }
@@ -174,7 +261,7 @@
   border-radius: 0 6px 6px 0;
 }
 
-/* Wikilinks rendered by wiki.js — pill-styled clickable */
+/* Wikilinks */
 .wiki-md a.wikilink {
   color: var(--accent);
   text-decoration: none;
@@ -196,21 +283,26 @@
   cursor: not-allowed;
 }
 
-/* ── Right: graph ─────────────────────────────────────────────── */
+/* ── Right: graph ────────────────────────────────────────────────── */
 .wiki-graph {
-  width: 380px;
-  flex: 0 0 380px;
   position: relative;
 }
+.wiki-graph .wiki-pane-body {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
 .wiki-graph-canvas {
+  flex: 1;
+  min-height: 0;
   width: 100%;
-  height: 100%;
   background: var(--bg-canvas);
 }
 .wiki-graph-toolbar {
   position: absolute;
-  top: 60px;
-  right: 12px;
+  top: 48px;
+  right: 10px;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -241,13 +333,14 @@
   padding: 20px;
 }
 
-/* ── Deep Research panel (preview header) ────────────────────────
- *
- * Inline form that slides in below the preview header when the user
- * clicks the telescope button. Status updates are appended live.
- * Visual language: same border / radius as wiki-preview-meta so it
- * reads as part of the preview pane, not a foreign popup.
- */
+/* ── Maximized graph mode ────────────────────────────────────────── */
+.wiki-graph.maximized {
+  flex: 1 1 100% !important;
+  min-width: 0 !important;
+}
+.wiki-graph.maximized .wiki-collapse-btn { display: none; }
+
+/* ── Deep Research panel (preview header) ───────────────────────── */
 .wiki-research-panel {
   flex-shrink: 0;
   padding: 12px 16px;
@@ -381,7 +474,7 @@
   border-radius: 3px;
 }
 
-/* ── Refresh button + activity dot ────────────────────────────── */
+/* ── Refresh button + activity dot ───────────────────────────────── */
 .wiki-refresh-btn {
   background: transparent;
   border: 1px solid var(--bd-subtle);
@@ -393,30 +486,55 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
+  flex-shrink: 0;
+  padding: 0;
 }
 .wiki-refresh-btn:hover { background: var(--bg-elevated); color: var(--t1); }
 .wiki-refresh-btn.is-spinning i { animation: wikiSpin 0.8s linear infinite; }
 @keyframes wikiSpin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
 
-/* ── Mobile (≤ 900px): collapse side panes ──────────────────── */
-@media (max-width: 900px) {
-  .wiki-tree, .wiki-graph {
-    width: 220px;
-    flex-basis: 220px;
+/* ── Tablet: 768-1200px (2-pane with toggleable third) ──────────── */
+@media (min-width: 768px) and (max-width: 1200px) {
+  .wiki-tree {
+    flex: 0 0 200px;
   }
+  .wiki-graph {
+    flex: 0 0 280px;
+  }
+  /* Allow graph to be wider on tablet via resizer */
 }
-@media (max-width: 760px) {
-  /* On phones the tree + graph become bottom sheets reachable via
-     buttons in the preview header. P3 ships them collapsed by default. */
+
+/* ── Mobile: < 768px (stack vertically with toggles) ────────────── */
+@media (max-width: 767px) {
   #tab-wiki.tab-panel-flex {
     flex-direction: column;
   }
-  .wiki-tree, .wiki-graph {
+  .wiki-pane {
+    min-width: 0;
     width: 100%;
+  }
+  .wiki-tree,
+  .wiki-preview,
+  .wiki-graph {
     flex: 0 0 auto;
-    max-height: 200px;
+    min-width: 0;
+    width: 100%;
+  }
+  .wiki-tree { max-height: 260px; }
+  .wiki-preview { flex: 1 1 auto; min-height: 0; }
+  .wiki-graph { max-height: 320px; min-height: 260px; }
+
+  .wiki-pane {
     border-right: none;
     border-bottom: 1px solid var(--bd-subtle);
   }
-  .wiki-graph { max-height: 280px; border-bottom: none; border-top: 1px solid var(--bd-subtle); }
+  .wiki-pane:last-child { border-bottom: none; }
+
+  /* Hide resizers on mobile — panes stack vertically */
+  .wiki-resizer { display: none !important; }
+
+  /* Collapse side panes on mobile by default when content is empty,
+     allow user toggle via header button */
+  .wiki-tree.collapsed  { max-height: 0; }
+  .wiki-graph.collapsed { max-height: 0; min-height: 0; }
 }

@@ -63,6 +63,7 @@ class JsHookMcpClient:
         self._pending: dict[int, asyncio.Future[Any]] = {}
         self._reader_task: asyncio.Task[None] | None = None
         self._initialized = False
+        self._exit_code: int | None = None
 
     # ── Lifecycle ─────────────────────────────────────────────
 
@@ -125,6 +126,40 @@ class JsHookMcpClient:
                     pass
         self._initialized = False
 
+    async def reconnect(self, *, max_retries: int = 3) -> bool:
+        """Reconnect to the jshookmcp server with exponential backoff.
+
+        Returns True on success, False if all retries exhausted.
+        Use when the reader loop detects the process has unexpectedly exited.
+        """
+        for attempt in range(1, max_retries + 1):
+            delay = min(1.0 * (2 ** (attempt - 1)), 30.0)
+            logger.info(
+                "jshookmcp reconnect attempt %d/%d (delay=%.1fs)",
+                attempt, max_retries, delay,
+            )
+            try:
+                # Fully tear down any remnants before retrying.
+                await self.close()
+                await asyncio.sleep(delay)
+                await self.start()
+                logger.info(
+                    "jshookmcp reconnected (profile=%s, pid=%s)",
+                    self._profile,
+                    self._proc.pid if self._proc else "?",
+                )
+                return True
+            except Exception as exc:
+                logger.warning(
+                    "jshookmcp reconnect attempt %d failed: %s",
+                    attempt, exc,
+                )
+        logger.error(
+            "jshookmcp reconnect exhausted (%d attempts, profile=%s)",
+            max_retries, self._profile,
+        )
+        return False
+
     async def __aenter__(self) -> "JsHookMcpClient":
         await self.start()
         return self
@@ -137,34 +172,50 @@ class JsHookMcpClient:
     async def _read_loop(self) -> None:
         """Background task: read JSON-RPC messages from the server stdout."""
         assert self._proc is not None
-        while True:
-            try:
-                raw = await self._proc.stdout.readline()
-            except (asyncio.CancelledError, Exception):
-                break
-            if not raw:
-                break
-            line = raw.decode("utf-8", errors="replace").strip()
-            if not line:
-                continue
-            try:
-                msg = json.loads(line)
-            except json.JSONDecodeError:
-                logger.debug("jshookmcp unparseable: %.120s", line)
-                continue
-            msg_id = msg.get("id")
-            if msg_id is not None:
-                fut = self._pending.pop(int(msg_id), None)
-                if fut and not fut.done():
-                    if "error" in msg:
-                        err = msg["error"]
-                        fut.set_exception(
-                            RuntimeError(
-                                err.get("message", str(err)) if isinstance(err, dict) else str(err)
+        try:
+            while True:
+                try:
+                    raw = await self._proc.stdout.readline()
+                except (asyncio.CancelledError, Exception):
+                    break
+                if not raw:
+                    break
+                line = raw.decode("utf-8", errors="replace").strip()
+                if not line:
+                    continue
+                try:
+                    msg = json.loads(line)
+                except json.JSONDecodeError:
+                    logger.debug("jshookmcp unparseable: %.120s", line)
+                    continue
+                msg_id = msg.get("id")
+                if msg_id is not None:
+                    fut = self._pending.pop(int(msg_id), None)
+                    if fut and not fut.done():
+                        if "error" in msg:
+                            err = msg["error"]
+                            fut.set_exception(
+                                RuntimeError(
+                                    err.get("message", str(err)) if isinstance(err, dict) else str(err)
+                                )
                             )
-                        )
-                    else:
-                        fut.set_result(msg.get("result"))
+                        else:
+                            fut.set_result(msg.get("result"))
+        finally:
+            # Capture exit code so the pool / caller can inspect why it died.
+            if self._proc is not None:
+                if self._proc.returncode is None:
+                    self._exit_code = -15  # approximate: shut down externally
+                else:
+                    self._exit_code = self._proc.returncode
+            else:
+                self._exit_code = -1
+            logger.warning(
+                "jshookmcp disconnected (profile=%s, pid=%s, exit_code=%s)",
+                self._profile,
+                self._proc.pid if self._proc else "?",
+                self._exit_code,
+            )
 
         for fut in self._pending.values():
             if not fut.done():

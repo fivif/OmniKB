@@ -44,7 +44,7 @@ RUN pip install --upgrade pip wheel setuptools && \
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright
 RUN python -m patchright install chromium --with-deps || \
     python -m playwright install chromium --with-deps || \
-    echo "WARN: patchright/playwright browser install failed — JS rendering path will be unavailable"
+    (echo "ERROR: patchright/playwright browser install failed — JS rendering path is required for web agent functionality" && exit 1)
 
 
 # ─── Stage 2 · runtime ──────────────────────────────────────────
@@ -100,7 +100,7 @@ EXPOSE 6886
 
 # Health probe — relies on /health which now reports config_issues too.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-    CMD curl -fsS http://localhost:${OMNIKB_PORT:-6886}/health || exit 1
+    CMD curl -fsS http://localhost:6886/health || exit 1
 
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["python", "main.py"]

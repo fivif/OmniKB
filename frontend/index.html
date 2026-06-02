@@ -83,26 +83,9 @@
     <div class="sidebar-backdrop" id="sidebar-backdrop" hidden></div>
 
     <aside class="omni-sidebar" id="omni-sidebar">
-      <div class="sidebar-logo">
-        <img class="sidebar-logo-img" src="logo-128.png" alt="OmniKB" width="48" height="48"/>
-        <div class="sidebar-logo-copy">
-          <span class="sidebar-logo-kicker">Universal Memory</span>
-          <span class="sidebar-logo-text">OmniKB</span>
-        </div>
-      </div>
-      <div class="sidebar-overview">
-        <div class="sidebar-overview-card">
-          <span class="sidebar-overview-label">当前工作台</span>
-          <strong class="sidebar-overview-title" id="sidebar-current-tab">上传 & 摄入</strong>
-          <p class="sidebar-overview-text">统一处理采集、检索、对话与发布。</p>
-        </div>
-      </div>
       <nav class="sidebar-nav">
         <button data-tab="upload" class="nav-btn active">
           <i data-lucide="upload"></i><span>上传</span>
-        </button>
-        <button data-tab="search" class="nav-btn">
-          <i data-lucide="search"></i><span>搜索</span>
         </button>
         <button data-tab="chat" class="nav-btn">
           <i data-lucide="message-circle"></i><span>对话</span>
@@ -120,23 +103,27 @@
           <i data-lucide="settings"></i><span>设置</span>
         </button>
       </nav>
+      <div class="sidebar-collapse-wrap">
+        <button class="sidebar-collapse-btn" id="sidebar-collapse-btn" aria-label="折叠侧栏" title="折叠侧栏">
+          <i data-lucide="chevron-left"></i>
+        </button>
+      </div>
       <div class="sidebar-footer">
         <div class="sidebar-stat">
           <span>来源</span>
           <span class="sidebar-stat-val" id="stat-sources">—</span>
         </div>
         <div class="sidebar-stat">
-          <span>片段</span>
+          <span>Wiki 页</span>
           <span class="sidebar-stat-val" id="stat-chunks">—</span>
         </div>
-        <p class="sidebar-footer-note">混合检索 · Agent 采集 · MCP 出口</p>
+        <p class="sidebar-footer-note">Wiki 知识图谱 · Agent 采集 · MCP 出口</p>
       </div>
     </aside>
 
     <main class="omni-main">
       <div id="toast-container" class="toast-container"></div>
       <section id="tab-upload"    class="tab-panel"></section>
-      <section id="tab-search"    class="tab-panel hidden"></section>
       <section id="tab-chat"      class="tab-panel hidden tab-panel-flex" style="padding:0;"></section>
       <section id="tab-kb"        class="tab-panel hidden"></section>
       <section id="tab-wiki"      class="tab-panel hidden tab-panel-flex" style="padding:0;"></section>
@@ -151,20 +138,17 @@
 <script src="js/theme.js"></script>
 <script src="js/app.js"></script>
 <script src="js/upload.js"></script>
-<script src="js/search.js"></script>
-<script src="js/chat.js"></script>
-<script src="js/kb-manager.js"></script>
+<script src="js/chat.js?v=4"></script>
+<script src="js/kb-manager.js?v=4"></script>
 <script src="js/citation-chain.js"></script>
 <script src="js/settings.js"></script>
-<script src="js/scenario-manager.js"></script>
+<script src="js/scenario-manager.js?v=7"></script>
 
-<!-- Wiki tab: marked.js for markdown render, sigma + graphology for graph view.
+<!-- Wiki tab: marked.js for markdown render, D3.js for the force graph.
      Load only AFTER the other tabs so they're not blocked by these CDNs. -->
 <script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/graphology@0.25.4/dist/graphology.umd.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/graphology-layout-forceatlas2@0.10.1/dist/graphology-layout-forceatlas2.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/sigma@2.4.0/build/sigma.min.js"></script>
-<script src="js/wiki.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+<script src="js/wiki.js?v=7"></script>
 
 <script src="js/agent-console.js"></script>
 <script>

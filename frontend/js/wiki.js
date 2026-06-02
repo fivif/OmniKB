@@ -1,7 +1,10 @@
 /* ── Wiki tab controller ─────────────────────────────────────────────
  *
- * Mounts a three-pane layout into #tab-wiki on first show:
- *   [tree] [markdown preview] [graph]
+ * Mounts a three-pane resizable layout into #tab-wiki on first show:
+ *   [tree] | [markdown preview] | [graph]
+ *
+ * Side panes are collapsible and resizable via drag dividers.
+ * Graph can be maximized to full width.
  *
  * Backend contract (read-only — see backend/api/wiki.py):
  *   GET /wiki/stats              — counts + worker
@@ -15,9 +18,9 @@
  * Hard requirements when this script loads:
  *   - window.OmniKBApp.{loadSettings, showTab}
  *   - marked.parse(...) (from the CDN <script>)
- *   - graphology + sigma globals
+ *   - d3.js globals (for the force graph)
  *
- * If a CDN fails to load we degrade gracefully — the tree + preview
+ * If D3 fails to load we degrade gracefully — the tree + preview
  * still work; only the graph pane shows an error placeholder.
  */
 (function () {
@@ -35,13 +38,18 @@
   let _mounted = false;
   let _currentPageId = null;
   let _allPages = [];   // last loaded page list, used to resolve wikilinks
-  let _sigma = null;    // sigma instance
+  let _d3Graph = null;   // { svg, simulation, zoom, nodes }
+  let _graphResizeTimer = null;  // debounce timer for graph re-render on resize
 
   /* ── API helpers (use the global one if available) ───────── */
   function apiBase() {
-    return (window.OmniKBApp && window.OmniKBApp.loadSettings &&
-      (window.OmniKBApp.loadSettings().api_base || 'http://localhost:6886')) ||
-      'http://localhost:6886';
+    try {
+      if (window.OmniKBApp && window.OmniKBApp.loadSettings) {
+        var s = window.OmniKBApp.loadSettings();
+        if (s && s.api_base) return s.api_base;
+      }
+    } catch(e) {}
+    return 'http://localhost:6886';
   }
   async function apiGet(path) {
     const res = await fetch(apiBase() + path, { cache: 'no-store' });
@@ -51,6 +59,46 @@
     }
     return res.json();
   }
+  async function apiPost(path, body) {
+    const res = await fetch(apiBase() + path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      throw new Error(`${res.status} ${res.statusText}: ${detail.slice(0, 180)}`);
+    }
+    return res.json();
+  }
+
+  /* ── Sync panel CSS ────────────────────────────────────────── */
+  (function _injectSyncCSS() {
+    const style = document.createElement('style');
+    style.textContent = `
+.wiki-sync-panel { position: fixed; top:0; right:0; width:380px; height:100vh; background:var(--bg-card); border-left:1px solid var(--bd); z-index:100; padding:16px; overflow-y:auto; display:none; box-shadow:-4px 0 24px rgba(0,0,0,.25); }
+.wiki-sync-panel.open { display:flex; flex-direction:column; }
+@media (max-width:480px) { .wiki-sync-panel { width:100vw; left:0; } }
+.wiki-sync-row { display:flex; align-items:flex-start; gap:6px; padding:5px 4px; cursor:pointer; border-radius:6px; transition:background .15s; }
+.wiki-sync-row:hover { background:var(--bg-muted); }
+.wiki-sync-row input[type="checkbox"] { margin:2px 0 0; flex-shrink:0; }
+.wiki-sync-row label { font-size:12px; color:var(--t1); cursor:pointer; line-height:1.4; word-break:break-all; flex:1; }
+.wiki-sync-panel h4 { font-size:13px; margin:0 0 12px; color:var(--t1); }
+.wiki-sync-panel .wiki-sync-actions { display:flex; gap:8px; margin-top:12px; }
+.wiki-sync-panel .wiki-sync-btn { font-size:12px; padding:6px 14px; border-radius:6px; cursor:pointer; border:1px solid var(--accent); background:var(--accent); color:#fff; }
+.wiki-sync-panel .wiki-sync-btn:hover { filter:brightness(1.15); }
+.wiki-sync-panel .wiki-sync-btn:disabled { opacity:0.5; cursor:not-allowed; }
+.wiki-sync-panel .wiki-sync-btn-cancel { background:transparent; color:var(--t2); border:1px solid var(--bd-subtle); }
+.wiki-sync-panel .wiki-sync-btn-cancel:hover { color:var(--t1); background:var(--bg-base); }
+.wiki-sync-panel .wiki-sync-toggle-row { display:flex; align-items:center; gap:6px; margin-bottom:10px; font-size:11px; color:var(--t3); }
+.wiki-sync-panel .wiki-sync-toggle-row a { color:var(--accent); cursor:pointer; text-decoration:none; }
+.wiki-sync-panel .wiki-sync-toggle-row a:hover { text-decoration:underline; }
+.wiki-sync-panel .wiki-sync-list { flex:1; overflow-y:auto; list-style:none; margin:0 -4px; padding:0 4px; }
+.wiki-sync-backdrop { display:none; position:fixed; inset:0; background:rgba(0,0,0,.35); z-index:99; }
+.wiki-sync-backdrop.open { display:block; }
+`;
+    document.head.appendChild(style);
+  })();
 
   /* ── Mount the layout into #tab-wiki ──────────────────────── */
   function mount() {
@@ -59,10 +107,16 @@
     _mounted = true;
 
     root.innerHTML = `
-      <aside class="wiki-pane wiki-tree" id="wiki-tree">
+      <aside class="wiki-pane wiki-tree" id="wiki-tree" style="position:relative;">
         <div class="wiki-pane-header">
+          <button class="wiki-collapse-btn" id="wiki-tree-collapse" title="收起页面树">
+            <i data-lucide="chevron-left"></i>
+          </button>
           <h3>页面</h3>
-          <div style="display:flex; gap:6px;">
+          <div style="display:flex; gap:6px; margin-left:auto;">
+            <button class="wiki-refresh-btn" id="wiki-sync-btn" title="同步来源到 Wiki">
+              <i data-lucide="folder-sync"></i>
+            </button>
             <button class="wiki-refresh-btn" id="wiki-insights-btn" title="健康检查 / 洞察">
               <i data-lucide="activity"></i>
             </button>
@@ -74,10 +128,27 @@
         <div class="wiki-pane-body" id="wiki-tree-body">
           <div class="wiki-tree-empty">加载中…</div>
         </div>
+        <div class="wiki-sync-backdrop" id="wiki-sync-backdrop"></div>
+        <div class="wiki-sync-panel" id="wiki-sync-panel">
+          <h4>选择知识库来源同步到 Wiki</h4>
+          <div class="wiki-sync-toggle-row">
+            <a id="wiki-sync-toggle-all">全选 / 取消全选</a>
+          </div>
+          <ul class="wiki-sync-list" id="wiki-sync-list"></ul>
+          <div class="wiki-sync-actions">
+            <button class="wiki-sync-btn" id="wiki-sync-start">开始同步</button>
+            <button class="wiki-sync-btn wiki-sync-btn-cancel" id="wiki-sync-close">关闭</button>
+          </div>
+        </div>
       </aside>
+
+      <div class="wiki-resizer" id="wiki-resizer-tree" data-target="wiki-tree"></div>
 
       <main class="wiki-pane wiki-preview" id="wiki-preview">
         <div class="wiki-pane-header">
+          <button class="wiki-expand-btn" id="expand-tree-btn" title="展开页面树" style="display:none;">
+            <i data-lucide="panel-left"></i>
+          </button>
           <h3 id="wiki-preview-title">未选择页面</h3>
           <span class="wiki-stat" id="wiki-preview-stat"></span>
           <div style="margin-left:auto; display:flex; gap:6px;">
@@ -86,6 +157,9 @@
               <i data-lucide="telescope"></i>
             </button>
           </div>
+          <button class="wiki-expand-btn" id="expand-graph-btn" title="展开关系图谱" style="display:none;">
+            <i data-lucide="panel-right"></i>
+          </button>
         </div>
         <div class="wiki-research-panel" id="wiki-research-panel" hidden></div>
         <div class="wiki-pane-body" id="wiki-preview-body">
@@ -96,13 +170,24 @@
         </div>
       </main>
 
+      <div class="wiki-resizer" id="wiki-resizer-graph" data-target="wiki-graph"></div>
+
       <aside class="wiki-pane wiki-graph" id="wiki-graph">
         <div class="wiki-pane-header">
           <h3>关系图谱</h3>
           <span class="wiki-stat" id="wiki-graph-stat">—</span>
+          <button class="wiki-maximize-btn" id="wiki-maximize-btn" title="最大化图谱">
+            <i data-lucide="maximize-2" class="wiki-icon-max"></i>
+            <i data-lucide="minimize-2" class="wiki-icon-min" style="display:none;"></i>
+          </button>
+          <button class="wiki-collapse-btn" id="wiki-graph-collapse" title="收起图谱">
+            <i data-lucide="chevron-right"></i>
+          </button>
         </div>
-        <div class="wiki-graph-canvas" id="wiki-graph-canvas">
-          <div class="wiki-graph-empty">加载中…</div>
+        <div class="wiki-pane-body">
+          <div class="wiki-graph-canvas" id="wiki-graph-canvas">
+            <div class="wiki-graph-empty">加载中…</div>
+          </div>
         </div>
         <div class="wiki-graph-toolbar">
           <button id="wiki-graph-zoom-in"  title="放大">＋</button>
@@ -114,20 +199,328 @@
 
     if (window.lucide) window.lucide.createIcons();
 
+    /* ── Wire standard buttons ──────────────────────────────── */
     document.getElementById('wiki-refresh-btn')
       .addEventListener('click', refreshAll);
     document.getElementById('wiki-insights-btn')
       .addEventListener('click', showInsights);
+    document.getElementById('wiki-sync-btn')
+      .addEventListener('click', openSyncPanel);
+    document.getElementById('wiki-sync-close')
+      .addEventListener('click', closeSyncPanel);
+    document.getElementById('wiki-sync-toggle-all')
+      .addEventListener('click', toggleAllSources);
+    document.getElementById('wiki-sync-start')
+      .addEventListener('click', startSync);
+    document.getElementById('wiki-sync-backdrop')
+      .addEventListener('click', closeSyncPanel);
     document.getElementById('wiki-research-btn')
       .addEventListener('click', () => toggleResearchPanel(_currentPageId));
 
-    // graph toolbar — bound now even if sigma isn't ready yet
+    /* ── Graph toolbar ──────────────────────────────────────── */
     document.getElementById('wiki-graph-zoom-in')
-      .addEventListener('click', () => _sigma && _sigma.getCamera().animatedZoom({ factor: 1.5 }));
+      .addEventListener('click', () => { if (_d3Graph) _d3Graph.svg.transition().duration(300).call(_d3Graph.zoom.scaleBy, 1.4); });
     document.getElementById('wiki-graph-zoom-out')
-      .addEventListener('click', () => _sigma && _sigma.getCamera().animatedZoom({ factor: 0.667 }));
+      .addEventListener('click', () => { if (_d3Graph) _d3Graph.svg.transition().duration(300).call(_d3Graph.zoom.scaleBy, 0.7); });
     document.getElementById('wiki-graph-fit')
-      .addEventListener('click', () => _sigma && _sigma.getCamera().animatedReset());
+      .addEventListener('click', () => { if (_d3Graph) _fitGraphToBounds(); });
+
+    /* ── Wire collapse / expand / maximize ──────────────────── */
+    document.getElementById('wiki-tree-collapse')
+      .addEventListener('click', () => togglePane('wiki-tree'));
+    document.getElementById('wiki-graph-collapse')
+      .addEventListener('click', () => togglePane('wiki-graph'));
+    document.getElementById('expand-tree-btn')
+      .addEventListener('click', () => togglePane('wiki-tree'));
+    document.getElementById('expand-graph-btn')
+      .addEventListener('click', () => togglePane('wiki-graph'));
+    document.getElementById('wiki-maximize-btn')
+      .addEventListener('click', toggleMaximizeGraph);
+
+    /* ── Wire resizers ──────────────────────────────────────── */
+    initResizers();
+
+    /* ── Graph resize observer (ResizeObserver) ─────────────── */
+    initGraphResizeObserver();
+  }
+
+  /* ── Resize dividers between panes ─────────────────────────── */
+  function initResizers() {
+    document.querySelectorAll('.wiki-resizer').forEach(resizer => {
+      let startX, startW;
+      const targetId = resizer.dataset.target;
+      if (!targetId) return;
+
+      resizer.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        const target = document.getElementById(targetId);
+        if (!target || target.classList.contains('collapsed')) return;
+
+        startX = e.clientX;
+        startW = target.getBoundingClientRect().width;
+        resizer.classList.add('is-dragging');
+        document.body.classList.add('wiki-is-resizing');
+
+        const onMove = (ev) => {
+          const delta = ev.clientX - startX;
+          // For the graph (right side), dragging left makes it wider
+          const effectiveDelta = targetId === 'wiki-graph' ? -delta : delta;
+          const newW = startW + effectiveDelta;
+          const maxW = window.innerWidth * 0.55;
+          if (newW >= 200 && newW <= maxW) {
+            target.style.flexBasis = newW + 'px';
+            target.style.flexGrow = '0';
+            target.style.flexShrink = '0';
+          }
+          // Live-update graph viewBox during drag
+          if (targetId === 'wiki-graph') scheduleGraphResize();
+        };
+
+        const onUp = () => {
+          document.removeEventListener('mousemove', onMove);
+          document.removeEventListener('mouseup', onUp);
+          resizer.classList.remove('is-dragging');
+          document.body.classList.remove('wiki-is-resizing');
+          if (targetId === 'wiki-graph') scheduleGraphResize();
+        };
+
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+      });
+    });
+  }
+
+  /* ── Collapse / expand a side pane ─────────────────────────── */
+  function togglePane(targetId) {
+    const pane = document.getElementById(targetId);
+    if (!pane) return;
+
+    // Before collapsing a maximized graph, restore the other panes first
+    if (targetId === 'wiki-graph' && !pane.classList.contains('collapsed') && pane.classList.contains('maximized')) {
+      toggleMaximizeGraph();  // restore from maximized, then re-run
+      if (pane.classList.contains('collapsed')) return; // restore also collapsed it
+      // Now pane is not maximized and not collapsed, proceed to collapse
+    }
+
+    const isCollapsing = !pane.classList.contains('collapsed');
+    pane.classList.toggle('collapsed');
+
+    // Toggle the associated resizer visibility
+    const resizerId = targetId === 'wiki-tree' ? 'wiki-resizer-tree' : 'wiki-resizer-graph';
+    const resizer = document.getElementById(resizerId);
+    if (resizer) {
+      resizer.classList.toggle('is-hidden', isCollapsing);
+      // Also force inline display toggle as a fallback for :has() support
+      resizer.style.display = isCollapsing ? 'none' : '';
+    }
+
+    // Show/hide the expand button in the preview header
+    const expandBtnId = targetId === 'wiki-tree' ? 'expand-tree-btn' : 'expand-graph-btn';
+    const expandBtn = document.getElementById(expandBtnId);
+    if (expandBtn) {
+      expandBtn.style.display = isCollapsing ? 'inline-flex' : 'none';
+    }
+
+    // Update collapse button icon
+    const collapseBtnId = targetId === 'wiki-tree' ? 'wiki-tree-collapse' : 'wiki-graph-collapse';
+    const collapseBtn = document.getElementById(collapseBtnId);
+    if (collapseBtn && window.lucide) {
+      // Re-render icon: chevron-left when expanded, chevron-right when collapsed
+      const iconName = targetId === 'wiki-tree'
+        ? (isCollapsing ? 'chevron-right' : 'chevron-left')
+        : (isCollapsing ? 'chevron-left' : 'chevron-right');
+      collapseBtn.innerHTML = `<i data-lucide="${iconName}"></i>`;
+      window.lucide.createIcons({ icons: collapseBtn.querySelectorAll('i') });
+    }
+
+    // Re-render graph if the graph pane visibility changed
+    if (targetId === 'wiki-graph') scheduleGraphResize();
+  }
+
+  /* ── Maximize / restore graph ───────────────────────────────── */
+  function toggleMaximizeGraph() {
+    const graph = document.getElementById('wiki-graph');
+    const tree = document.getElementById('wiki-tree');
+    const preview = document.getElementById('wiki-preview');
+    const resizerTree = document.getElementById('wiki-resizer-tree');
+    const resizerGraph = document.getElementById('wiki-resizer-graph');
+    const expandTreeBtn = document.getElementById('expand-tree-btn');
+    const expandGraphBtn = document.getElementById('expand-graph-btn');
+    const maximizeBtn = document.getElementById('wiki-maximize-btn');
+
+    if (!graph) return;
+
+    const isMaximizing = !graph.classList.contains('maximized');
+
+    if (isMaximizing) {
+      // Maximize: collapse tree + preview, expand graph to full width
+      if (tree && !tree.classList.contains('collapsed')) {
+        tree.classList.add('collapsed');
+      }
+      if (preview) preview.classList.add('collapsed');
+      graph.classList.add('maximized');
+
+      if (resizerTree) { resizerTree.classList.add('is-hidden'); resizerTree.style.display = 'none'; }
+      if (resizerGraph) { resizerGraph.classList.add('is-hidden'); resizerGraph.style.display = 'none'; }
+
+      // Show expand buttons so the user can restore individual panes
+      if (expandTreeBtn) expandTreeBtn.style.display = 'inline-flex';
+      if (expandGraphBtn) expandGraphBtn.style.display = 'none';
+    } else {
+      // Restore: un-collapse tree + preview, restore graph size
+      if (tree) tree.classList.remove('collapsed');
+      if (preview) preview.classList.remove('collapsed');
+      graph.classList.remove('maximized');
+
+      if (resizerTree) { resizerTree.classList.remove('is-hidden'); resizerTree.style.display = ''; }
+      if (resizerGraph) { resizerGraph.classList.remove('is-hidden'); resizerGraph.style.display = ''; }
+
+      if (expandTreeBtn) expandTreeBtn.style.display = 'none';
+      if (expandGraphBtn) expandGraphBtn.style.display = 'none';
+    }
+
+    // Toggle maximize/minimize icon
+    const iconMax = maximizeBtn?.querySelector('.wiki-icon-max');
+    const iconMin = maximizeBtn?.querySelector('.wiki-icon-min');
+    if (iconMax) iconMax.style.display = isMaximizing ? 'none' : '';
+    if (iconMin) iconMin.style.display = isMaximizing ? '' : 'none';
+    maximizeBtn.title = isMaximizing ? '恢复默认布局' : '最大化图谱';
+
+    scheduleGraphResize();
+  }
+
+  /* ── Graph resize handling ──────────────────────────────────── */
+  function initGraphResizeObserver() {
+    const canvas = document.getElementById('wiki-graph-canvas');
+    if (!canvas) return;
+
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver(() => {
+        scheduleGraphResize();
+      });
+      observer.observe(canvas);
+    }
+  }
+
+  function scheduleGraphResize() {
+    if (_graphResizeTimer) clearTimeout(_graphResizeTimer);
+    _graphResizeTimer = setTimeout(() => updateGraphDimensions(), 100);
+  }
+
+  function updateGraphDimensions() {
+    if (!_d3Graph) return;
+    const canvas = document.getElementById('wiki-graph-canvas');
+    if (!canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const cw = Math.max(rect.width, 200);
+    const ch = Math.max(rect.height, 200);
+
+    if (Math.abs(_d3Graph.width - cw) < 5 && Math.abs(_d3Graph.height - ch) < 5) return;
+
+    _d3Graph.width = cw;
+    _d3Graph.height = ch;
+    _d3Graph.svg
+      .attr('viewBox', [0, 0, cw, ch])
+      .attr('width', cw)
+      .attr('height', ch);
+    _d3Graph.simulation.force('center', d3.forceCenter(cw / 2, ch / 2));
+    _d3Graph.simulation.alpha(0.15).restart();
+  }
+
+  /* ── Sync panel ───────────────────────────────────────────── */
+  let _syncSources = [];
+
+  async function openSyncPanel() {
+    const panel = document.getElementById('wiki-sync-panel');
+    const list = document.getElementById('wiki-sync-list');
+    if (!panel || !list) return;
+
+    try {
+      const res = await apiGet('/kb/sources?limit=200');
+      _syncSources = (res.sources || []);
+      renderSourceList(list);
+      panel.classList.add('open');
+      const bd = document.getElementById('wiki-sync-backdrop');
+      if (bd) bd.classList.add('open');
+    } catch (err) {
+      toast(`获取来源失败：${err.message}`, 'error');
+    }
+  }
+
+  function closeSyncPanel() {
+    const panel = document.getElementById('wiki-sync-panel');
+    const bd = document.getElementById('wiki-sync-backdrop');
+    if (panel) panel.classList.remove('open');
+    if (bd) bd.classList.remove('open');
+  }
+
+  function renderSourceList(listEl) {
+    listEl.innerHTML = _syncSources.map((s, i) => `
+      <li class="wiki-sync-row" data-index="${i}">
+        <input type="checkbox" id="wiki-sync-cb-${i}" checked>
+        <label for="wiki-sync-cb-${i}">
+          ${escape(s.name || s.title || s.url || s.id || '来源 #' + (i + 1))}
+        </label>
+        <button class="wiki-sync-del" data-index="${i}" title="删除此来源及其 Wiki 内容" style="background:none;border:none;color:var(--c-warn);cursor:pointer;font-size:14px;padding:0 4px;line-height:1;">×</button>
+      </li>
+    `).join('');
+
+    listEl.querySelectorAll('.wiki-sync-del').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const idx = parseInt(btn.dataset.index);
+        const src = _syncSources[idx];
+        if (!src) return;
+        const sid = src.id || src.source_id;
+        const name = src.name || src.title || sid;
+        if (!confirm(`确定要删除「${name}」及其关联的 Wiki 内容吗？此操作不可恢复。`)) return;
+        try {
+          const res = await fetch(apiBase() + `/kb/sources/${encodeURIComponent(sid)}`, { method: 'DELETE' });
+          if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+          _syncSources.splice(idx, 1);
+          renderSourceList(listEl);
+          toast(`已删除: ${name}`, 'success');
+        } catch (err) {
+          toast(`删除失败: ${err.message}`, 'error');
+        }
+      });
+    });
+  }
+
+  function toggleAllSources() {
+    const cbs = document.querySelectorAll('#wiki-sync-list input[type="checkbox"]');
+    if (cbs.length === 0) return;
+    const allChecked = Array.from(cbs).every(cb => cb.checked);
+    cbs.forEach(cb => { cb.checked = !allChecked; });
+  }
+
+  async function startSync() {
+    const cbs = document.querySelectorAll('#wiki-sync-list input[type="checkbox"]');
+    const checkedIds = [];
+    cbs.forEach((cb, i) => {
+      if (cb.checked && _syncSources[i]) {
+        checkedIds.push(_syncSources[i].source_id || _syncSources[i].id);
+      }
+    });
+    if (checkedIds.length === 0) {
+      toast('请至少选择一个来源', 'warning');
+      return;
+    }
+
+    const btn = document.getElementById('wiki-sync-start');
+    if (btn) { btn.disabled = true; btn.textContent = '提交中…'; }
+
+    try {
+      const result = await apiPost('/wiki/sync', { source_ids: checkedIds });
+      toast(`同步任务已创建: ${result.task_id || '(无 task_id)'}`, 'success');
+      closeSyncPanel();
+      toast('请在 Agent Console 查看同步进度', 'info');
+    } catch (err) {
+      toast(`同步失败：${err.message}`, 'error');
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = '开始同步'; }
+    }
   }
 
   /* ── Insights pane (overlays the preview) ──────────────────── */
@@ -181,8 +574,6 @@
     const body = document.getElementById('wiki-tree-body');
     if (!body) return;
     try {
-      // One request per type — small, cacheable, keeps UI responsive
-      // when one section has lots of pages.
       const counts = await apiGet('/wiki/stats').then(s => s.page_counts || {});
       const sectionPromises = SECTIONS.map(async ({ type, label }) => ({
         type, label,
@@ -216,7 +607,6 @@
           ${escape(p.title || p.slug)}
         </li>
       `).join('') || `<li class="wiki-tree-empty">（暂无）</li>`;
-      // Always-open for non-empty sections; collapsed if empty.
       const open = pages.length > 0 ? 'open' : '';
       return `
         <details class="wiki-tree-section" ${open}>
@@ -248,8 +638,6 @@
     const researchPanel = document.getElementById('wiki-research-panel');
     if (!bodyEl) return;
 
-    // Loading a different page hides any half-finished research panel
-    // — a stale task UI on a new page is more confusing than helpful.
     if (researchPanel) {
       researchPanel.hidden = true;
       researchPanel.innerHTML = '';
@@ -266,7 +654,6 @@
       const html = renderMarkdown(page.body || '*(此页面没有内容——可能 wiki worker 仍在生成中)*');
       bodyEl.innerHTML = meta + `<div class="wiki-md">${html}</div>`;
 
-      // Wire wikilink clicks
       bodyEl.querySelectorAll('a.wikilink').forEach(a => {
         a.addEventListener('click', (e) => {
           e.preventDefault();
@@ -275,7 +662,6 @@
         });
       });
 
-      // Highlight the current node in the graph if it's loaded
       highlightInGraph(pageId);
     } catch (err) {
       bodyEl.innerHTML = `<div class="wiki-preview-empty">加载失败：${escape(err.message)}</div>`;
@@ -301,13 +687,9 @@
   /* ── Markdown rendering with [[wikilink]] support ─────────── */
   function renderMarkdown(body) {
     if (!window.marked || typeof window.marked.parse !== 'function') {
-      // Marked failed to load — render escaped text in <pre> as fallback
       return `<pre>${escape(body)}</pre>`;
     }
 
-    // 1. Resolve wikilinks BEFORE markdown parsing so the parser
-    //    doesn't escape the brackets.
-    //    [[type:slug]] OR [[type:slug|display]] OR [[bare-slug]]
     const replaced = body.replace(/\[\[([^\[\]\n|]+)(?:\|([^\[\]\n]+))?\]\]/g,
       (match, target, display) => {
         const t = target.trim();
@@ -317,7 +699,6 @@
         if (maybeSlug && ['entity','concept','source','query','overview'].includes(maybeType)) {
           pageId = `${maybeType}:${maybeSlug}`;
         } else {
-          // Bare reference — try to find a unique match in _allPages
           const candidates = _allPages.filter(p => p.slug === t);
           if (candidates.length === 1) pageId = candidates[0].id;
         }
@@ -330,13 +711,55 @@
     return window.marked.parse(replaced, { breaks: true, gfm: true });
   }
 
-  /* ── Graph pane (sigma.js) ────────────────────────────────── */
+  /* ── Graph pane (D3.js force-directed) ───────────────────── */
+
+  function _getThemeColors() {
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    return {
+      edge:       isDark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.20)',
+      label:      isDark ? '#8b8d91' : '#5b5d61',
+      labelHover: isDark ? '#e0e2e6' : '#15120f',
+      nodeStroke: isDark ? '#1a1b1e' : '#f3ede2',
+    };
+  }
+
+  const _NODE_COLORS = {
+    entity:   '#5e6ad2',
+    concept:  '#10b981',
+    source:   '#f59e0b',
+    query:    '#8b5cf6',
+    overview: '#ef4444',
+  };
+
+  function _fitGraphToBounds() {
+    if (!_d3Graph) return;
+    const { svg, zoom, simulation } = _d3Graph;
+    const nodes = simulation.nodes();
+    if (!nodes.length) return;
+    const xExt = d3.extent(nodes, d => d.x);
+    const yExt = d3.extent(nodes, d => d.y);
+    if (!xExt[0]) return;
+    const dx = xExt[1] - xExt[0] || 1;
+    const dy = yExt[1] - yExt[0] || 1;
+    const cx = (xExt[0] + xExt[1]) / 2;
+    const cy = (yExt[0] + yExt[1]) / 2;
+    const { width: cw, height: ch } = _d3Graph;
+    const pad = 40;
+    const ecw = Math.max(cw - pad * 2, 1);
+    const ech = Math.max(ch - pad * 2, 1);
+    const scale = 0.85 / Math.max(dx / ecw, dy / ech, 0.2);
+    const tx = cw / 2 - cx * scale;
+    const ty = ch / 2 - cy * scale;
+    svg.transition().duration(500).call(
+      zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(Math.min(scale, 2)));
+  }
+
   async function loadGraph() {
     const canvas = document.getElementById('wiki-graph-canvas');
     const stat = document.getElementById('wiki-graph-stat');
     if (!canvas) return;
 
-    if (typeof window.graphology === 'undefined' || typeof window.Sigma === 'undefined') {
+    if (typeof d3 === 'undefined') {
       canvas.innerHTML = `<div class="wiki-graph-empty">
         图谱依赖未加载（CDN 网络问题）。<br>
         <small>左栏与中栏功能不受影响。</small>
@@ -347,8 +770,31 @@
 
     try {
       const data = await apiGet('/wiki/graph?edge_limit=2000&page_limit=500');
-      const nodes = data.nodes || [];
-      const edges = data.edges || [];
+      const nodes = (data.nodes || []).map(n => ({
+        id:         n.id,
+        title:      n.title || n.slug || n.id,
+        page_type:  n.page_type || 'entity',
+      }));
+      const edges = (data.edges || [])
+        .map(e => ({
+          source: e.src_page_id || e.src || e.source,
+          target: e.dst_page_id || e.dst || e.target,
+        }))
+        .filter(e => e.source && e.target && e.source !== e.target);
+
+      // Degree (connection count) for each node — drives radius and label size
+      const degree = {};
+      edges.forEach(e => {
+        const s = typeof e.source === 'object' ? e.source.id : e.source;
+        const t = typeof e.target === 'object' ? e.target.id : e.target;
+        degree[s] = (degree[s] || 0) + 1;
+        degree[t] = (degree[t] || 0) + 1;
+      });
+      nodes.forEach(n => { n._deg = degree[n.id] || 0; });
+
+      // Node radius: sqrt scale by degree (Obsidian hallmark)
+      const rScale = d3.scaleSqrt().domain([1, 20]).range([3, 10]).clamp(true);
+
       stat.textContent = `${nodes.length} 节点 · ${edges.length} 边`;
 
       if (nodes.length === 0) {
@@ -359,85 +805,148 @@
         return;
       }
 
-      // Build graphology graph
-      const g = new window.graphology.Graph({ multi: true });
-      const colorByType = {
-        entity:   '#4f9eff',
-        concept:  '#a07fe5',
-        source:   '#10b981',
-        query:    '#f59e0b',
-        overview: '#ef4444',
-      };
-      // Spread nodes randomly first; ForceAtlas2 will untangle.
-      nodes.forEach((n, i) => {
-        const angle = (i / Math.max(1, nodes.length)) * 2 * Math.PI;
-        g.addNode(n.id, {
-          label: n.title || n.slug,
-          x: Math.cos(angle), y: Math.sin(angle),
-          size: 4 + Math.sqrt((n.source_ids || []).length || 1),
-          color: colorByType[n.page_type] || '#888',
-          // Custom data for hover handler
-          _pageType: n.page_type,
-        });
-      });
-      edges.forEach(e => {
-        if (g.hasNode(e.src_page_id) && g.hasNode(e.dst_page_id) && e.src_page_id !== e.dst_page_id) {
-          try {
-            g.addEdge(e.src_page_id, e.dst_page_id, {
-              size: Math.min(4, 0.5 + Math.log2(1 + e.weight)),
-              color: '#999',
-            });
-          } catch (_) { /* duplicate edge — ignore */ }
-        }
-      });
-
-      // Layout: ForceAtlas2 a few iterations is enough for moderate graphs
-      if (window.graphologyLayoutForceAtlas2) {
-        window.graphologyLayoutForceAtlas2.assign(g, {
-          iterations: Math.min(200, 20 + nodes.length * 2),
-          settings: { gravity: 1, scalingRatio: 8, slowDown: 4 },
-        });
-      }
-
-      // Clear placeholder
+      // Kill previous simulation
+      if (_d3Graph && _d3Graph.simulation) _d3Graph.simulation.stop();
       canvas.innerHTML = '';
-      // Sigma needs explicit dimensions
-      canvas.style.position = 'relative';
 
-      if (_sigma) {
-        try { _sigma.kill(); } catch (_) {}
-        _sigma = null;
-      }
-      _sigma = new window.Sigma(g, canvas, {
-        renderLabels: nodes.length <= 80,
-        labelSize: 11,
-        defaultNodeColor: '#888',
-        defaultEdgeColor: '#999',
-        minCameraRatio: 0.1,
-        maxCameraRatio: 10,
-      });
+      const rect = canvas.getBoundingClientRect();
+      const cw = Math.max(rect.width, 200);
+      const ch = Math.max(rect.height, 200);
+      const tc = _getThemeColors();
 
-      _sigma.on('clickNode', ({ node }) => loadPage(node));
+      // ── SVG container ──
+      const svg = d3.select(canvas)
+        .append('svg')
+        .attr('viewBox', [0, 0, cw, ch])
+        .attr('width', cw)
+        .attr('height', ch)
+        .style('display', 'block');
 
-      // Hover dim non-neighbours
-      _sigma.on('enterNode', ({ node }) => {
-        const neighbors = new Set([node, ...g.neighbors(node)]);
-        _sigma.setSetting('nodeReducer', (n, attrs) => {
-          if (neighbors.has(n)) return attrs;
-          return { ...attrs, color: '#22232b', label: '' };
+      // ── Zoom behaviour ──
+      const g = svg.append('g');
+      const zoom = d3.zoom()
+        .scaleExtent([0.08, 8])
+        .on('zoom', ev => {
+          g.attr('transform', ev.transform);
+          const k = ev.transform.k;
+          // Labels: hide when zoomed out, show + scale when zoomed in
+          label.style('display', k > 0.6 ? null : 'none');
+          label.attr('font-size', d => Math.max(6, Math.min(14, rScale(d._deg || 1) * k * 0.8)));
+          // Edge opacity: fainter when zoomed out
+          link.attr('stroke-opacity', Math.min(0.6, 0.2 + k * 0.15));
         });
-        _sigma.setSetting('edgeReducer', (e, attrs) => {
-          const ext = g.extremities(e);
-          if (ext.includes(node)) return attrs;
-          return { ...attrs, hidden: true };
+      svg.call(zoom);
+
+      // ── Simulation (Obsidian-style compact clustering) ──
+      nodes.forEach(n => { n.x = cw/2 + (Math.random()-0.5)*8; n.y = ch/2 + (Math.random()-0.5)*8; });
+      const simulation = d3.forceSimulation(nodes)
+        .force('link',    d3.forceLink(edges).id(d => d.id).distance(55))
+        .force('charge',  d3.forceManyBody().strength(-30))
+        .force('x',       d3.forceX(cw / 2).strength(0.005))
+        .force('y',       d3.forceY(ch / 2).strength(0.005))
+        .force('collide', d3.forceCollide(d => rScale(d._deg || 1) + 4))
+        .alphaDecay(0.02)
+        .alpha(0.3);
+
+      // ── Edges ──
+      const link = g.append('g')
+        .selectAll('line')
+        .data(edges)
+        .join('line')
+        .attr('stroke', tc.edge)
+        .attr('stroke-width', 0.8)
+        .attr('stroke-opacity', 0.45);
+
+      // ── Nodes ──
+      const node = g.append('g')
+        .selectAll('circle')
+        .data(nodes)
+        .join('circle')
+        .attr('r', d => rScale(d._deg || 1))
+        .attr('fill', d => _NODE_COLORS[d.page_type] || '#888')
+        .attr('stroke', tc.nodeStroke)
+        .attr('stroke-width', 1.5)
+        .style('cursor', 'pointer');
+
+      node.append('title').text(d => d.title || d.id);
+
+      // ── Labels ──
+      const label = g.append('g')
+        .selectAll('text')
+        .data(nodes)
+        .join('text')
+        .text(d => {
+          const t = d.title || '';
+          return t.length > 20 ? t.slice(0, 18) + '…' : t;
+        })
+        .attr('dx', 0)
+        .attr('dy', 14)
+        .attr('text-anchor', 'middle')
+        .attr('font-size', 9)
+        .attr('font-family', 'system-ui, -apple-system, sans-serif')
+        .attr('fill', tc.label)
+        .style('pointer-events', 'none')
+        .style('user-select', 'none');
+
+      // ── Hover ──
+      node.on('mouseenter', function(_, d) {
+        d3.select(this)
+          .transition().duration(120)
+          .attr('r', rScale(d._deg || 1) + 3)
+          .attr('stroke', '#fff')
+          .attr('stroke-width', 2.5);
+        label.filter(nd => nd.id === d.id)
+          .transition().duration(120)
+          .attr('fill', tc.labelHover)
+          .attr('font-size', 11);
+      });
+      node.on('mouseleave', function(_, d) {
+        d3.select(this)
+          .transition().duration(120)
+          .attr('r', rScale(d._deg || 1))
+          .attr('stroke', tc.nodeStroke)
+          .attr('stroke-width', 1.5);
+        label.filter(nd => nd.id === d.id)
+          .transition().duration(120)
+          .attr('fill', tc.label)
+          .attr('font-size', 9);
+      });
+
+      // ── Click → navigate ──
+      node.on('click', (_, d) => { loadPage(d.id); });
+
+      // ── Drag ──
+      const drag = d3.drag()
+        .on('start', (ev, d) => {
+          if (!ev.active) simulation.alphaTarget(0.08).restart();
+          d.fx = d.x; d.fy = d.y;
+        })
+        .on('drag', (ev, d) => { d.fx = ev.x; d.fy = ev.y; })
+        .on('end', (ev, d) => {
+          if (!ev.active) simulation.alphaTarget(0);
+          d.fx = null; d.fy = null;
         });
+      node.call(drag);
+
+      // ── Tick ──
+      simulation.on('tick', () => {
+        link
+          .attr('x1', d => d.source.x).attr('y1', d => d.source.y)
+          .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+        node
+          .attr('cx', d => d.x).attr('cy', d => d.y);
+        label
+          .attr('x', d => d.x).attr('y', d => d.y);
       });
-      _sigma.on('leaveNode', () => {
-        _sigma.setSetting('nodeReducer', null);
-        _sigma.setSetting('edgeReducer', null);
-      });
+
+      // ── Fit once layout settles ──
+      simulation.on('end', _fitGraphToBounds);
+
+      // ── Store ref ──
+      _d3Graph = { svg, simulation, zoom, nodes, width: cw, height: ch };
 
       highlightInGraph(_currentPageId);
+
     } catch (err) {
       canvas.innerHTML = `<div class="wiki-graph-empty">图谱加载失败：${escape(err.message)}</div>`;
       stat.textContent = '—';
@@ -445,26 +954,18 @@
   }
 
   function highlightInGraph(pageId) {
-    if (!_sigma || !pageId) return;
-    const g = _sigma.getGraph();
-    if (!g.hasNode(pageId)) return;
-    // Center camera on this node
-    const attrs = g.getNodeAttributes(pageId);
-    _sigma.getCamera().animate({ x: attrs.x, y: attrs.y, ratio: 0.5 }, { duration: 400 });
+    if (!_d3Graph || !pageId) return;
+    const { svg, zoom, simulation } = _d3Graph;
+    const node = simulation.nodes().find(n => n.id === pageId);
+    if (!node || node.x == null) return;
+    const scale = 0.75;
+    const tx = _d3Graph.width  / 2 - node.x * scale;
+    const ty = _d3Graph.height / 2 - node.y * scale;
+    svg.transition().duration(400).call(
+      zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
   }
 
-  /* ── Deep Research panel ──────────────────────────────────────
-   *
-   * Click the telescope button → reveal an inline form (focus textarea +
-   * max_urls slider + "Run" button). Submitting POSTs to /wiki/research,
-   * then we poll /wiki/research/{task_id} every ~1.5 s and update the
-   * panel's status line. On terminal status we reload the active page
-   * so the new "## Recent Research" section becomes visible.
-   *
-   * State is purely DOM-driven — one panel at a time, scoped to the
-   * currently-displayed page; no module-level handles aside from a
-   * single _researchPoll timer reference for cancellation safety.
-   */
+  /* ── Deep Research panel ────────────────────────────────────── */
 
   let _researchPoll = null;
 
@@ -472,7 +973,6 @@
     const panel = document.getElementById('wiki-research-panel');
     if (!panel || !pageId) return;
     if (!panel.hidden) {
-      // Toggle off — but don't kill an in-flight task, just hide the UI.
       panel.hidden = true;
       return;
     }
@@ -579,10 +1079,7 @@
         runBtn.disabled = false;
         runBtn.classList.remove('is-running');
         if (task.status === 'done') {
-          // Reload the active page so the appended "Recent Research"
-          // section materialises in the preview pane.
           loadPage(pageId);
-          // Keep the panel visible with the success summary.
         }
         return;
       }
@@ -625,7 +1122,6 @@
     if (btn) btn.classList.add('is-spinning');
     try {
       await Promise.all([loadTree(), loadGraph()]);
-      // Re-load the active page if there is one (its body may have updated)
       if (_currentPageId) await loadPage(_currentPageId);
     } finally {
       if (btn) btn.classList.remove('is-spinning');
@@ -636,9 +1132,6 @@
   document.addEventListener('tab:shown', async (ev) => {
     if (ev.detail !== 'wiki') return;
     mount();
-    // Wait for Sigma to refresh its WebGL viewport now that the panel
-    // has real dimensions (it was display:none until just now).
-    setTimeout(() => { if (_sigma) _sigma.refresh(); }, 50);
     if (_allPages.length === 0) await refreshAll();
   });
 
@@ -660,5 +1153,5 @@
   }
 
   // Expose for debugging
-  window.OmniWiki = { mount, refreshAll, loadPage, toggleResearchPanel };
+  window.OmniWiki = { mount, refreshAll, loadPage, togglePane, toggleMaximizeGraph, toggleResearchPanel };
 })();

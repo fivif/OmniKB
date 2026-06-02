@@ -56,8 +56,44 @@
             <div class="section-card-body stack-md">
               <div class="section-head">
                 <div>
+                  <div class="section-title">视觉识别</div>
+                  <div class="section-subtitle">启用后，上传的图片、PDF、视频将自动进行文字提取和内容描述。</div>
+                </div>
+              </div>
+
+              <div class="field-grid settings-form-grid">
+                <div class="stack-sm settings-field">
+                  <label class="form-label" style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                    <input id="s-vision-enabled" type="checkbox" class="input-check" />
+                    启用视觉识别
+                  </label>
+                </div>
+                <div class="stack-sm settings-field">
+                  <label class="form-label">Vision 模型</label>
+                  <input id="s-vision-model" class="input" type="text" placeholder="例如：gpt-4o-mini" />
+                </div>
+                <div class="stack-sm settings-field">
+                  <label class="form-label">Vision Base URL</label>
+                  <input id="s-vision-base-url" class="input" type="text" placeholder="留空则沿用 LLM Base URL" />
+                </div>
+                <div class="stack-sm settings-field">
+                  <label class="form-label">Vision API Key</label>
+                  <input id="s-vision-key" class="input settings-key-input" type="password" placeholder="留空则沿用 LLM API Key" />
+                </div>
+                <div class="stack-sm settings-field">
+                  <label class="form-label">视频帧间隔（秒）</label>
+                  <input id="s-vision-frame-interval" class="input" type="number" min="0" step="1" placeholder="0 = 禁用帧描述" />
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="section-card">
+            <div class="section-card-body stack-md">
+              <div class="section-head">
+                <div>
                   <div class="section-title">对话系统提示词</div>
-                  <div class="section-subtitle">影响 RAG 对话默认风格。修改后即时生效，不需要单独保存。</div>
+                  <div class="section-subtitle">影响 AI 对话默认风格。修改后即时生效，不需要单独保存。</div>
                 </div>
               </div>
 
@@ -70,41 +106,6 @@
             </div>
           </section>
 
-          <section class="section-card">
-            <div class="section-card-body stack-md">
-              <div class="section-head">
-                <div>
-                  <div class="section-title">本地模型下载</div>
-                  <div class="section-subtitle">BM25 稀疏检索和 reranker 都在这里管理。代理会直接沿用你上面保存的连接配置。</div>
-                </div>
-                <button id="btn-download-all" class="btn btn-secondary" type="button">下载全部模型</button>
-              </div>
-
-              <div class="settings-model-grid">
-                <article class="settings-model-card">
-                  <div>
-                    <div class="settings-model-title">BM25 稀疏嵌入</div>
-                    <div class="settings-model-copy">Qdrant/bm25，用于 Hybrid 检索里的 sparse 向量。</div>
-                  </div>
-                  <div class="settings-model-actions">
-                    <span id="bm25-status" class="settings-model-status">检测中…</span>
-                    <button id="btn-bm25-download" class="btn btn-primary" type="button">下载</button>
-                  </div>
-                </article>
-
-                <article class="settings-model-card">
-                  <div>
-                    <div class="settings-model-title">Cross-encoder 重排序</div>
-                    <div class="settings-model-copy">BAAI/bge-reranker-v2-m3，用于结果精排；若 .env 未启用会显示禁用。</div>
-                  </div>
-                  <div class="settings-model-actions">
-                    <span id="reranker-status" class="settings-model-status">检测中…</span>
-                    <button id="btn-reranker-download" class="btn btn-primary" type="button">下载</button>
-                  </div>
-                </article>
-              </div>
-            </div>
-          </section>
         </div>
 
         <aside class="stack-md">
@@ -164,11 +165,12 @@
     summaryProxy: document.getElementById('settings-summary-proxy'),
     summaryProvider: document.getElementById('settings-summary-provider'),
     summaryModel: document.getElementById('settings-summary-model'),
-    bm25Status: document.getElementById('bm25-status'),
-    rerankerStatus: document.getElementById('reranker-status'),
-    bm25Button: document.getElementById('btn-bm25-download'),
-    rerankerButton: document.getElementById('btn-reranker-download'),
-    downloadAllButton: document.getElementById('btn-download-all'),
+
+    visionEnabled: document.getElementById('s-vision-enabled'),
+    visionModel: document.getElementById('s-vision-model'),
+    visionBaseUrl: document.getElementById('s-vision-base-url'),
+    visionApiKey: document.getElementById('s-vision-key'),
+    visionFrameInterval: document.getElementById('s-vision-frame-interval'),
   };
 
   const defaults = {
@@ -178,23 +180,20 @@
     llm_model: '',
     llm_base_url: '',
     llm_api_key: '',
+
+    vision_enabled: false,
+    vision_model: 'gpt-4o-mini',
+    vision_base_url: '',
+    vision_api_key: '',
+    vision_frame_interval: 60,
   };
 
   function normalizeProvider(value) {
     return 'custom';
   }
 
-  const modelStatusMeta = {
-    loaded: { text: '已就绪', tone: 'is-ready', disable: true },
-    not_loaded: { text: '未下载', tone: '', disable: false },
-    downloading: { text: '下载中…', tone: 'is-pending', disable: true },
-    failed: { text: '下载失败', tone: 'is-error', disable: false },
-    skipped_disabled: { text: '当前未启用', tone: '', disable: true },
-  };
 
-  const downloading = { bm25: false, reranker: false };
   let promptDebounceTimer = null;
-  let modelPollTimer = null;
 
   function getBase() {
     return refs.apiBase.value.trim() || defaults.api_base;
@@ -233,6 +232,12 @@
       llm_model: saved.llm_model || '',
       llm_base_url: saved.llm_base_url || '',
       llm_api_key: saved.llm_api_key || '',
+
+      vision_enabled: saved.vision_enabled !== undefined ? saved.vision_enabled : defaults.vision_enabled,
+      vision_model: saved.vision_model || defaults.vision_model,
+      vision_base_url: saved.vision_base_url || '',
+      vision_api_key: saved.vision_api_key || '',
+      vision_frame_interval: saved.vision_frame_interval !== undefined ? saved.vision_frame_interval : defaults.vision_frame_interval,
     };
   }
 
@@ -246,16 +251,30 @@
       llm_model: refs.model.value.trim() || defaults.llm_model,
       llm_base_url: baseUrl,
       llm_api_key: refs.apiKey.value.trim(),
+
+      vision_enabled: refs.visionEnabled.checked,
+      vision_model: refs.visionModel.value.trim() || defaults.vision_model,
+      vision_base_url: refs.visionBaseUrl.value.trim(),
+      vision_api_key: refs.visionApiKey.value.trim(),
+      vision_frame_interval: parseInt(refs.visionFrameInterval.value, 10) || defaults.vision_frame_interval,
     };
   }
 
+  let _saveToBackendTimer = null;
+
   function persistLocalDraft() {
     const values = collectRuntimeValues();
+    console.log('persistLocalDraft: saving', values);
     saveSettings({
       ...loadSettings(),
       ...values,
     });
     updateSummary(values);
+    // Also sync to backend with a 600ms debounce
+    clearTimeout(_saveToBackendTimer);
+    _saveToBackendTimer = setTimeout(() => {
+      syncRuntimeSettings({ skipLocalSave: true, silent: true });
+    }, 600);
   }
 
   function updateSummary(values) {
@@ -288,6 +307,13 @@
     refs.model.value = values.llm_model || defaults.llm_model;
     refs.baseUrl.value = values.llm_base_url || '';
     refs.apiKey.value = values.llm_api_key || '';
+
+    refs.visionEnabled.checked = values.vision_enabled !== undefined ? values.vision_enabled : defaults.vision_enabled;
+    refs.visionModel.value = values.vision_model || defaults.vision_model;
+    refs.visionBaseUrl.value = values.vision_base_url || '';
+    refs.visionApiKey.value = values.vision_api_key || '';
+    refs.visionFrameInterval.value = values.vision_frame_interval !== undefined ? values.vision_frame_interval : defaults.vision_frame_interval;
+
     updateProviderMeta();
     updateSummary(collectRuntimeValues());
   }
@@ -313,12 +339,29 @@
       }),
     });
 
+    const visionRuntime = await requestJson('/settings/vision', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        vision_enabled: values.vision_enabled,
+        vision_model: values.vision_model,
+        vision_base_url: values.vision_base_url,
+        vision_api_key: values.vision_api_key,
+        vision_frame_interval: values.vision_frame_interval,
+      }),
+    });
+
     applyRuntimeValues({
       ...values,
       llm_provider: runtime.provider,
       llm_model: runtime.model,
       llm_base_url: runtime.base_url || '',
       llm_api_key: runtime.api_key || '',
+      vision_enabled: visionRuntime.vision_enabled !== undefined ? visionRuntime.vision_enabled : values.vision_enabled,
+      vision_model: visionRuntime.vision_model || values.vision_model,
+      vision_base_url: visionRuntime.vision_base_url || '',
+      vision_api_key: visionRuntime.vision_api_key || '',
+      vision_frame_interval: visionRuntime.vision_frame_interval !== undefined ? visionRuntime.vision_frame_interval : values.vision_frame_interval,
     });
 
     if (!skipLocalSave) {
@@ -339,6 +382,7 @@
 
   async function loadRuntimeSettings() {
     const local = localDraft();
+    console.log('loadRuntimeSettings: loaded', local);
     applyRuntimeValues({
       api_base: local.api_base,
       http_proxy: local.http_proxy,
@@ -349,13 +393,20 @@
     });
 
     try {
-      const [proxy, llm] = await Promise.all([
+      const [proxy, llm, vision] = await Promise.all([
         requestJson('/settings/proxy').catch(() => ({ proxy: '' })),
         requestJson('/settings/llm').catch(() => ({
           provider: defaults.llm_provider,
           model: defaults.llm_model,
           base_url: '',
           api_key: '',
+        })),
+        requestJson('/settings/vision').catch(() => ({
+          vision_enabled: defaults.vision_enabled,
+          vision_model: defaults.vision_model,
+          vision_base_url: '',
+          vision_api_key: '',
+          vision_frame_interval: defaults.vision_frame_interval,
         })),
       ]);
 
@@ -366,6 +417,11 @@
         llm_model: local.llm_model || llm.model || defaults.llm_model,
         llm_base_url: local.llm_base_url || llm.base_url || '',
         llm_api_key: local.llm_api_key || llm.api_key || '',
+        vision_enabled: local.vision_enabled !== undefined ? local.vision_enabled : (vision.vision_enabled !== undefined ? vision.vision_enabled : defaults.vision_enabled),
+        vision_model: local.vision_model || vision.vision_model || defaults.vision_model,
+        vision_base_url: local.vision_base_url || vision.vision_base_url || '',
+        vision_api_key: local.vision_api_key || vision.vision_api_key || '',
+        vision_frame_interval: local.vision_frame_interval !== undefined ? local.vision_frame_interval : (vision.vision_frame_interval !== undefined ? vision.vision_frame_interval : defaults.vision_frame_interval),
       });
 
       const shouldReplay = Boolean(
@@ -373,7 +429,12 @@
         local.llm_provider ||
         local.llm_model ||
         local.llm_base_url ||
-        local.llm_api_key
+        local.llm_api_key ||
+        local.vision_enabled !== undefined ||
+        local.vision_model ||
+        local.vision_base_url ||
+        local.vision_api_key ||
+        local.vision_frame_interval !== undefined
       );
       if (shouldReplay) {
         await syncRuntimeSettings({ silent: true, skipLocalSave: true });
@@ -403,83 +464,19 @@
     }
   }
 
-  function setModelStatus(kind, state) {
-    const meta = modelStatusMeta[state] || modelStatusMeta.not_loaded;
-    const label = kind === 'bm25' ? refs.bm25Status : refs.rerankerStatus;
-    const button = kind === 'bm25' ? refs.bm25Button : refs.rerankerButton;
-    label.textContent = meta.text;
-    label.className = 'settings-model-status';
-    if (meta.tone) label.classList.add(meta.tone);
-    if (!downloading[kind]) {
-      button.disabled = meta.disable;
-    }
-  }
 
-  async function refreshModelStatus() {
-    try {
-      const data = await requestJson('/settings/models/status');
-      setModelStatus('bm25', data.bm25);
-      setModelStatus('reranker', data.reranker);
-    } catch {
-      refs.bm25Status.textContent = '连接失败';
-      refs.rerankerStatus.textContent = '连接失败';
-      refs.bm25Status.className = 'settings-model-status is-error';
-      refs.rerankerStatus.className = 'settings-model-status is-error';
-      refs.bm25Button.disabled = false;
-      refs.rerankerButton.disabled = false;
-    }
-  }
 
-  async function downloadModel(kind) {
-    const label = kind === 'bm25' ? 'BM25' : 'Reranker';
-    downloading[kind] = true;
-    setModelStatus(kind, 'downloading');
 
-    try {
-      const data = await requestJson('/settings/models/download', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ proxy: refs.proxy.value.trim() }),
-      });
 
-      if (data[kind] === 'already_loaded' || data[kind] === 'skipped_disabled') {
-        setModelStatus(kind, data[kind] === 'already_loaded' ? 'loaded' : 'skipped_disabled');
-        downloading[kind] = false;
-        return;
-      }
 
-      toast(`${label} 开始下载`, 'success');
-      for (let attempt = 0; attempt < 60; attempt += 1) {
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        const status = await requestJson('/settings/models/status');
-        const current = status[kind];
-        if (current === 'loaded') {
-          downloading[kind] = false;
-          setModelStatus(kind, 'loaded');
-          toast(`${label} 下载完成`, 'success');
-          return;
-        }
-        if (current === 'failed') {
-          downloading[kind] = false;
-          setModelStatus(kind, 'failed');
-          return;
-        }
-      }
-
-      downloading[kind] = false;
-      refs[kind === 'bm25' ? 'bm25Status' : 'rerankerStatus'].textContent = '下载超时';
-      refs[kind === 'bm25' ? 'bm25Status' : 'rerankerStatus'].className = 'settings-model-status is-error';
-      refs[kind === 'bm25' ? 'bm25Button' : 'rerankerButton'].disabled = false;
-    } catch (error) {
-      downloading[kind] = false;
-      refs[kind === 'bm25' ? 'bm25Status' : 'rerankerStatus'].textContent = '请求失败';
-      refs[kind === 'bm25' ? 'bm25Status' : 'rerankerStatus'].className = 'settings-model-status is-error';
-      refs[kind === 'bm25' ? 'bm25Button' : 'rerankerButton'].disabled = false;
-      toast(`${label} 下载失败: ${error.message}`, 'error');
-    }
-  }
 
   [refs.apiBase, refs.proxy, refs.model, refs.baseUrl, refs.apiKey].forEach(node => {
+    node.addEventListener('input', persistLocalDraft);
+    node.addEventListener('change', persistLocalDraft);
+  });
+
+  [refs.visionEnabled, refs.visionModel, refs.visionBaseUrl, refs.visionApiKey, refs.visionFrameInterval].forEach(node => {
+    node.addEventListener('input', persistLocalDraft);
     node.addEventListener('change', persistLocalDraft);
   });
 
@@ -502,35 +499,16 @@
     }
   });
 
-  refs.bm25Button.addEventListener('click', () => downloadModel('bm25'));
-  refs.rerankerButton.addEventListener('click', () => downloadModel('reranker'));
-  refs.downloadAllButton.addEventListener('click', async () => {
-    refs.downloadAllButton.disabled = true;
-    await downloadModel('bm25');
-    await downloadModel('reranker');
-    refs.downloadAllButton.disabled = false;
-  });
-
-  document.getElementById('btn-save-settings').addEventListener('click', async () => {
-    try {
-      await syncRuntimeSettings();
-      refreshModelStatus();
-    } catch (error) {
-      toast(`运行设置保存失败: ${error.message}`, 'error');
-    }
-  });
-
+  // Reload form state whenever the settings tab is shown
   document.addEventListener('tab:shown', event => {
     if (event.detail === 'settings') {
-      refreshModelStatus();
-      clearInterval(modelPollTimer);
-      modelPollTimer = setInterval(refreshModelStatus, 8000);
-    } else {
-      clearInterval(modelPollTimer);
+      loadRuntimeSettings();
+      loadSystemPrompt();
     }
   });
 
+  // Initial load
   loadRuntimeSettings();
   loadSystemPrompt();
-  refreshModelStatus();
+
 })();

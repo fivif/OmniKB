@@ -1,15 +1,16 @@
 .sapi-page {
   margin: 0;
   min-height: 100vh;
-  --sapi-glow-primary: rgba(21, 94, 239, 0.14);
-  --sapi-glow-secondary: rgba(240, 124, 82, 0.12);
-  --sapi-page-wash: rgba(255, 255, 255, 0.42);
+  --sapi-glow-primary: rgba(184, 134, 11, 0.12);
+  --sapi-glow-secondary: rgba(21, 94, 239, 0.1);
+  --sapi-page-wash: rgba(255, 253, 247, 0.55);
   --sapi-panel-border: var(--bd-subtle);
-  --sapi-panel-shadow: var(--sh-md);
-  --sapi-panel-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(255, 253, 247, 0.9));
-  --sapi-secondary-btn-bg: rgba(255, 255, 255, 0.56);
-  --sapi-stat-bg: linear-gradient(135deg, var(--accent-bg), transparent 70%), rgba(255, 255, 255, 0.72);
-  --sapi-code-bg: linear-gradient(180deg, rgba(7, 12, 20, 0.92), rgba(15, 23, 42, 0.96));
+  --sapi-panel-shadow: var(--sh-lg);
+  --sapi-panel-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(255, 252, 244, 0.92));
+  --sapi-secondary-btn-bg: rgba(255, 255, 255, 0.6);
+  --sapi-stat-bg: linear-gradient(135deg, rgba(184, 134, 11, 0.08), rgba(21, 94, 239, 0.06), rgba(255, 255, 255, 0.74));
+  --sapi-code-bg: linear-gradient(180deg, rgba(7, 12, 20, 0.94), rgba(15, 23, 42, 0.97));
+  --sapi-code-border: rgba(184, 134, 11, 0.16);
   color: var(--t-primary);
   font-family: var(--font-sans);
   background-color: var(--bg-body);
@@ -20,28 +21,30 @@
 }
 
 [data-theme="dark"] .sapi-page {
-  --sapi-glow-primary: rgba(91, 140, 255, 0.2);
-  --sapi-glow-secondary: rgba(27, 185, 138, 0.14);
-  --sapi-page-wash: rgba(7, 10, 16, 0.14);
+  --sapi-glow-primary: rgba(184, 134, 11, 0.14);
+  --sapi-glow-secondary: rgba(91, 140, 255, 0.12);
+  --sapi-page-wash: rgba(7, 10, 16, 0.18);
   --sapi-panel-border: rgba(255, 255, 255, 0.08);
   --sapi-panel-shadow: 0 22px 48px rgba(0, 0, 0, 0.34), 0 8px 18px rgba(0, 0, 0, 0.22);
   --sapi-panel-bg: linear-gradient(180deg, rgba(26, 30, 35, 0.92), rgba(18, 21, 26, 0.98));
   --sapi-secondary-btn-bg: rgba(24, 26, 29, 0.82);
-  --sapi-stat-bg: linear-gradient(135deg, var(--accent-bg), transparent 72%), rgba(20, 23, 28, 0.9);
+  --sapi-stat-bg: linear-gradient(135deg, rgba(184, 134, 11, 0.06), rgba(91, 140, 255, 0.05), rgba(20, 23, 28, 0.9));
   --sapi-code-bg: linear-gradient(180deg, rgba(5, 8, 14, 0.98), rgba(10, 16, 28, 0.99));
+  --sapi-code-border: rgba(184, 134, 11, 0.12);
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .sapi-page {
-    --sapi-glow-primary: rgba(91, 140, 255, 0.2);
-    --sapi-glow-secondary: rgba(27, 185, 138, 0.14);
-    --sapi-page-wash: rgba(7, 10, 16, 0.14);
+    --sapi-glow-primary: rgba(184, 134, 11, 0.14);
+    --sapi-glow-secondary: rgba(91, 140, 255, 0.12);
+    --sapi-page-wash: rgba(7, 10, 16, 0.18);
     --sapi-panel-border: rgba(255, 255, 255, 0.08);
     --sapi-panel-shadow: 0 22px 48px rgba(0, 0, 0, 0.34), 0 8px 18px rgba(0, 0, 0, 0.22);
     --sapi-panel-bg: linear-gradient(180deg, rgba(26, 30, 35, 0.92), rgba(18, 21, 26, 0.98));
     --sapi-secondary-btn-bg: rgba(24, 26, 29, 0.82);
-    --sapi-stat-bg: linear-gradient(135deg, var(--accent-bg), transparent 72%), rgba(20, 23, 28, 0.9);
+    --sapi-stat-bg: linear-gradient(135deg, rgba(184, 134, 11, 0.06), rgba(91, 140, 255, 0.05), rgba(20, 23, 28, 0.9));
     --sapi-code-bg: linear-gradient(180deg, rgba(5, 8, 14, 0.98), rgba(10, 16, 28, 0.99));
+    --sapi-code-border: rgba(184, 134, 11, 0.12);
   }
 }
 
@@ -155,13 +158,14 @@
   min-height: 30px;
   padding: 0 12px;
   border-radius: 999px;
-  background: var(--accent-bg);
+  background: linear-gradient(135deg, rgba(184, 134, 11, 0.14), var(--accent-bg));
   border: 1px solid var(--accent-bd);
-  color: var(--accent);
+  color: #b8860b;
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+  box-shadow: 0 0 14px rgba(184, 134, 11, 0.08);
 }
 
 .sapi-title {

@@ -202,13 +202,26 @@ _CANON_TRACKING = re.compile(r"^(utm_|fbclid$|gclid$|mc_eid$)")
 
 
 def _canonical(url: str) -> str:
-    """Best-effort canonicalisation for dedup — scheme + host + path."""
+    """Best-effort canonicalisation for dedup — scheme + host + path.
+
+    Tracking parameters (utm_*, fbclid, gclid, mc_eid, etc.) are stripped
+    from the query string so that the same page with different marketing
+    tags maps to a single canonical URL.
+    """
     p = urlparse(url)
     host = (p.netloc or "").lower()
     if host.startswith("www."):
         host = host[4:]
     path = p.path.rstrip("/") or "/"
-    return f"{p.scheme}://{host}{path}"
+    # Strip tracking params from query string.
+    if p.query:
+        params = parse_qs(p.query, keep_blank_values=True)
+        cleaned = {k: v for k, v in params.items() if not _CANON_TRACKING.match(k)}
+        qs = "&".join(f"{k}={v[0]}" for k, v in cleaned.items()) if cleaned else ""
+    else:
+        qs = ""
+    base = f"{p.scheme}://{host}{path}"
+    return f"{base}?{qs}" if qs else base
 
 
 # ── Self-check ────────────────────────────────────────────────────

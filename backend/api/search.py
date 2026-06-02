@@ -16,6 +16,8 @@ def _highlight(text: str, query: str) -> str:
     terms = [re.escape(t) for t in query.split() if len(t) > 1]
     if not terms:
         return text
+    # Cap at 10 terms to prevent ReDoS via pathological alternation regex
+    terms = terms[:10]
     pattern = re.compile("|".join(terms), re.IGNORECASE)
     return pattern.sub(lambda m: f"<mark>{m.group()}</mark>", text)
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import secrets
 import uuid
 
@@ -18,18 +19,18 @@ from storage.metadata_db import (
     insert_scenario,
     insert_scenario_key,
     list_scenario_keys,
+    list_scenario_source_ids,
     list_scenario_sources,
     list_scenarios,
     remove_scenario_source,
     update_scenario,
 )
-from storage.vector_store import hybrid_search
-from pipeline.embedder import embed_dense, embed_sparse
-
 router = APIRouter()
 
 
 # ── Request/response models ──────────────────────────────────────
+
+_SLUG_RE = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
 
 class ScenarioCreate(BaseModel):
     name: str = "未命名场景"
@@ -39,6 +40,7 @@ class ScenarioCreate(BaseModel):
     llm_model: str = ""
     llm_base_url: str = ""
     llm_api_key: str = ""
+    slug: str | None = None
     ui_config: dict | None = None
 
 
@@ -118,8 +120,22 @@ async def get_one_scenario(scenario_id: str):
 
 @router.post("")
 async def create_scenario(body: ScenarioCreate):
+    # Validate slug if provided
+    slug = body.slug
+    if slug is not None:
+        slug = slug.strip()
+        if not slug:
+            slug = None
+        elif len(slug) > 30:
+            raise HTTPException(status_code=400, detail="Slug must be at most 30 characters")
+        elif not _SLUG_RE.match(slug):
+            raise HTTPException(status_code=400, detail="Slug must be lowercase alphanumeric with optional hyphens (e.g. my-support-bot)")
+    if slug is None:
+        slug = secrets.token_hex(4)  # 8-char random hex
+
     sc = {
         "id": str(uuid.uuid4()),
+        "slug": slug,
         "name": body.name,
         "description": body.description,
         "system_prompt": body.system_prompt,
@@ -175,7 +191,28 @@ async def add_scenario_sources_endpoint(scenario_id: str, body: ScenarioSourcesB
         raise HTTPException(status_code=404, detail="Scenario not found")
     entries = [(e.source_id, e.chunk_id) for e in body.entries]
     count = await add_scenario_sources_batch(scenario_id, entries, body.added_by)
-    return {"status": "ok", "added": count}
+
+    # Find wiki pages that reference the added source_ids, notify caller
+    wiki_linked = 0
+    added_source_ids = {e[0] for e in entries if e[0]}
+    if added_source_ids:
+        try:
+            from config import settings as _s
+            _wiki_on = getattr(_s, "wiki_retrieval_enabled", True)
+        except Exception:
+            _wiki_on = True
+        if _wiki_on:
+            try:
+                from storage.metadata_db import list_wiki_pages as _lwp
+                all_pages = await _lwp(limit=2000)
+                for p in all_pages:
+                    p_sids = set(p.get("source_ids") or [])
+                    if added_source_ids & p_sids:
+                        wiki_linked += 1
+            except Exception:
+                pass
+
+    return {"status": "ok", "added": count, "wiki_linked": wiki_linked}
 
 
 @router.delete("/{scenario_id}/sources")
@@ -237,50 +274,47 @@ async def delete_key(scenario_id: str, key_id: str):
 
 # ── Agent-assisted chunk search ──────────────────────────────────
 
+async def _search_and_format(
+    query: str,
+    top_k: int,
+    *,
+    content_max_len: int = 500,
+    include_chunk_index: bool = False,
+) -> list[dict]:
+    """Semantic search helper — RAG removed, always returns empty."""
+    return []
+
+
 @router.post("/agent/search-chunks")
 async def agent_search_chunks(body: AgentSearchRequest):
-    """Semantic search across the knowledge base to find relevant chunks.
+    """Search across the knowledge base to find relevant chunks.
 
     Used by the agent to suggest chunks when building a scenario.
+    RAG removed — chunk search returns empty; wiki retrieval still active.
     """
-    import logging as _lg
+    chunks: list[dict] = []
 
-    try:
-        dense = (await embed_dense([body.query]))[0]
-    except Exception as exc:
-        _lg.getLogger(__name__).warning("Dense embed failed for agent search: %s", exc)
-        return {"chunks": [], "query": body.query}
+    # ── Wiki retrieval (best-effort) ──────────────────────────
+    wiki_hits = []
+    if getattr(settings, "wiki_retrieval_enabled", False):
+        try:
+            from wiki.retriever import search_wiki_pages
+            hits = await search_wiki_pages(query=body.query, top_k=5)
+            wiki_hits = [
+                {
+                    "page_id": h.page_id,
+                    "page_type": h.page_type,
+                    "title": h.title,
+                    "slug": h.slug,
+                    "summary": h.summary,
+                    "score": h.score,
+                }
+                for h in hits
+            ]
+        except Exception:
+            pass
 
-    sparse = None
-    try:
-        sparse = embed_sparse([body.query])[0]
-    except Exception:
-        pass
-
-    try:
-        results = await hybrid_search(
-            query_dense=dense,
-            query_sparse_indices=sparse[0] if sparse else [],
-            query_sparse_values=sparse[1] if sparse else [],
-            top_k=body.top_k,
-            filters=None,
-        )
-    except Exception as exc:
-        _lg.getLogger(__name__).warning("Hybrid search failed for agent: %s", exc)
-        return {"chunks": [], "query": body.query}
-
-    chunks = [
-        {
-            "id": c["id"],
-            "content": c["content"][:500],
-            "source_id": c["metadata"].get("source_id", ""),
-            "source_name": c["metadata"].get("source_name", ""),
-            "chunk_index": c["metadata"].get("chunk_index", 0),
-            "score": round(c.get("score", 0), 4),
-        }
-        for c in results
-    ]
-    return {"chunks": chunks, "query": body.query}
+    return {"chunks": chunks, "query": body.query, "wiki_hits": wiki_hits}
 
 
 # ── Agent-assisted scenario management ────────────────────────────
@@ -289,9 +323,40 @@ def _sanitize_ui_css(css: str) -> str:
     import re
 
     cleaned = str(css or "")
+    # Block @import and @charset directives
     cleaned = re.sub(r"@import\b", "/* blocked */", cleaned, flags=re.I)
+    cleaned = re.sub(r"@charset\b", "/* blocked */", cleaned, flags=re.I)
+    # Block url(...) external resource loads
     cleaned = re.sub(r"url\s*\(", "url(/* blocked */", cleaned, flags=re.I)
+    # Block CSS expression(), behavior:, -moz-binding:, javascript: URI
+    cleaned = re.sub(r"expression\s*\(", "/* blocked */", cleaned, flags=re.I)
+    cleaned = re.sub(r"behavior\s*:", "/* blocked */:", cleaned, flags=re.I)
+    cleaned = re.sub(r"-moz-binding\s*:", "/* blocked */:", cleaned, flags=re.I)
+    cleaned = re.sub(r"javascript\s*:", "/* blocked */:", cleaned, flags=re.I)
+    # Block backslash-escaped bypass patterns (e.g. \0065xpressio\06e)
+    cleaned = re.sub(r"\\[0-9a-fA-F]{1,6}\s?", "", cleaned)
     return cleaned
+
+
+def _sanitize_full_page_html(html: str) -> str:
+    """Strip scripts and event handlers from full-page HTML."""
+    import re
+
+    s = str(html)[:50000]  # max 50 KB
+    s = re.sub(r'<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>', '', s, flags=re.IGNORECASE)
+    s = re.sub(r'\son\w+\s*=\s*"[^"]*"', '', s)
+    s = re.sub(r'\son\w+\s*=\s*\'[^\']*\'', '', s)
+    s = re.sub(r'javascript\s*:', 'blocked:', s, flags=re.IGNORECASE)
+    return s
+
+
+def _sanitize_page_js(js: str) -> str:
+    """Block dangerous APIs in agent-written JS."""
+    s = str(js)[:8000]
+    for banned in ('fetch(', 'XMLHttpRequest', 'eval(', 'import(', 'document.cookie', 'localStorage.', 'sessionStorage.'):
+        s = s.replace(banned, '/* blocked */')
+    return s
+
 
 def _build_agent_prompt(
     name: str, description: str, system_prompt: str,
@@ -334,12 +399,21 @@ Available actions:
 - update_ui: {{"action":"update_ui","changes":{{"template":"assistant|guide|support","title":"...","subtitle":"...","welcome":"...","placeholder":"...","disclaimer":"...","color":"#hex","css":"..."}}}}
 - update_config: {{"action":"update_config","changes":{{"name":"...","description":"...","system_prompt":"..."}}}}
 - update_llm: {{"action":"update_llm","changes":{{"llm_provider":"deepseek|custom","llm_model":"...","llm_base_url":"...","llm_api_key":"..."}}}}
+- inject_html: {{"action":"inject_html","selector":"#css-selector","mode":"replace|append|prepend","html":"<div>Safe HTML content</div>"}} — inject DOM into the current page. Use replace to overwrite an element, append to add at the end, prepend to add at the beginning. HTML is sanitized so scripts and event handlers are stripped. Great for adding banners, restructuring sections, or injecting informational blocks.
+- execute_script: {{"action":"execute_script","script":"document.title = 'New Title'; console.log('done');"}} — run arbitrary JavaScript on the page (max 2000 chars). Use for programmatic DOM changes, triggering events, or calling frontend APIs. Be conservative and safe.
+- rewrite_full_page: Rewrite the ENTIRE standalone Q&A page HTML/CSS/JS. Use this for complete redesigns.
+  {{"action":"rewrite_full_page","changes":{{"page_html":"<complete HTML>","page_css":"<CSS>","page_js":"<JS>"}}}}
+  Keep these element IDs: chat-messages, chat-input, btn-send, welcome-message, btn-clear-chat, btn-reset-page, btn-show-key-modal, key-modal-backdrop, chat-disclaimer
+  page_html replaces the body content. page_css is injected into <style id="custom-css">. page_js is injected at page end.
+- reset_page: Restore the standalone Q&A page to its default template.
+  {{"action":"reset_page"}}
 
 Rules:
 - When the user wants a major visual redesign, prefer ONE update_ui action that first chooses the best template and then rewrites multiple UI fields together.
 - You may change template, title, subtitle, welcome, placeholder, disclaimer, color and css in the same update_ui action.
 - CSS may only target .kbchat-body and .kbchat-* selectors. Never use @import or external URLs.
 - Search before adding or removing chunks. Never invent chunk IDs.
+- Use inject_html and execute_script for page-level changes that go beyond UI config fields. Explain what you are doing in the reply.
 - Only output JSON."""
 
 
@@ -350,7 +424,9 @@ class AgentAssistRequest(BaseModel):
 class AgentAssistResponse(BaseModel):
     reply: str
     actions_performed: list[str]
+    raw_actions: list[dict] | None = None
     search_results: list[dict] | None = None
+    wiki_hits: list[dict] | None = None
 
 
 def _extract_json(text: str) -> dict | None:
@@ -468,7 +544,9 @@ async def agent_assist(scenario_id: str, body: AgentAssistRequest):
         actions = []
 
     performed: list[str] = []
+    raw_actions: list[dict] = []
     search_results = None
+    wiki_hits = None
 
     for action in actions:
         if not isinstance(action, dict):
@@ -477,31 +555,35 @@ async def agent_assist(scenario_id: str, body: AgentAssistRequest):
 
         if act_type == "search_chunks":
             q = str(action.get("query", body.message))
-            try:
-                dense = (await embed_dense([q]))[0]
-                sparse_raw = embed_sparse([q])
-                sparse = sparse_raw[0] if sparse_raw else None
-                results = await hybrid_search(
-                    query_dense=dense,
-                    query_sparse_indices=sparse[0] if sparse else [],
-                    query_sparse_values=sparse[1] if sparse else [],
-                    top_k=10,
-                    filters=None,
-                )
-                search_results = [
-                    {
-                        "id": c["id"],
-                        "content": c["content"][:300],
-                        "source_id": c["metadata"].get("source_id", ""),
-                        "source_name": c["metadata"].get("source_name", ""),
-                        "score": round(c.get("score", 0), 4),
-                    }
-                    for c in results
-                ]
+            search_results = await _search_and_format(q, 10, content_max_len=300)
+            if search_results:
                 performed.append(f"搜索了「{q}」，找到 {len(search_results)} 个结果")
-            except Exception as exc:
-                logger.warning("Agent search failed: %s", exc)
-                performed.append(f"搜索失败: {exc}")
+            else:
+                performed.append(f"搜索「{q}」无结果")
+            # ── Wiki search alongside chunk search ────────────
+            if getattr(settings, "wiki_retrieval_enabled", False):
+                try:
+                    from wiki.retriever import search_wiki_pages
+                    # Filter wiki results to pages whose source_ids overlap
+                    # with the scenario's source_ids (whole-source refs only)
+                    scenario_sids = await list_scenario_source_ids(scenario_id)
+                    source_kwargs = {}
+                    if scenario_sids:
+                        source_kwargs["source_ids"] = scenario_sids
+                    hits = await search_wiki_pages(query=q, top_k=5, **source_kwargs)
+                    wiki_hits = [
+                        {
+                            "page_id": h.page_id,
+                            "page_type": h.page_type,
+                            "title": h.title,
+                            "slug": h.slug,
+                            "summary": h.summary,
+                            "score": h.score,
+                        }
+                        for h in hits
+                    ]
+                except Exception:
+                    pass
 
         elif act_type == "add_chunks":
             chunk_ids = action.get("chunk_ids", [])
@@ -556,7 +638,8 @@ async def agent_assist(scenario_id: str, body: AgentAssistRequest):
             changes = action.get("changes", {})
             if isinstance(changes, dict):
                 ui_current = dict(sc.get("ui_config", {}) or {})
-                allowed = ("template", "title", "subtitle", "welcome", "placeholder", "disclaimer", "color", "css")
+                allowed = ("template", "title", "subtitle", "welcome", "placeholder", "disclaimer", "color", "css",
+                           "page_html", "page_css", "page_js")
                 for k in allowed:
                     if k not in changes or changes[k] is None:
                         continue
@@ -564,14 +647,66 @@ async def agent_assist(scenario_id: str, body: AgentAssistRequest):
                         continue
                     if k == "css":
                         ui_current[k] = _sanitize_ui_css(str(changes[k]))
+                    elif k == "page_html":
+                        ui_current[k] = _sanitize_full_page_html(str(changes[k]))
+                    elif k == "page_css":
+                        ui_current[k] = _sanitize_ui_css(str(changes[k]))
+                    elif k == "page_js":
+                        ui_current[k] = _sanitize_page_js(str(changes[k]))
                     else:
                         ui_current[k] = changes[k]
                 await update_scenario(scenario_id, {"ui_config": ui_current})
                 keys = [k for k in allowed if k in changes]
                 performed.append(f"更新了 UI: {', '.join(keys)}")
 
+        elif act_type == "inject_html":
+            selector = str(action.get("selector", "")).strip()
+            mode = str(action.get("mode", "")).strip()
+            html = str(action.get("html", ""))
+            if not selector:
+                performed.append("❌ inject_html: selector 不能为空")
+            elif mode not in ("replace", "append", "prepend"):
+                performed.append(f"❌ inject_html: 无效 mode={mode}，仅支持 replace/append/prepend")
+            elif not html:
+                performed.append("❌ inject_html: html 不能为空")
+            else:
+                performed.append(f"✅ 已注入 HTML 到: {selector} (mode={mode})")
+                raw_actions.append({"action": "inject_html", "selector": selector, "mode": mode, "html": html})
+
+        elif act_type == "execute_script":
+            script = str(action.get("script", ""))
+            if not script:
+                performed.append("❌ execute_script: script 不能为空")
+            elif len(script) > 2000:
+                performed.append(f"❌ execute_script: 脚本过长 ({len(script)} chars, max 2000)")
+            else:
+                performed.append("✅ 已执行脚本")
+                raw_actions.append({"action": "execute_script", "script": script})
+
+        elif act_type == "rewrite_full_page":
+            changes = action.get("changes", {})
+            if isinstance(changes, dict):
+                ui_current = dict(sc.get("ui_config", {}) or {})
+                if "page_html" in changes:
+                    ui_current["page_html"] = _sanitize_full_page_html(str(changes["page_html"]))
+                if "page_css" in changes:
+                    ui_current["page_css"] = _sanitize_ui_css(str(changes["page_css"]))
+                if "page_js" in changes:
+                    ui_current["page_js"] = _sanitize_page_js(str(changes["page_js"]))
+                await update_scenario(scenario_id, {"ui_config": ui_current})
+                performed.append("已重写完整问答页面")
+
+        elif act_type == "reset_page":
+            ui_current = dict(sc.get("ui_config", {}) or {})
+            for key in ("page_html", "page_css", "page_js"):
+                ui_current.pop(key, None)
+            await update_scenario(scenario_id, {"ui_config": ui_current})
+            performed.append("已重置问答页面到默认模板")
+
     return AgentAssistResponse(
         reply=reply,
         actions_performed=performed,
+        raw_actions=raw_actions if raw_actions else None,
         search_results=search_results,
+        wiki_hits=wiki_hits,
     )

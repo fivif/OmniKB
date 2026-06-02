@@ -19,6 +19,7 @@ class RetrievalResult:
     query: str
     results: list[dict]
     expanded: bool = False
+    error: str | None = None
 
 
 def normalize_query(query: str) -> str:
@@ -102,16 +103,24 @@ async def _run_single_retrieval(
             qdrant_filter=qdrant_filter,
         )
     except Exception as exc:
-        logger.warning("Hybrid search failed: %s", exc)
+        logger.exception("Hybrid search failed")
         return []
 
 
 async def _maybe_rerank(query: str, results: list[dict], rerank: bool) -> list[dict]:
     if not rerank or not results or not settings.reranker_enabled:
         return results
-    from pipeline.reranker import rerank as do_rerank
-
-    return await asyncio.to_thread(do_rerank, query, results, settings.reranker_model)
+    # Pulls from the unified embedding factory; the concrete reranker
+    # (LocalCrossEncoderReranker / SiliconFlowRerankerAPI / future
+    # Cohere / Jina) is selected by ``settings.reranker_provider`` and
+    # cached process-wide. The local impl already offloads model.predict
+    # to a worker thread, so we await the protocol method directly
+    # instead of doing a sync call inside ``asyncio.to_thread``.
+    from pipeline.embeddings import get_reranker
+    rr = get_reranker()
+    if rr is None:
+        return results
+    return await rr.rerank(query, results)
 
 
 async def retrieve_chunks(

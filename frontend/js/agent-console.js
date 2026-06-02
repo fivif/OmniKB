@@ -18,8 +18,8 @@
   const PANEL_SAFE_GAP  = 12;
   const RECONNECT_BASE  = 1500;
   const RECONNECT_MAX   = 30000;
-  const LLM_PREVIEW_LEN = 500;     // chars of LLM content to show before truncation
-  const TOOL_PREVIEW_LEN = 300;    // chars of tool result to show
+  const LLM_PREVIEW_LEN = 3000;     // chars of LLM content to show before truncation
+  const TOOL_PREVIEW_LEN = 1500;    // chars of tool result to show
 
   /* ─── Colour map ──────────────────────────────────────────── */
   const KIND_STYLE = {
@@ -40,6 +40,14 @@
     tool_execution_end:   { icon: '✓',  label: 'Tool',   kind: 'success' },
     turn_end:             { icon: '◀',  label: 'Turn',   kind: 'info' },
     agent_end:            { icon: '🏁', label: 'Agent',  kind: 'success' },
+    wiki_batch_start:      { icon: '📝', label: 'Wiki',  kind: 'info' },
+    wiki_analysis_start:   { icon: '🔍', label: 'Wiki分析', kind: 'progress' },
+    wiki_analysis_complete:{ icon: '📋', label: 'Wiki计划', kind: 'success' },
+    wiki_page_generating:  { icon: '✍️', label: 'Wiki生成', kind: 'progress' },
+    wiki_page_created:     { icon: '📄', label: 'Wiki',   kind: 'success' },
+    wiki_page_error:       { icon: '✗',  label: 'Wiki',   kind: 'error' },
+    wiki_sync_complete:    { icon: '✅', label: 'Wiki',   kind: 'success' },
+    wiki_sync_error:       { icon: '❌', label: 'Wiki',   kind: 'error' },
   };
 
   /* ─── Inject styles ───────────────────────────────────────── */
@@ -368,6 +376,22 @@
       return;
     }
 
+    // ── LLM thinking (message_start) ────────────────
+    if (type === 'message_start') {
+      const step = data && data.step || '';
+      const label = step === 'analysis' ? 'Wiki 分析' : step === 'generation' ? 'Wiki 生成' : 'LLM 思考';
+      const summary = (data && data.summary) || '';
+      const el = document.createElement('div');
+      el.className = 'agc-msg agc-rich';
+      el.style.background = 'var(--agc-progress-bg)';
+      el.innerHTML = `<div class="agc-rich-header">
+        <span class="agc-rich-icon">💬</span>
+        <span class="agc-rich-type" style="color:var(--accent)">${label}</span>
+        <span class="agc-rich-summary">${_esc(summary || '思考中…')}</span>
+        <span class="agc-rich-ts">${ts}</span></div>`;
+      _append(el);
+      return;
+    }
     // ── LLM response ───────────────────────────────
     if (type === 'message_end' && !data.error) {
       const content = data.content || '';
@@ -467,6 +491,130 @@
           <span class="agc-rich-summary">${dur}${trunc}</span>
           <span class="agc-rich-ts">${ts}</span>
         </div>${bodyHtml}`;
+      _append(el);
+      return;
+    }
+
+    // ── Wiki events ─────────────────────────────────
+    if (type === 'wiki_batch_start') {
+      const el = document.createElement('div');
+      el.className = 'agc-msg agc-rich';
+      el.style.background = 'var(--agc-info-bg)';
+      const n = data && data.source_count || 0;
+      el.innerHTML = `
+        <div class="agc-rich-header">
+          <span class="agc-rich-icon">📝</span>
+          <span class="agc-rich-type" style="color:var(--t1)">Wiki 同步启动</span>
+          <span class="agc-rich-summary">${n} 个来源</span>
+          <span class="agc-rich-ts">${ts}</span>
+        </div>`;
+      _append(el);
+      return;
+    }
+    if (type === 'wiki_analysis_start') {
+      const el = document.createElement('div');
+      el.className = 'agc-msg agc-rich';
+      el.style.background = 'var(--agc-progress-bg)';
+      const title = data && data.title || data && data.source_id || '...';
+      el.innerHTML = `
+        <div class="agc-rich-header">
+          <span class="agc-rich-icon">🔍</span>
+          <span class="agc-rich-type" style="color:var(--accent)">分析中</span>
+          <span class="agc-rich-summary">${_esc(title)}</span>
+          <span class="agc-rich-ts">${ts}</span>
+        </div>`;
+      _append(el);
+      return;
+    }
+    if (type === 'wiki_analysis_complete') {
+      const el = document.createElement('div');
+      el.className = 'agc-msg agc-rich';
+      el.style.background = 'var(--agc-success-bg)';
+      const pages = data && data.plan_pages || 0;
+      el.innerHTML = `
+        <div class="agc-rich-header">
+          <span class="agc-rich-icon">📋</span>
+          <span class="agc-rich-type" style="color:var(--c-ok-t)">规划完成</span>
+          <span class="agc-rich-summary">${pages} 个页面</span>
+          <span class="agc-rich-ts">${ts}</span>
+        </div>`;
+      _append(el);
+      return;
+    }
+    if (type === 'wiki_page_generating') {
+      const el = document.createElement('div');
+      el.className = 'agc-msg agc-rich';
+      el.style.background = 'var(--agc-progress-bg)';
+      const pid = data && data.page_id || '...';
+      el.innerHTML = `
+        <div class="agc-rich-header">
+          <span class="agc-rich-icon">✍️</span>
+          <span class="agc-rich-type" style="color:var(--accent)">生成中</span>
+          <span class="agc-rich-summary">${_esc(pid)}</span>
+          <span class="agc-rich-ts">${ts}</span>
+        </div>`;
+      _append(el);
+      return;
+    }
+    if (type === 'wiki_page_created') {
+      const el = document.createElement('div');
+      el.className = 'agc-msg agc-rich';
+      el.style.background = 'var(--agc-success-bg)';
+      const pid = data && data.page_id || '...';
+      el.innerHTML = `
+        <div class="agc-rich-header">
+          <span class="agc-rich-icon">📄</span>
+          <span class="agc-rich-type" style="color:var(--c-ok-t)">页面已创建</span>
+          <span class="agc-rich-summary">${_esc(pid)}</span>
+          <span class="agc-rich-ts">${ts}</span>
+        </div>`;
+      _append(el);
+      return;
+    }
+    if (type === 'wiki_page_error') {
+      const el = document.createElement('div');
+      el.className = 'agc-msg agc-rich';
+      el.style.background = 'var(--danger-bg)';
+      const err = data && data.error || '...';
+      el.innerHTML = `
+        <div class="agc-rich-header">
+          <span class="agc-rich-icon">✗</span>
+          <span class="agc-rich-type" style="color:var(--c-err-t)">页面失败</span>
+          <span class="agc-rich-summary">${_esc(err)}</span>
+          <span class="agc-rich-ts">${ts}</span>
+        </div>`;
+      _append(el);
+      return;
+    }
+    if (type === 'wiki_sync_complete') {
+      const el = document.createElement('div');
+      el.className = 'agc-msg agc-rich';
+      el.style.background = 'var(--agc-success-bg)';
+      const c = (data && (data.total_created || data.pages_created)) || 0;
+      const u = (data && (data.total_updated || data.pages_updated)) || 0;
+      const f = (data && (data.total_failed || data.pages_failed)) || 0;
+      el.innerHTML = `
+        <div class="agc-rich-header">
+          <span class="agc-rich-icon">✅</span>
+          <span class="agc-rich-type" style="color:var(--c-ok-t)">Wiki 同步完成</span>
+          <span class="agc-rich-summary">${c} 创建 / ${u} 更新 / ${f} 失败</span>
+          <span class="agc-rich-ts">${ts}</span>
+        </div>`;
+      _append(el);
+      return;
+    }
+    if (type === 'wiki_sync_error') {
+      const el = document.createElement('div');
+      el.className = 'agc-msg agc-rich';
+      el.style.background = 'var(--danger-bg)';
+      const err = data && data.error || '...';
+      el.innerHTML = `
+        <div class="agc-rich-header">
+          <span class="agc-rich-icon">❌</span>
+          <span class="agc-rich-type" style="color:var(--c-err-t)">Wiki 同步失败</span>
+          <span class="agc-rich-summary">${_esc(err)}</span>
+          <span class="agc-rich-ts">${ts}</span>
+        </div>`;
       _append(el);
       return;
     }

@@ -18,11 +18,11 @@
 }
 
 .topbar-eyebrow {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: var(--accent);
+  color: var(--gold);
 }
 
 .topbar-heading-row {
@@ -45,7 +45,7 @@
   width: 8px;
   height: 8px;
   border-radius: 999px;
-  background: rgba(21, 94, 239, 0.22);
+  background: rgba(79, 70, 229, 0.25);
 }
 
 .topbar-subtitle {
@@ -60,7 +60,9 @@
   align-items: center;
   gap: var(--sp-2);
   background: var(--bg-glass);
-  border: 1px solid var(--bd-subtle);
+  backdrop-filter: var(--blur-sm);
+  -webkit-backdrop-filter: var(--blur-sm);
+  border: 2px solid var(--bd-default);
   border-radius: 999px;
   padding: 10px 12px 10px 16px;
   color: var(--t-tertiary);
@@ -68,7 +70,7 @@
   cursor: pointer;
   min-width: min(360px, 100%);
   height: 46px;
-  transition: all var(--dur-fast) var(--ease-out);
+  transition: all var(--dur-base) var(--ease-spring);
   font-family: inherit;
   box-shadow: var(--sh-sm);
 }
@@ -101,7 +103,7 @@
   justify-content: center;
   color: var(--t-secondary);
   cursor: pointer;
-  transition: all var(--dur-fast) var(--ease-out);
+  transition: all var(--dur-base) var(--ease-spring);
   border: 1px solid transparent;
 }
 .topbar-icon-btn:hover {
@@ -111,6 +113,7 @@
 }
 .topbar-icon-btn svg, .topbar-icon-btn i { width: 16px; height: 16px; }
 
+/* ─── Premium status pill ─── */
 .topbar-status-pill {
   display: inline-flex;
   align-items: center;
@@ -118,15 +121,17 @@
   height: 40px;
   padding: 0 14px;
   border-radius: 999px;
-  border: 1px solid var(--bd-subtle);
+  border: 1px solid var(--gold-bd);
   background: var(--bg-glass);
+  backdrop-filter: var(--blur-sm);
+  -webkit-backdrop-filter: var(--blur-sm);
   color: var(--t-secondary);
   box-shadow: var(--sh-sm);
-  transition: all var(--dur-fast) var(--ease-out);
+  transition: all var(--dur-base) var(--ease-spring);
 }
 
 .topbar-status-pill:hover {
-  border-color: var(--accent-bd);
+  border-color: var(--gold);
   background: var(--bg-elevated);
 }
 
@@ -134,6 +139,7 @@
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.04em;
+  color: var(--gold);
 }
 
 .topbar-status-dot {

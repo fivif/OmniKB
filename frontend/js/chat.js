@@ -10,7 +10,7 @@
       <div class="glass-header" style="display:flex;align-items:center;justify-content:space-between;padding:0 24px;height:56px;flex-shrink:0;">
         <div>
           <h1 style="font-size:15px;font-weight:650;letter-spacing:-.02em;color:var(--t1);">对话</h1>
-          <p style="font-size:11.5px;color:var(--t4);">RAG 智能问答
+          <p style="font-size:11.5px;color:var(--t4);">Wiki 智能问答
             <span id="thread-id-display" style="margin-left:6px;font-family:var(--mono);font-size:10.5px;color:var(--t4);"></span>
           </p>
         </div>
@@ -43,10 +43,6 @@
             style="flex:1;border-radius:var(--r-lg);padding:11px 14px;font-size:14px;resize:none;background:var(--bg-card);"></textarea>
           <button id="btn-send" class="btn-primary" style="height:44px;padding:0 20px;align-self:flex-end;">发送</button>
         </div>
-        <p style="font-size:11.5px;color:var(--t4);margin-top:7px;">
-          每次检索 <input id="chat-topk" type="number" value="5" min="1" max="20"
-            style="display:inline;width:40px;padding:2px 5px;text-align:center;font-size:11.5px;border:none;border-bottom:1px solid var(--bd);background:transparent;"> 个片段
-        </p>
       </div>
     </div>
   `;
@@ -88,7 +84,9 @@
         option.textContent = modelName;
         selectEl.appendChild(option);
       });
-      selectEl.value = models[0];
+      // Select saved model preference, fall back to first
+      const saved = loadSettings().llm_model;
+      selectEl.value = (saved && models.includes(saved)) ? saved : models[0];
     } catch {
       const fallback = loadSettings().llm_model || '';
       selectEl.innerHTML = fallback
@@ -99,21 +97,32 @@
 
   loadModels();
 
+  // Persist model selection to settings on change
+  document.getElementById('chat-model').addEventListener('change', () => {
+    saveSettings({ llm_model: document.getElementById('chat-model').value });
+  });
+
   function addMessage(role, content = '', id = null) {
     const isUser = role === 'user';
     const msgId = id || makeMessageId(role);
-    const el = document.createElement('div');
-    el.id = msgId;
-    el.className = `flex ${isUser ? 'justify-end' : 'justify-start'} items-end gap-3`;
-    el.innerHTML = `
-      <div class="max-w-[75%]">
-        <div class="${isUser ? 'bubble-user' : 'bubble-ai'} px-4 py-3 text-sm prose-light" id="${msgId}-content">
-          ${isUser ? escapeHtml(content) : ''}
-          ${!isUser ? '<span class="typing-placeholder">&nbsp;</span>' : ''}
-        </div>
-      </div>
-    `;
-    messagesEl.appendChild(el);
+
+    const row = document.createElement('div');
+    row.className = isUser ? 'chat-msg-row chat-msg-row--user' : 'chat-msg-row chat-msg-row--ai';
+    row.id = msgId;
+
+    const bubble = document.createElement('div');
+    bubble.className = isUser ? 'chat-bubble chat-bubble--user' : 'chat-bubble chat-bubble--ai';
+    bubble.id = msgId + '-content';
+
+    if (isUser && content) {
+      bubble.textContent = content;
+    }
+    if (!isUser && !content) {
+      bubble.innerHTML = '<span class="chat-placeholder">&nbsp;</span>';
+    }
+
+    row.appendChild(bubble);
+    messagesEl.appendChild(row);
     messagesEl.scrollTop = messagesEl.scrollHeight;
     return msgId;
   }
@@ -130,19 +139,37 @@
     return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
-  function renderMarkdown(text) {
+  let _markedReady = null;
+
+  function _loadMarked() {
+    if (_markedReady) return _markedReady;
+    if (typeof marked !== 'undefined') {
+      _markedReady = Promise.resolve();
+      return _markedReady;
+    }
+    _markedReady = new Promise((resolve) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/marked/marked.min.js';
+      s.onload = () => { resolve(); };
+      s.onerror = () => { _markedReady = null; resolve(); };
+      document.head.appendChild(s);
+    });
+    return _markedReady;
+  }
+
+  async function renderMarkdown(text) {
+    if (typeof marked !== 'undefined') {
+      return marked.parse(text);
+    }
+    await _loadMarked();
     if (typeof marked !== 'undefined') {
       return marked.parse(text);
     }
     return escapeHtml(text).replace(/\n/g, '<br>');
   }
 
-  // Load marked.js lazily
-  if (typeof marked === 'undefined') {
-    const s = document.createElement('script');
-    s.src = 'https://cdn.jsdelivr.net/npm/marked/marked.min.js';
-    document.head.appendChild(s);
-  }
+  // Pre-load marked.js
+  _loadMarked();
 
   async function sendMessage() {
     if (isStreaming) return;
@@ -153,28 +180,38 @@
     chatHistory.push({ role: 'user', content: text });
     addMessage('user', text);
 
-    const aiMsgId = addMessage('assistant');
-    const contentEl = document.getElementById(`${aiMsgId}-content`);
-    contentEl.classList.add('typing-cursor');
+    // Don't create AI bubble yet — wait for first token
+    let aiMsgId = null;
+    let contentEl = null;
 
     isStreaming = true;
     document.getElementById('btn-send').disabled = true;
 
     const provider = 'custom';
     const model = document.getElementById('chat-model').value.trim() || undefined;
-    const topK = parseInt(document.getElementById('chat-topk').value) || 5;
 
     let fullText = '';
+    let firstToken = true;
     let renderPending = false;
-    function scheduleRender() {
+
+    function ensureAiBubble() {
+      if (!aiMsgId) {
+        aiMsgId = addMessage('assistant');
+        contentEl = document.getElementById(`${aiMsgId}-content`);
+        if (contentEl) contentEl.classList.add('chat-streaming');
+      }
+    }
+
+    async function scheduleRender() {
       if (renderPending) return;
       renderPending = true;
-      requestAnimationFrame(() => {
+      requestAnimationFrame(async () => {
         renderPending = false;
+        if (!contentEl) return;
         // Remove placeholder on first render
-        const ph = contentEl.querySelector('.typing-placeholder');
+        const ph = contentEl.querySelector('.chat-placeholder');
         if (ph) ph.remove();
-        contentEl.innerHTML = renderMarkdown(fullText);
+        contentEl.innerHTML = await renderMarkdown(fullText);
         const atBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 80;
         if (atBottom) messagesEl.scrollTop = messagesEl.scrollHeight;
       });
@@ -189,7 +226,6 @@
           messages: chatHistory,
           provider,
           model,
-          top_k: topK,
           thread_id: currentThreadId,
         }),
       });
@@ -218,12 +254,16 @@
           try {
             const evt = JSON.parse(raw);
             if (evt.type === 'token') {
+              if (firstToken) {
+                firstToken = false;
+                ensureAiBubble();
+              }
               fullText += evt.content;
               scheduleRender();
             } else if (evt.type === 'citations') {
+              ensureAiBubble();
               showCitations(evt.citations, contentEl);
             } else if (evt.type === 'session') {
-              // Persist thread_id
               currentThreadId = evt.thread_id;
               localStorage.setItem('omnikb_thread_id', currentThreadId);
               _updateThreadDisplay();
@@ -232,16 +272,33 @@
         }
       }
 
+      // Flush any remaining render
       if (renderPending) {
         renderPending = false;
       }
-      contentEl.classList.remove('typing-cursor');
-      contentEl.innerHTML = renderMarkdown(fullText);
-      chatHistory.push({ role: 'assistant', content: fullText });
+      if (contentEl) {
+        contentEl.classList.remove('chat-streaming');
+        contentEl.innerHTML = await renderMarkdown(fullText);
+      }
+
+      if (fullText) {
+        chatHistory.push({ role: 'assistant', content: fullText });
+      } else {
+        // No content — remove the empty bubble
+        if (aiMsgId) {
+          const el = document.getElementById(aiMsgId);
+          if (el) el.remove();
+        }
+      }
 
     } catch (e) {
-      contentEl.classList.remove('typing-cursor');
-      contentEl.innerHTML = `<span class="text-red-400">错误：${escapeHtml(e.message)}</span>`;
+      if (!contentEl) {
+        ensureAiBubble();
+      }
+      if (contentEl) {
+        contentEl.classList.remove('chat-streaming');
+        contentEl.innerHTML = `<span style="color:var(--danger-t);">错误：${escapeHtml(e.message)}</span>`;
+      }
     } finally {
       isStreaming = false;
       document.getElementById('btn-send').disabled = false;

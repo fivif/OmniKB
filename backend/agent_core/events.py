@@ -39,6 +39,9 @@ EventType = Literal[
     "message_start", "message_update", "message_end",
     "tool_execution_start", "tool_execution_end",
     "turn_end", "agent_end",
+    "wiki_analysis_start", "wiki_analysis_complete",
+    "wiki_page_generating", "wiki_page_created", "wiki_page_error",
+    "wiki_batch_start", "wiki_sync_complete", "wiki_sync_error",
 ]
 
 EVENT_TYPES: tuple[str, ...] = (
@@ -46,6 +49,9 @@ EVENT_TYPES: tuple[str, ...] = (
     "message_start", "message_update", "message_end",
     "tool_execution_start", "tool_execution_end",
     "turn_end", "agent_end",
+    "wiki_analysis_start", "wiki_analysis_complete",
+    "wiki_page_generating", "wiki_page_created", "wiki_page_error",
+    "wiki_batch_start", "wiki_sync_complete", "wiki_sync_error",
 )
 
 
@@ -235,6 +241,12 @@ def _event_kind_hint(event: AgentEvent) -> str:
         return "success"
     if event.type in {"agent_start", "turn_start", "message_start"}:
         return "info"
+    if event.type == "wiki_page_created":
+        return "success"
+    if event.type == "wiki_sync_complete":
+        return "success"
+    if event.type in {"wiki_page_error", "wiki_sync_error"}:
+        return "error"
     return "progress"
 
 
@@ -267,4 +279,20 @@ def _event_message_hint(event: AgentEvent) -> str:
         return f"turn_end  duration={d.get('duration_ms','?')}ms  compacted={c}"
     if t == "agent_end":
         return f"agent_end  status={d.get('final_status','?')}  turns={d.get('total_turns','?')}"
+    if t == "wiki_analysis_start":
+        return f"Wiki: analyzing source {d.get('title','')}"
+    if t == "wiki_analysis_complete":
+        return f"Wiki: analysis done, {d.get('plan_pages',0)} pages planned"
+    if t == "wiki_page_generating":
+        return f"Wiki: generating {d.get('page_id','')}"
+    if t == "wiki_page_created":
+        return f"Wiki: created {d.get('page_id','')}"
+    if t == "wiki_page_error":
+        return f"Wiki: page error {d.get('page_id','')}: {d.get('error','')[:120]}"
+    if t == "wiki_batch_start":
+        return f"Wiki: generating {d.get('batch_size',0)} pages"
+    if t == "wiki_sync_complete":
+        return f"Wiki sync done: {d.get('pages_created',0)} created"
+    if t == "wiki_sync_error":
+        return f"Wiki sync error: {d.get('error','')[:120]}"
     return t

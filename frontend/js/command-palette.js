@@ -157,7 +157,7 @@
   async function searchSources(q) {
     if (!q || q.length < 3) return [];
     try {
-      const r = await fetch('/search?q=' + encodeURIComponent(q) + '&top_k=5');
+      const r = await fetch(getApiBase() + '/search?q=' + encodeURIComponent(q) + '&top_k=5');
       if (!r.ok) return [];
       const data = await r.json();
       const hits = (data.results || data.hits || []).slice(0, 5);

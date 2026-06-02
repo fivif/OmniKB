@@ -388,7 +388,7 @@ async def run_loop(
                         "tool_call_id": rid,
                         "tool_name": tc["name"],
                         "status": "error" if result.error else "success",
-                        "result_preview": preview[:2000],
+                        "result_preview": preview[:5000],
                         "result_truncated": log_path is not None,
                         "result_log_path": log_path,
                         "duration_ms": int((time.monotonic() - tool_t0) * 1000),

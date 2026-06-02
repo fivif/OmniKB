@@ -2,55 +2,66 @@
 
 .input {
   width: 100%;
-  padding: var(--sp-2) var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
   font-size: var(--fs-base);
   font-family: inherit;
   color: var(--t-primary);
   background: var(--bg-surface);
-  border: 1px solid var(--bd-default);
+  border: 2px solid var(--bd-default);
   border-radius: var(--r-md);
-  transition: all var(--dur-base) var(--ease-out);
-  line-height: 1.4;
+  transition: all var(--dur-base) var(--ease-spring);
+  line-height: 1.5;
 }
 .input:hover { border-color: var(--bd-strong); }
-.input:focus { outline: none; border-color: var(--accent); box-shadow: var(--sh-glow); }
+.input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-bd);
+}
 .input::placeholder { color: var(--t-quaternary); }
 .input:disabled { background: var(--bg-muted); color: var(--t-tertiary); cursor: not-allowed; }
 
-.input-sm { padding: var(--sp-1) var(--sp-2); font-size: var(--fs-sm); border-radius: var(--r-sm); }
-.input-lg { padding: var(--sp-3) var(--sp-4); font-size: var(--fs-lg); border-radius: var(--r-lg); }
+.input-sm { padding: var(--sp-2) var(--sp-3); font-size: var(--fs-sm); border-radius: var(--r-sm); }
+.input-lg { padding: var(--sp-3) var(--sp-5); font-size: var(--fs-lg); border-radius: var(--r-lg); }
 
 .input-error { border-color: var(--danger); }
-.input-error:focus { border-color: var(--danger); box-shadow: 0 0 0 3px rgba(229, 72, 77, 0.22); }
+.input-error:focus {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.22);
+}
 
 .textarea {
   width: 100%;
-  padding: var(--sp-2) var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
   font-size: var(--fs-base);
   font-family: inherit;
   color: var(--t-primary);
   background: var(--bg-surface);
-  border: 1px solid var(--bd-default);
+  border: 2px solid var(--bd-default);
   border-radius: var(--r-md);
-  transition: all var(--dur-base) var(--ease-out);
+  transition: all var(--dur-base) var(--ease-spring);
   min-height: 80px;
   resize: vertical;
   line-height: var(--lh-normal);
 }
 .textarea:hover { border-color: var(--bd-strong); }
-.textarea:focus { outline: none; border-color: var(--accent); box-shadow: var(--sh-glow); }
+.textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-bd);
+}
 .textarea::placeholder { color: var(--t-quaternary); }
 
 .select {
   width: 100%;
-  padding: var(--sp-2) var(--sp-7) var(--sp-2) var(--sp-3);
+  padding: var(--sp-3) var(--sp-7) var(--sp-3) var(--sp-4);
   font-size: var(--fs-base);
   font-family: inherit;
   color: var(--t-primary);
   background: var(--bg-surface);
-  border: 1px solid var(--bd-default);
+  border: 2px solid var(--bd-default);
   border-radius: var(--r-md);
-  transition: all var(--dur-base) var(--ease-out);
+  transition: all var(--dur-base) var(--ease-spring);
   appearance: none;
   -webkit-appearance: none;
   background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2376767e' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
@@ -59,7 +70,11 @@
   cursor: pointer;
 }
 .select:hover { border-color: var(--bd-strong); }
-.select:focus { outline: none; border-color: var(--accent); box-shadow: var(--sh-glow); }
+.select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-bd);
+}
 
 .input-group {
   position: relative;
@@ -76,8 +91,8 @@
   align-items: center;
   z-index: 1;
 }
-.input-prefix { left: var(--sp-3); }
-.input-suffix { right: var(--sp-3); }
+.input-prefix { left: var(--sp-4); }
+.input-suffix { right: var(--sp-4); }
 .input-group:has(.input-prefix) .input { padding-left: var(--sp-7); }
 .input-group:has(.input-suffix) .input { padding-right: var(--sp-7); }
 
@@ -85,7 +100,7 @@
   display: block;
   margin-bottom: var(--sp-1);
   font-size: var(--fs-sm);
-  font-weight: 500;
+  font-weight: 600;
   color: var(--t-secondary);
 }
 .helper-text { margin-top: var(--sp-1); font-size: var(--fs-sm); color: var(--t-tertiary); }

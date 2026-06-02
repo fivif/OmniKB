@@ -4,8 +4,17 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title id="page-title">OmniKB Chat</title>
+  <!-- Theme: default light -->
+  <script>
+    (function(){
+      document.documentElement.setAttribute('data-theme', 'light');
+    })();
+  </script>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css" disabled>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
   <link rel="stylesheet" href="css/main.css"/>
   <link rel="stylesheet" href="css/panels/kb-chat.css"/>
   <script src="https://unpkg.com/lucide@latest"></script>
@@ -17,16 +26,16 @@
       <div class="kbchat-brand">
         <span id="scenario-template" class="kbchat-template-badge">Knowledge Q&amp;A</span>
         <div class="kbchat-heading">
-          <h1 id="scenario-title">Knowledge Base Chat</h1>
+          <h1 id="scenario-title" class="kbchat-headline">Knowledge Base Chat</h1>
           <p id="scenario-desc">Ask questions about your data</p>
         </div>
       </div>
 
       <div class="kbchat-actions">
-        <label class="kbchat-key-wrap">
-          <span class="kbchat-key-label">API Key</span>
-          <input id="api-key-input" class="kbchat-key-input" type="password" placeholder="API Key (sk-...)" />
-        </label>
+        <button id="btn-show-key-modal" class="kbchat-settings-btn" type="button" title="API 密钥设置">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 11-7.778 7.778 5.5 5.5 0 017.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+          <span class="kbchat-settings-label">API 密钥</span>
+        </button>
         <button id="btn-clear-chat" class="kbchat-clear-btn" type="button">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>
           清空
@@ -47,7 +56,7 @@
         <div id="welcome-hints" class="kbchat-hint-row">
           <span class="kbchat-hint-pill">基于资料回答</span>
           <span class="kbchat-hint-pill">支持长文本问答</span>
-          <span class="kbchat-hint-pill">保留引用链路</span>
+          <span class="kbchat-hint-pill">Wiki 知识溯源</span>
         </div>
       </section>
     </main>
@@ -63,8 +72,34 @@
     </footer>
   </div>
 
+  <!-- API Key Modal -->
+  <div id="key-modal-backdrop" class="kbchat-modal-backdrop hidden">
+    <div class="kbchat-modal-card">
+      <div class="kbchat-modal-header">
+        <h3 class="kbchat-modal-title">API 密钥设置</h3>
+        <button id="btn-close-key-modal" class="kbchat-modal-close" type="button">&times;</button>
+      </div>
+      <p class="kbchat-modal-desc">输入 API 密钥以访问知识库问答。密钥仅保存在你的浏览器中。</p>
+      <div class="kbchat-modal-field">
+        <label class="kbchat-modal-label">API Key</label>
+        <div class="kbchat-key-row">
+          <input id="api-key-input" class="kbchat-modal-input" type="password" placeholder="sk-..." autocomplete="off" />
+          <button id="btn-key-toggle" class="kbchat-key-toggle" type="button" title="显示/隐藏密钥">
+            <svg id="icon-key-eye" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+              <circle cx="12" cy="12" r="3"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div class="kbchat-modal-actions">
+        <button id="btn-save-key" class="kbchat-save-btn" type="button">保存</button>
+      </div>
+    </div>
+  </div>
+
   <script src="js/citation-chain.js"></script>
-  <script src="js/kb-chat.js"></script>
+  <script src="js/kb-chat.js?v=7"></script>
 </body>
 </html>
 

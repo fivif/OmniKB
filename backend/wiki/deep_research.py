@@ -56,7 +56,7 @@ from storage.metadata_db import (
     upsert_wikilink,
 )
 from .bootstrap import page_path
-from .parser import extract_wikilinks
+from .parser import atomic_write, extract_wikilinks, strip_code_fences
 from .web_search import SearchError, SearchResult, web_search
 
 logger = logging.getLogger(__name__)
@@ -552,7 +552,7 @@ class DeepResearcher:
         raw = await self._invoke(msgs)
         # The model sometimes wraps output in fences despite the instruction;
         # strip them so we don't pollute the page.
-        return _strip_code_fence(raw).strip()
+        return strip_code_fences(raw).strip()
 
     async def _apply_section(
         self, *, page: dict, new_section: str,
@@ -565,10 +565,7 @@ class DeepResearcher:
         sep = "\n\n" if existing and not existing.endswith("\n\n") else ""
         new_full = existing + sep + new_section.rstrip() + "\n"
 
-        # Atomic write via tmp + rename.
-        tmp = path.with_suffix(path.suffix + ".tmp")
-        tmp.write_text(new_full, encoding="utf-8")
-        tmp.replace(path)
+        atomic_write(path, new_full)
 
         # Bump revision via upsert (re-uses the same data; updated_at refreshes).
         await upsert_wiki_page({
@@ -602,7 +599,6 @@ class DeepResearcher:
 
 
 _JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(\{[\s\S]*?\})\s*```", re.IGNORECASE)
-_FENCE_RE      = re.compile(r"^```[a-zA-Z0-9_-]*\s*\n([\s\S]*?)\n```\s*$", re.MULTILINE)
 
 
 def _extract_json(raw: str) -> dict | None:
@@ -622,12 +618,6 @@ def _extract_json(raw: str) -> dict | None:
         return json.loads(candidate)
     except json.JSONDecodeError:
         return None
-
-
-def _strip_code_fence(text: str) -> str:
-    """If the whole response is wrapped in ```...```, return the inside."""
-    m = _FENCE_RE.match(text.strip())
-    return m.group(1) if m else text
 
 
 def _canonical_url(url: str) -> str:

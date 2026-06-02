@@ -47,6 +47,7 @@ if str(_BACKEND) not in sys.path:
 _TMP_DIR = tempfile.mkdtemp(prefix="omnikb_wiki_tests_")
 os.environ.setdefault("DATA_DIR", _TMP_DIR)
 os.environ.setdefault("SQLITE_PATH", os.path.join(_TMP_DIR, "wiki_test.db"))
+os.environ.setdefault("QDRANT_LOCAL_PATH", os.path.join(_TMP_DIR, "qdrant_test"))
 # Keep transformers off our test imports — wiki tests don't need them
 # and importing tf / jax slows the suite by ~3 s.
 os.environ.setdefault("USE_TF", "0")

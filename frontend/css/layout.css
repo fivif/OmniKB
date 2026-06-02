@@ -16,9 +16,9 @@
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(circle at top left, rgba(21, 94, 239, 0.08), transparent 32%),
-    radial-gradient(circle at right 20%, rgba(242, 172, 74, 0.08), transparent 24%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 28%);
+    radial-gradient(circle at top left, rgba(79, 70, 229, 0.06), transparent 34%),
+    radial-gradient(circle at right 20%, rgba(145, 114, 73, 0.06), transparent 28%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 28%);
   pointer-events: none;
 }
 
@@ -30,7 +30,7 @@
   background: var(--topbar-bg);
   backdrop-filter: var(--blur-md);
   -webkit-backdrop-filter: var(--blur-md);
-  border-bottom: 1px solid var(--bd-subtle);
+  border-bottom: 1px solid var(--bd-default);
   padding: 0 20px 0 24px;
   gap: 18px;
   position: sticky;
@@ -47,19 +47,21 @@
   z-index: 1;
   box-sizing: border-box;
   padding-bottom: var(--agc-reserve-space, 0px);
-  transition: padding-bottom .3s cubic-bezier(.4,0,.2,1);
+  transition: padding-bottom var(--dur-slow) var(--ease-spring);
 }
 
 .omni-sidebar {
-  width: 268px;
+  width: 200px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
   background: var(--sidebar-bg);
-  border-right: 1px solid var(--bd-subtle);
-  transition: width var(--dur-base) var(--ease-out);
+  backdrop-filter: var(--blur-md);
+  -webkit-backdrop-filter: var(--blur-md);
+  border-right: 1px solid var(--bd-default);
+  transition: width var(--dur-slow) var(--ease-spring);
 }
-.omni-sidebar.collapsed { width: 84px; }
+.omni-sidebar.collapsed { width: 60px; }
 
 .omni-main {
   flex: 1;
@@ -74,9 +76,9 @@
   content: '';
   position: absolute;
   inset: 0;
-  background-image: linear-gradient(rgba(21, 94, 239, 0.02) 1px, transparent 1px), linear-gradient(90deg, rgba(21, 94, 239, 0.02) 1px, transparent 1px);
+  background-image: linear-gradient(rgba(79, 70, 229, 0.015) 1px, transparent 1px), linear-gradient(90deg, rgba(79, 70, 229, 0.015) 1px, transparent 1px);
   background-size: 32px 32px;
-  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.18), transparent 28%);
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.16), transparent 28%);
   pointer-events: none;
 }
 
@@ -84,6 +86,7 @@
   position: relative;
   z-index: 1;
   padding: 28px 32px 40px;
+  transition: opacity var(--dur-slow) var(--ease-spring);
 }
 .tab-panel.hidden { display: none; }
 .tab-panel-flex { display: flex; flex-direction: column; height: 100%; padding: 0; }
@@ -91,8 +94,8 @@
 .omni-agent-console {
   flex-shrink: 0;
   background: var(--bg-elevated);
-  border-top: 1px solid var(--bd-subtle);
-  transition: height var(--dur-base) var(--ease-out);
+  border-top: 1px solid var(--bd-default);
+  transition: height var(--dur-slow) var(--ease-spring);
   overflow: hidden;
 }
 .omni-agent-console.collapsed { height: 44px; }
@@ -107,11 +110,11 @@
   width: 40px;
   height: 40px;
   border-radius: 10px;
-  border: 1px solid var(--bd-subtle);
+  border: 2px solid var(--bd-default);
   background: var(--bg-elevated);
   color: var(--t1);
   cursor: pointer;
-  transition: background var(--dur-fast) var(--ease-out);
+  transition: all var(--dur-fast) var(--ease-spring);
 }
 .topbar-burger:hover { background: var(--bg-surface); }
 .topbar-burger:focus-visible {
@@ -124,13 +127,13 @@
 .sidebar-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.45);
+  background: rgba(2, 6, 23, 0.5);
   backdrop-filter: blur(2px);
   -webkit-backdrop-filter: blur(2px);
   z-index: var(--z-fixed);
   opacity: 0;
   pointer-events: none;
-  transition: opacity var(--dur-base) var(--ease-out);
+  transition: opacity var(--dur-base) var(--ease-spring);
 }
 .sidebar-backdrop.is-visible {
   opacity: 1;
@@ -139,8 +142,7 @@
 
 /* ─────────────────────────────────────────────────────────────────────
    Tablet / narrow desktop  (≤ 1080px)
-   Sidebar collapses to icon-only rail. Behaviour unchanged from
-   the previous layout.css.
+   Sidebar collapses to icon-only rail.
    ───────────────────────────────────────────────────────────────────── */
 @media (max-width: 1080px) {
   .omni-sidebar { width: 88px; }
@@ -160,13 +162,11 @@
 
 /* ─────────────────────────────────────────────────────────────────────
    Mobile  (≤ 760px)
-   Sidebar transforms into an off-canvas drawer. The body no longer
-   reserves space for it — main content uses the full viewport width
-   and the burger button reveals the drawer over a backdrop.
+   Sidebar transforms into an off-canvas drawer.
    ───────────────────────────────────────────────────────────────────── */
 @media (max-width: 760px) {
   .omni-topbar {
-    height: 64px;                /* fixed compact height instead of wrapping */
+    height: 64px;
     padding: 0 14px;
     gap: 10px;
   }
@@ -182,8 +182,7 @@
     justify-content: center;
   }
 
-  /* Drawer: fixed overlay, full-height, slide from left. The default
-     transform keeps it off-screen; .is-open slides it in. */
+  /* Drawer: fixed overlay, full-height, slide from left. */
   .omni-sidebar {
     position: fixed;
     top: 0;
@@ -193,12 +192,12 @@
     max-width: 320px;
     z-index: calc(var(--z-fixed) + 1);
     transform: translateX(-100%);
-    transition: transform var(--dur-base) var(--ease-out);
+    transition: transform var(--dur-base) var(--ease-spring);
     box-shadow: 0 0 32px rgba(0, 0, 0, 0.35);
   }
   .omni-sidebar.is-open { transform: translateX(0); }
 
-  /* Inside the drawer, restore the full text labels — there's room. */
+  /* Inside the drawer, restore the full text labels. */
   .omni-sidebar .sidebar-logo-text,
   .omni-sidebar .sidebar-logo-kicker,
   .omni-sidebar .sidebar-overview,

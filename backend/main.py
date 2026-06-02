@@ -22,16 +22,6 @@ if settings.hf_endpoint:
 # on Linux containers /tmp is wiped on every restart. The result is that
 # BM25/sparse models redownload every cold start. Anchor the cache to the
 # user's persistent ~/.cache/fastembed/ unless the operator overrode it.
-from pathlib import Path as _Path
-_fastembed_cache_default = str(_Path.home() / ".cache" / "fastembed")
-os.environ.setdefault(
-    "FASTEMBED_CACHE_PATH",
-    settings.fastembed_cache_path or _fastembed_cache_default,
-)
-try:
-    _Path(os.environ["FASTEMBED_CACHE_PATH"]).mkdir(parents=True, exist_ok=True)
-except Exception:
-    pass
 
 
 def apply_proxy(proxy_url: str) -> None:
@@ -58,7 +48,6 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from storage.file_store import init_file_store
 from storage.metadata_db import close_db, init_db
-from storage.vector_store import init_vector_store
 from api import ingest, search, chat, kb
 from api import kb_api
 from api import mcp_logs
@@ -121,7 +110,6 @@ async def lifespan(app: FastAPI):
 
     os.makedirs(settings.data_dir, exist_ok=True)
     await init_db()
-    await init_vector_store()
     init_file_store()
 
     # Wiki layer (L2 secondary index) — bootstrap directory + worker.

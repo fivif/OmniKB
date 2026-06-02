@@ -1,13 +1,39 @@
 """Runtime settings — proxy, local model download, and live-config endpoints."""
 from __future__ import annotations
 
+import asyncio
 import logging
+import re
+from pathlib import Path
 
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+_settings_lock = asyncio.Lock()
+_ENV_PATH = Path(__file__).resolve().parent.parent.parent / ".env"
+
+
+def _persist_env(key: str, value: str) -> None:
+    """Write a key=value line back to .env so settings survive restarts."""
+    try:
+        if not _ENV_PATH.exists():
+            return
+        lines = _ENV_PATH.read_text(encoding="utf-8").split("\n")
+        pattern = re.compile(rf"^{re.escape(key)}\s*=")
+        replaced = False
+        for i, line in enumerate(lines):
+            if pattern.match(line):
+                lines[i] = f"{key}={value}"
+                replaced = True
+                break
+        if not replaced:
+            lines.append(f"{key}={value}")
+        _ENV_PATH.write_text("\n".join(lines), encoding="utf-8")
+    except Exception:
+        pass  # best-effort, never break API
 
 
 class ProxyUpdate(BaseModel):
@@ -76,6 +102,14 @@ async def update_system_prompt(body: SystemPromptUpdate):
     return {"prompt": prompt, "updated": True}
 
 
+class VisionSettingsUpdate(BaseModel):
+    vision_enabled: bool | None = Field(default=None, description="Enable vision (OCR + image/video description).")
+    vision_model: str = Field(default="", description="Vision model id (e.g. gpt-4o-mini).")
+    vision_base_url: str = Field(default="", description="Vision provider base URL.")
+    vision_api_key: str = Field(default="", description="Vision provider API key. Falls back to LLM key when empty.")
+    vision_frame_interval: int | None = Field(default=None, description="Video keyframe interval in seconds (0 = disable).")
+
+
 class LLMSettingsUpdate(BaseModel):
     provider: str = "deepseek"
     model: str = Field(default="", description="Default model id.")
@@ -128,93 +162,56 @@ async def update_llm_settings(body: LLMSettingsUpdate):
     base_url = body.base_url.strip()
     api_key = body.api_key.strip()
 
-    settings.llm_provider = provider
-    settings.llm_model = model
-    settings.llm_base_url = base_url
-    settings.llm_api_key = api_key
+    async with _settings_lock:
+        settings.llm_provider = provider
+        settings.llm_model = model
+        settings.llm_base_url = base_url
+        settings.llm_api_key = api_key
+
+    # Persist key to .env for crash/restart survival
+    _persist_env("LLM_API_KEY", api_key)
 
     return {**_read_runtime_llm_settings(), "updated": True}
 
 
-# ── Local model download ────────────────────────────────────────
-
-@router.get("/models/status", tags=["settings"])
-async def get_model_status():
-    """Return download status of local models (BM25 sparse embedder and reranker)."""
-    from pipeline.embedder import _bm25_model, _bm25_download_lock, is_bm25_cached
-    from pipeline.reranker import _reranker_available, is_reranker_cached
-
-    if _bm25_download_lock:
-        bm25 = "downloading"
-    elif _bm25_model is not None and _bm25_model is not False:
-        bm25 = "loaded"
-    elif _bm25_model is False:
-        bm25 = "failed"
-    elif is_bm25_cached():
-        bm25 = "loaded"  # cached on disk, will lazy-load on first use
-    else:
-        bm25 = "not_loaded"
-
-    if _reranker_available is True:
-        reranker = "loaded"
-    elif _reranker_available is False:
-        reranker = "failed"
-    elif is_reranker_cached():
-        reranker = "loaded"  # cached on disk, will lazy-load on first use
-    else:
-        reranker = "not_loaded"
-
-    return {"bm25": bm25, "reranker": reranker}
-
-
-class ModelDownloadRequest(BaseModel):
-    proxy: str = Field(
-        default="",
-        description="Proxy URL to use for this download. Applied before downloading.",
-    )
-
-
-@router.post("/models/download", tags=["settings"])
-async def download_models(body: ModelDownloadRequest = ModelDownloadRequest()):
-    """Trigger download of local models (BM25 and reranker) in the background.
-
-    The frontend passes its proxy setting directly, so the download uses the
-    same proxy the user configured — no dependency on previously-saved backend state.
-
-    Returns immediately. Poll GET /settings/models/status for completion.
-    """
-    import asyncio as _asyncio
-
-    # Apply the proxy the frontend sent before downloading
-    if body.proxy:
-        from main import apply_proxy
-        apply_proxy(body.proxy)
-
-    results = {"bm25": "skipped", "reranker": "skipped"}
-
-    # BM25
-    from pipeline.embedder import _bm25_model, _bm25_downloading, _bm25_bg
-    if _bm25_model is not None and _bm25_model is not False:
-        results["bm25"] = "already_loaded"
-    else:
-        _bm25_model = None
-        _bm25_downloading = False
-        _asyncio.get_running_loop().run_in_executor(None, _bm25_bg)
-        results["bm25"] = "downloading"
-
-    # Reranker
+def _read_runtime_vision_settings() -> dict:
     from config import settings
-    from pipeline.reranker import _reranker_available, _init_reranker
-    if _reranker_available is True:
-        results["reranker"] = "already_loaded"
-    elif not settings.reranker_enabled:
-        results["reranker"] = "skipped_disabled"
-    else:
-        if _reranker_available is False:
-            _reranker_available = None  # reset so force retry works
-        _asyncio.get_running_loop().run_in_executor(
-            None, _init_reranker, settings.reranker_model, 20.0, True
-        )
-        results["reranker"] = "downloading"
 
-    return results
+    return {
+        "vision_enabled": settings.vision_enabled,
+        "vision_model": settings.vision_model,
+        "vision_base_url": settings.vision_base_url,
+        "vision_api_key": settings.vision_api_key,
+        "vision_frame_interval": settings.vision_frame_interval,
+    }
+
+
+@router.get("/vision", tags=["settings"])
+async def get_vision_settings():
+    """Return the current runtime vision configuration."""
+    return _read_runtime_vision_settings()
+
+
+@router.post("/vision", tags=["settings"])
+async def update_vision_settings(body: VisionSettingsUpdate):
+    """Update runtime vision configuration for future requests."""
+    from config import settings
+
+    async with _settings_lock:
+        if body.vision_enabled is not None:
+            settings.vision_enabled = body.vision_enabled
+        if body.vision_model:
+            settings.vision_model = body.vision_model.strip()
+        if body.vision_base_url is not None:
+            settings.vision_base_url = body.vision_base_url.strip()
+        if body.vision_api_key is not None:
+            settings.vision_api_key = body.vision_api_key.strip()
+        if body.vision_frame_interval is not None:
+            settings.vision_frame_interval = body.vision_frame_interval
+
+    # Persist vision API key to .env for crash/restart survival
+    if body.vision_api_key is not None and body.vision_api_key.strip():
+        _persist_env("VISION_API_KEY", body.vision_api_key.strip())
+
+    return {**_read_runtime_vision_settings(), "updated": True}
+

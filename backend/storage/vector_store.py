@@ -23,7 +23,7 @@ from qdrant_client.models import (
 
 from config import settings
 
-DENSE_DIM = settings.embedding_dimensions  # BGE-M3=1024, text-embedding-3-small=1536
+DENSE_DIM = 1024  # BGE-M3=1024, text-embedding-3-small=1536
 DENSE_VECTOR = "dense"
 SPARSE_VECTOR = "sparse"
 

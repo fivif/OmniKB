@@ -1,7 +1,7 @@
 """OmniKB × OpenAI QA 生产测试"""
 import asyncio, json, time, httpx, os, sys
 
-BASE = "http://localhost:8000"
+BASE = os.environ.get("OMNIKB_BASE_URL", "http://localhost:6886")
 PASS, FAIL, PARTIAL = 0, 0, 0
 RESULTS = []
 

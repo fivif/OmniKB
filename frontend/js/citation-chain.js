@@ -1,6 +1,6 @@
 /**
  * citation-chain.js — UI.5
- * Reusable visual rendering for RAG citation references.
+ * Reusable visual rendering for citation references.
  *
  * Public API exposed as `window.OmnikbCitations`:
  *   render(targetEl, citations)   — append staggered citation bubbles

@@ -38,7 +38,7 @@
       disclaimer: '回答由 AI 基于资料生成，请对关键信息再次核验。',
       color: '#5b8cff',
       tone: 'light',
-      hints: ['基于资料回答', '支持长文本问答', '保留引用链路'],
+      hints: ['基于资料回答', '支持长文本问答', 'Wiki 知识溯源'],
     },
     guide: {
       label: '内容讲解',
@@ -186,7 +186,7 @@
   panel.innerHTML = `
     <div class="sc-shell flex h-full">
       <!-- Left: scenario list -->
-      <aside class="sc-sidebar w-56 lg:w-64 flex-shrink-0 border-r flex flex-col" style="background:var(--bg-muted);border-color:var(--bd);">
+      <aside class="sc-sidebar flex-shrink-0 border-r flex flex-col" style="width:280px;background:var(--bg-muted);border-color:var(--bd);">
         <div class="sc-sidebar-head px-4 py-4 border-b flex items-center justify-between" style="border-color:var(--bd);">
           <div>
             <div class="sc-sidebar-kicker">Scene Library</div>
@@ -235,6 +235,10 @@
                       <input id="sc-name" type="text" class="input" placeholder="例如：客服知识库" />
                     </div>
                     <div class="sc-field-group">
+                      <label class="form-label">URL 标识</label>
+                      <input id="sc-slug" type="text" class="input" placeholder="小写字母+数字+连字符，最长30字符，留空则自动生成" />
+                    </div>
+                    <div class="sc-field-group">
                       <label class="form-label">描述</label>
                       <input id="sc-desc" type="text" class="input" placeholder="简短描述此场景用途" />
                     </div>
@@ -275,6 +279,15 @@
               </div>
 
               <div class="sc-config-stack">
+                <section class="sc-card">
+                  <div class="sc-card-head">
+                    <div>
+                      <div class="sc-card-title">知识检索</div>
+                      <div class="sc-card-subtitle">使用 Wiki 知识图谱 + 大上下文 LLM 进行问答，无需向量嵌入。</div>
+                    </div>
+                  </div>
+                </section>
+
                 <section class="sc-card">
                   <div class="sc-card-head">
                     <div>
@@ -333,36 +346,15 @@
 
           <!-- Tab: chunks -->
           <div id="sc-panel-chunks" class="flex-1 flex-col hidden overflow-hidden">
-            <!-- Filter bar -->
-            <div class="sc-chunks-toolbar">
-              <div class="sc-chunks-filter">
-                <input id="sc-source-search" type="text" class="input" placeholder="搜索来源名称、URL 或标签…" />
-                <select id="sc-source-type" class="select">
-                  <option value="">全部分类</option>
-                  ${SOURCE_TYPE_ORDER.map(key => `<option value="${key}">${SOURCE_TYPE_GROUPS[key].label}</option>`).join('')}
-                </select>
-                <select id="sc-source-tag" class="select">
-                  <option value="">全部标签</option>
-                </select>
-                <button id="btn-sc-source-refresh" class="sc-chunks-btn-subtle" type="button">刷新</button>
+            <div class="sc-chunks-section" style="flex:1;display:flex;flex-direction:column;">
+              <div class="sc-chunks-section-head" style="display:flex;align-items:center;justify-content:space-between;">
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <span class="sc-chunks-section-title">已关联知识源</span>
+                  <span id="sc-chunk-count2" class="sc-chunks-section-badge">0</span>
+                </div>
+                <button id="btn-sc-goto-kb" class="sc-chunks-btn-primary" type="button" title="跳转到知识库页面添加来源">前往知识库管理</button>
               </div>
-              <button id="btn-sc-source-add-visible" class="sc-chunks-btn-primary" type="button">添加当前筛选</button>
-            </div>
-            <!-- Selected sources -->
-            <div class="sc-chunks-section">
-              <div class="sc-chunks-section-head">
-                <span class="sc-chunks-section-title">已关联知识源</span>
-                <span id="sc-chunk-count2" class="sc-chunks-section-badge">0</span>
-              </div>
-              <div id="sc-chunk-list" class="sc-chunks-list sc-chunks-list--selected"></div>
-            </div>
-            <!-- Available sources -->
-            <div class="sc-chunks-section sc-chunks-section--available">
-              <div class="sc-chunks-section-head">
-                <span class="sc-chunks-section-title">可选知识源</span>
-                <span id="sc-source-result-meta" class="sc-chunks-section-desc">按分类、标签或关键词筛选后加入场景</span>
-              </div>
-              <div id="sc-source-results" class="sc-chunks-list"></div>
+              <div id="sc-chunk-list" class="sc-chunks-list sc-chunks-list--selected" style="flex:1;overflow-y:auto;"></div>
             </div>
           </div>
 
@@ -373,15 +365,41 @@
               <button id="btn-sc-key-new" class="px-3 py-1.5 text-xs rounded-lg font-medium transition-colors" style="background:var(--accent-bg);color:var(--accent);">新建密钥</button>
             </div>
             <div id="sc-key-list" class="px-6 py-4 space-y-2"></div>
-            <!-- Key reveal modal -->
-            <div id="sc-key-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center" style="background:rgba(0,0,0,.6);backdrop-filter:blur(4px);">
-              <div class="rounded-xl p-6 max-w-md w-full mx-4 space-y-4" style="background:var(--bg-card);border:1px solid var(--bd);">
-                <h3 class="text-sm font-semibold" style="color:var(--t1);">新 API 密钥</h3>
-                <p class="text-xs" style="color:var(--c-warn);">请立即复制此密钥。关闭后将无法再次查看完整密钥。</p>
-                <div class="rounded-lg px-4 py-3 font-mono text-sm break-all select-all" style="background:var(--bg-body);border:1px solid var(--bd);color:var(--accent);" id="sc-key-raw"></div>
-                <div class="flex justify-end gap-2">
-                  <button id="btn-sc-key-copy" class="px-4 py-1.5 text-xs rounded-lg transition-colors" style="background:var(--accent);color:#fff;">复制</button>
-                  <button id="btn-sc-key-close" class="px-4 py-1.5 text-xs rounded-lg transition-colors" style="background:var(--bg-muted);color:var(--t2);">关闭</button>
+            <!-- Key name input modal (glassmorphism AURA UI) -->
+            <div id="sc-key-name-modal" class="sc-key-modal-backdrop hidden">
+              <div class="sc-key-modal-card">
+                <div class="sc-key-modal-icon">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+                </div>
+                <h3 class="sc-key-modal-title">新建 API 密钥</h3>
+                <p class="sc-key-modal-desc">为此场景创建一个 API 密钥，供外部应用调用问答接口。</p>
+                <div class="sc-key-modal-field">
+                  <label class="sc-key-modal-label">密钥名称</label>
+                  <input id="sc-key-name-input" type="text" class="sc-key-modal-input" placeholder="例如：前端应用、内部工具" />
+                </div>
+                <div class="sc-key-modal-actions">
+                  <button id="btn-sc-key-name-cancel" class="sc-key-modal-btn sc-key-modal-btn--ghost">取消</button>
+                  <button id="btn-sc-key-name-confirm" class="sc-key-modal-btn sc-key-modal-btn--primary">创建密钥</button>
+                </div>
+              </div>
+            </div>
+            <!-- Key reveal modal (glassmorphism AURA UI) -->
+            <div id="sc-key-modal" class="sc-key-modal-backdrop hidden">
+              <div class="sc-key-modal-card">
+                <div class="sc-key-modal-icon sc-key-modal-icon--warn">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                </div>
+                <h3 class="sc-key-modal-title">新 API 密钥已生成</h3>
+                <p class="sc-key-modal-warn">请立即复制此密钥。关闭窗口后将无法再次查看完整密钥内容。</p>
+                <div class="sc-key-modal-key-box">
+                  <code id="sc-key-raw" class="sc-key-modal-key-value"></code>
+                </div>
+                <div class="sc-key-modal-actions">
+                  <button id="btn-sc-key-copy" class="sc-key-modal-btn sc-key-modal-btn--primary">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                    复制密钥
+                  </button>
+                  <button id="btn-sc-key-close" class="sc-key-modal-btn sc-key-modal-btn--ghost">关闭</button>
                 </div>
               </div>
             </div>
@@ -410,11 +428,68 @@
   const $chunkCount2 = document.getElementById('sc-chunk-count2');
   const $keyModal = document.getElementById('sc-key-modal');
   const $keyRaw = document.getElementById('sc-key-raw');
+  // Key name input modal
+  const $keyNameModal = document.getElementById('sc-key-name-modal');
+  const $keyNameInput = document.getElementById('sc-key-name-input');
+  let _pendingKeyCreate = null; // resolve function
+
+  // Reusable inline prompt replacing browser native prompt()
+  function _quickPrompt(title, label, placeholder, opts = {}) {
+    return new Promise(resolve => {
+      $keyNameModal.querySelector('.sc-key-modal-title').textContent = title;
+      $keyNameInput.placeholder = placeholder || '';
+      $keyNameInput.value = '';
+      // Show/hide input field: confirm has no label, prompt does
+      const fieldEl = $keyNameInput.closest('.sc-key-modal-field');
+      if (label) {
+        fieldEl.style.display = '';
+        fieldEl.querySelector('.sc-key-modal-label').textContent = label;
+      } else {
+        fieldEl.style.display = 'none';
+      }
+      // Set description and button text
+      const descEl = $keyNameModal.querySelector('.sc-key-modal-desc');
+      const btnConfirm = document.getElementById('btn-sc-key-name-confirm');
+      if (!label && placeholder) {
+        // Confirm mode: placeholder is the confirmation message
+        descEl.textContent = placeholder;
+        descEl.style.color = 'var(--t-secondary)';
+        btnConfirm.textContent = '确认';
+      } else {
+        // Prompt mode: use explicit description or fallback to placeholder
+        descEl.textContent = opts.description || placeholder || '';
+        descEl.style.color = '';
+        btnConfirm.textContent = opts.confirmLabel || '确认';
+      }
+      $keyNameModal.classList.remove('hidden');
+      $keyNameModal.style.display = 'flex';
+      if (label) {
+        $keyNameInput.focus();
+      } else {
+        // Focus the confirm button for quick keyboard dismissal
+        document.getElementById('btn-sc-key-name-confirm').focus();
+      }
+      _pendingKeyCreate = resolve;
+    });
+  }
+
+  // Reusable confirm replacing browser native confirm()
+  function _quickConfirm(message, title) {
+    return _quickPrompt(title || '确认', '', message);
+  }
 
   // ── Helpers ─────────────────────────────────────────────────────
 
   function esc(s) {
     return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  function _sanitizeAgentHtml(html) {
+    return String(html)
+      .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+      .replace(/\son\w+\s*=\s*"[^"]*"/gi, '')
+      .replace(/\son\w+\s*=\s*'[^']*'/gi, '')
+      .replace(/javascript\s*:/gi, 'blocked:');
   }
 
   async function apiPost(path, body = {}) {
@@ -506,7 +581,8 @@
 
   function updateApiDocLink() {
     if (!currentId) return;
-    const docUrl = getScenarioApiDocUrl(currentId);
+    const sc = scenarios.find(s => s.id === currentId);
+    const docUrl = getScenarioApiDocUrl(sc || { id: currentId });
     document.getElementById('sc-open-api-doc-tab').href = docUrl;
   }
 
@@ -529,8 +605,20 @@
     });
   }
 
-  function getScenarioPublicUrl(id) {
-    const url = new URL(`kb-chat.html?scenario=${encodeURIComponent(id)}`, window.location.href);
+  function getScenarioPublicUrl(scenario) {
+    const sc = scenario || {};
+    const slugOrId = (sc.slug || sc.id || '');
+    const url = new URL(`kb-chat.html?scenario=${encodeURIComponent(slugOrId)}`, window.location.href);
+    if (url.protocol === 'file:') {
+      url.searchParams.set('api', getStoredApiBase());
+    }
+    return url.href;
+  }
+
+  function getScenarioApiDocUrl(scenario) {
+    const sc = scenario || {};
+    const slugOrId = (sc.slug || sc.id || '');
+    const url = new URL(`scenario-api.html?scenario=${encodeURIComponent(slugOrId)}`, window.location.href);
     if (url.protocol === 'file:') {
       url.searchParams.set('api', getStoredApiBase());
     }
@@ -571,7 +659,7 @@
     }
     $list.innerHTML = scenarios.map(s => {
       const active = s.id === currentId;
-      const url = getScenarioPublicUrl(s.id);
+      const url = getScenarioPublicUrl(s);
       const ui = normalizeUiConfig(s.ui_config || {}, s);
       const template = getTemplateMeta(ui.template);
       const hasSourceCount = typeof s.source_count === 'number';
@@ -580,7 +668,7 @@
              data-id="${s.id}">
           <div class="sc-list-copy">
             <div class="sc-list-title-row">
-              <div class="sc-list-title">${esc(s.name)}</div>
+              <div class="sc-list-title" title="${esc(s.name)}">${esc(s.name)}</div>
               <span class="sc-list-template">${template.label}</span>
             </div>
             <div class="sc-list-desc">${esc(s.description || '无描述')}</div>
@@ -645,6 +733,7 @@
 
   function populateForm(sc) {
     document.getElementById('sc-name').value = sc.name || '';
+    document.getElementById('sc-slug').value = sc.slug || '';
     document.getElementById('sc-desc').value = sc.description || '';
     document.getElementById('sc-prompt').value = sc.system_prompt || '';
     document.getElementById('sc-llm-provider').value = 'custom';
@@ -706,8 +795,10 @@
   document.getElementById('btn-sc-save').addEventListener('click', async () => {
     if (!currentId) return;
     const uiConfig = getCurrentUiConfigFromForm();
+
     const body = {
       name: document.getElementById('sc-name').value.trim(),
+      slug: document.getElementById('sc-slug').value.trim() || null,
       description: document.getElementById('sc-desc').value.trim(),
       system_prompt: document.getElementById('sc-prompt').value,
       llm_provider: 'custom',
@@ -727,10 +818,33 @@
 
   // ── New scenario ────────────────────────────────────────────────
 
+  async function _promptForName(title, label, placeholder, opts = {}) {
+    try {
+      return await _quickPrompt(title, label, placeholder, opts);
+    } catch (e) {
+      // Fallback to native prompt() if the custom modal fails
+      console.warn('_quickPrompt failed, falling back to native prompt:', e);
+      return prompt(placeholder || label || title);
+    }
+  }
+
+  async function _confirmAction(message, title) {
+    try {
+      return await _quickConfirm(message, title);
+    } catch (e) {
+      console.warn('_quickConfirm failed, falling back to native confirm:', e);
+      return confirm(message) ? message : null;
+    }
+  }
+
   document.getElementById('btn-sc-new').addEventListener('click', async () => {
-    const name = prompt('请输入场景名称：');
+    const name = await _promptForName('新建场景', '场景名称', '请输入场景名称', {
+      description: '创建一个新的问答场景，配置知识源和发布参数。',
+      confirmLabel: '创建场景',
+    });
+    if (name === null) return;
     if (!name || !name.trim()) {
-      if (name !== null) toast('场景名称不能为空', 'error');
+      toast('场景名称不能为空', 'error');
       return;
     }
     try {
@@ -750,7 +864,7 @@
     if (!currentId) return;
     const sc = scenarios.find(s => s.id === currentId);
     const name = sc ? sc.name : currentId;
-    if (!confirm(`确定要删除场景「${name}」？此操作不可恢复。`)) return;
+    if (null === await _confirmAction(`确定要删除场景「${name}」？此操作不可恢复。`, '删除场景')) return;
     try {
       await apiDelete(`/scenarios/${currentId}`);
       scenarios = scenarios.filter(s => s.id !== currentId);
@@ -852,7 +966,7 @@
           <div class="sc-chunks-item-body">
             <div class="sc-chunks-item-title">${esc(source.source_name || source.source_id || '未命名来源')}</div>
             <div class="sc-chunks-item-meta">
-              <span class="sc-chunks-item-tag">${typeMeta.icon} ${esc(typeMeta.label)}</span>
+              <span class="sc-chunks-item-tag sc-source-tag--${typeMeta.key}">${typeMeta.icon} ${esc(typeMeta.label)}</span>
               <span class="sc-chunks-item-tag">${esc(refLabel)}</span>
               <span class="sc-chunks-item-tag">${esc(source.added_by || 'manual')}</span>
               ${tags.map(tag => `<span class="sc-chunks-item-tag">${esc(tag)}</span>`).join('')}
@@ -905,7 +1019,7 @@
           <div class="sc-chunks-item-body">
             <div class="sc-chunks-item-title">${esc(source.name || source.id)}</div>
             <div class="sc-chunks-item-meta">
-              <span class="sc-chunks-item-tag">${typeMeta.icon} ${esc(typeMeta.label)}</span>
+              <span class="sc-chunks-item-tag sc-source-tag--${typeMeta.key}">${typeMeta.icon} ${esc(typeMeta.label)}</span>
               ${tags.map(tag => `<span class="sc-chunks-item-tag">${esc(tag)}</span>`).join('')}
             </div>
             ${source.url ? `<div class="sc-chunks-item-url">${esc(source.url)}</div>` : ''}
@@ -942,42 +1056,23 @@
     return response.added || 0;
   }
 
-  async function loadSourcesTab({ forceCatalog = false } = {}) {
+  async function loadSourcesTab() {
     if (!currentId) return;
     const list = document.getElementById('sc-chunk-list');
-    const results = document.getElementById('sc-source-results');
     try {
-      await loadSourceCatalog(forceCatalog);
       const data = await apiJson(`/scenarios/${currentId}/sources`);
       selectedScenarioSources = aggregateScenarioSources(data.sources || []);
       renderSelectedScenarioSources();
-      renderAvailableScenarioSources();
     } catch (error) {
       list.innerHTML = `<p class="text-xs py-8 text-center" style="color:var(--c-err);">加载场景知识源失败：${esc(error.message)}</p>`;
-      results.innerHTML = `<p class="text-xs py-8 text-center" style="color:var(--c-err);">加载知识库列表失败：${esc(error.message)}</p>`;
       toast('加载知识库失败: ' + error.message, 'error');
     }
   }
 
-  document.getElementById('btn-sc-source-refresh').addEventListener('click', () => loadSourcesTab({ forceCatalog: true }));
-  document.getElementById('sc-source-search').addEventListener('input', renderAvailableScenarioSources);
-  document.getElementById('sc-source-type').addEventListener('change', renderAvailableScenarioSources);
-  document.getElementById('sc-source-tag').addEventListener('change', renderAvailableScenarioSources);
-  document.getElementById('btn-sc-source-add-visible').addEventListener('click', async () => {
-    const selectedIds = new Set(selectedScenarioSources.map(source => source.source_id));
-    const addableIds = getFilteredCatalogSources()
-      .map(source => source.id)
-      .filter(sourceId => !selectedIds.has(sourceId));
-    if (!addableIds.length) {
-      toast('当前筛选下没有可添加的知识源', 'error');
-      return;
-    }
-    try {
-      const added = await addSourcesToScenario(addableIds);
-      toast(`已加入 ${added} 个知识源`, 'success');
-    } catch (error) {
-      toast('批量添加失败: ' + error.message, 'error');
-    }
+  // "前往知识库管理" button — switch to KB tab then add sources from there
+  document.getElementById('btn-sc-goto-kb').addEventListener('click', () => {
+    if (window.OmniKBApp && window.OmniKBApp.showTab) window.OmniKBApp.showTab('kb');
+    toast('在知识库页面勾选来源后，点击"加入场景"即可', 'info');
   });
 
   // ── API Keys ────────────────────────────────────────────────────
@@ -1007,7 +1102,7 @@
 
       list.querySelectorAll('.btn-sc-key-del').forEach(btn => {
         btn.addEventListener('click', async () => {
-          if (!confirm('确定要删除此密钥？使用此密钥的应用将立即无法访问。')) return;
+          if (null === await _confirmAction('确定要删除此密钥？使用此密钥的应用将立即无法访问。', '删除密钥')) return;
           try {
             await apiDelete(`/scenarios/${currentId}/keys/${btn.dataset.id}`);
             loadKeys();
@@ -1022,7 +1117,10 @@
   }
 
   document.getElementById('btn-sc-key-new').addEventListener('click', async () => {
-    const name = prompt('密钥名称（例如：前端应用、内部工具）：');
+    const name = await _promptForName('新建 API 密钥', '密钥名称', '例如：前端应用、内部工具', {
+      description: '为此场景创建一个 API 密钥，供外部应用调用问答接口。',
+      confirmLabel: '创建密钥',
+    });
     if (name === null) return;
     try {
       const data = await apiPost(`/scenarios/${currentId}/keys`, { key_name: name || '' });
@@ -1031,6 +1129,35 @@
       loadKeys();
     } catch (e) {
       toast('创建密钥失败: ' + e.message, 'error');
+    }
+  });
+
+  // Key name input modal — confirm
+  document.getElementById('btn-sc-key-name-confirm').addEventListener('click', () => {
+    const name = $keyNameInput.value.trim();
+    $keyNameModal.classList.add('hidden'); $keyNameModal.style.display = '';
+    if (_pendingKeyCreate) { _pendingKeyCreate(name || '未命名'); _pendingKeyCreate = null; }
+  });
+
+  // Key name input modal — cancel or Enter
+  document.getElementById('btn-sc-key-name-cancel').addEventListener('click', () => {
+    $keyNameModal.classList.add('hidden'); $keyNameModal.style.display = '';
+    if (_pendingKeyCreate) { _pendingKeyCreate(null); _pendingKeyCreate = null; }
+  });
+  $keyNameInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      const name = $keyNameInput.value.trim();
+      $keyNameModal.classList.add('hidden'); $keyNameModal.style.display = '';
+      if (_pendingKeyCreate) { _pendingKeyCreate(name || '未命名'); _pendingKeyCreate = null; }
+    } else if (e.key === 'Escape') {
+      $keyNameModal.classList.add('hidden'); $keyNameModal.style.display = '';
+      if (_pendingKeyCreate) { _pendingKeyCreate(null); _pendingKeyCreate = null; }
+    }
+  });
+  $keyNameModal.addEventListener('click', (e) => {
+    if (e.target === $keyNameModal) {
+      $keyNameModal.classList.add('hidden'); $keyNameModal.style.display = '';
+      if (_pendingKeyCreate) { _pendingKeyCreate(null); _pendingKeyCreate = null; }
     }
   });
 
@@ -1055,6 +1182,14 @@
   let agentInited = false;
   let agentStreaming = false;
 
+  function renderAgentMarkdown(text) {
+    if (!text) return '';
+    if (typeof marked !== 'undefined') {
+      try { return marked.parse(text); } catch {}
+    }
+    return esc(text).replace(/\n/g, '<br>');
+  }
+
   function initAgentChat() {
     if (agentInited) return;
     agentInited = true;
@@ -1062,17 +1197,19 @@
     const msgEl = document.getElementById('sc-agent-messages');
     // Show welcome
     msgEl.innerHTML = `
-      <div class="flex items-start gap-3">
-        <div class="max-w-[85%] bubble-ai px-4 py-3 text-sm">
+      <div class="chat-msg-row chat-msg-row--ai">
+        <div class="sc-agent-bubble chat-bubble--ai">
           <p>你好！我是场景配置助手。你可以用自然语言让我帮你：</p>
-          <ul style="margin-top:4px;padding-left:16px;">
+          <ul>
             <li>搜索并添加相关片段（「帮我找关于定价的内容」）</li>
             <li>切换模板并整套改写界面（「换成客服模板，做成深色帮助中心」）</li>
+            <li>完全重写问答页面布局和样式（「把页面改成暗色卡片风格」）</li>
+            <li>恢复默认页面模板（「重置页面」）</li>
             <li>重写 UI 文案和样式（「标题改成产品助手，欢迎语更短，再补一段 CSS」）</li>
             <li>调整系统提示词（「让 AI 回答更简洁」）</li>
             <li>更新 LLM 配置（「换成 GPT-4o 模型」）</li>
           </ul>
-          <p style="margin-top:4px;">请描述你想要怎么调整这个场景 👇</p>
+          <p>请描述你想要怎么调整这个场景 👇</p>
         </div>
       </div>
     `;
@@ -1095,14 +1232,14 @@
 
     // User bubble
     const userDiv = document.createElement('div');
-    userDiv.className = 'flex justify-end items-end gap-3';
-    userDiv.innerHTML = `<div class="max-w-[80%] bubble-user px-4 py-2.5 text-xs">${esc(text)}</div>`;
+    userDiv.className = 'chat-msg-row chat-msg-row--user';
+    userDiv.innerHTML = `<div class="chat-bubble chat-bubble--user">${esc(text)}</div>`;
     msgEl.appendChild(userDiv);
 
     // AI thinking bubble
     const aiDiv = document.createElement('div');
-    aiDiv.className = 'flex items-start gap-3';
-    aiDiv.innerHTML = `<div class="max-w-[85%] bubble-ai px-4 py-2.5 text-sm typing-cursor"><span class="typing-placeholder">&nbsp;</span></div>`;
+    aiDiv.className = 'chat-msg-row chat-msg-row--ai';
+    aiDiv.innerHTML = `<div class="chat-bubble chat-bubble--ai chat-streaming"><span class="chat-placeholder">&nbsp;</span></div>`;
     msgEl.appendChild(aiDiv);
     msgEl.scrollTop = msgEl.scrollHeight;
 
@@ -1111,18 +1248,54 @@
 
     try {
       const data = await apiPost(`/scenarios/${currentId}/agent/assist`, { message: text });
-      const contentEl = aiDiv.querySelector('.bubble-ai');
-      const ph = contentEl.querySelector('.typing-placeholder');
+      const contentEl = aiDiv.querySelector('.chat-bubble--ai');
+      const ph = contentEl.querySelector('.chat-placeholder');
       if (ph) ph.remove();
-      contentEl.classList.remove('typing-cursor');
+      contentEl.classList.remove('chat-streaming');
 
-      let replyHtml = `<p style="white-space:pre-wrap;">${esc(data.reply)}</p>`;
+      // ── Process frontend-side actions (inject_html, execute_script) ──
+      const frontendPerformed = [];
+      if (data.raw_actions && data.raw_actions.length) {
+        for (const act of data.raw_actions) {
+          if (act.action === 'inject_html') {
+            const el = document.querySelector(act.selector);
+            if (!el) { frontendPerformed.push('element not found: ' + esc(act.selector)); continue; }
+            const sanitized = _sanitizeAgentHtml(act.html);
+            if (act.mode === 'replace') el.innerHTML = sanitized;
+            else if (act.mode === 'append') el.insertAdjacentHTML('beforeend', sanitized);
+            else if (act.mode === 'prepend') el.insertAdjacentHTML('afterbegin', sanitized);
+            frontendPerformed.push('injected HTML: ' + esc(act.selector));
+          } else if (act.action === 'execute_script') {
+            try {
+              const fn = new Function(act.script);
+              fn();
+              frontendPerformed.push('executed script');
+            } catch(e) {
+              frontendPerformed.push('script error: ' + esc(e.message));
+            }
+          }
+        }
+      }
+
+      // Render reply with markdown
+      let replyHtml = renderAgentMarkdown(data.reply);
+
+      // Actions performed summary
+      const actionsHtml = [];
       if (data.actions_performed && data.actions_performed.length) {
-        replyHtml += `<div style="margin-top:6px;font-size:10px;color:var(--accent);">${data.actions_performed.map(a => '✓ ' + esc(a)).join('<br>')}</div>`;
+        actionsHtml.push(...data.actions_performed.map(a => '✓ ' + esc(a)));
       }
+      if (frontendPerformed.length) {
+        actionsHtml.push(...frontendPerformed.map(a => '✓ ' + esc(a)));
+      }
+      if (actionsHtml.length) {
+        replyHtml += `<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--bd-subtle);font-size:11px;color:var(--accent);line-height:1.5;">${actionsHtml.join('<br>')}</div>`;
+      }
+
       if (data.search_results && data.search_results.length) {
-        replyHtml += `<div style="margin-top:6px;font-size:10px;color:var(--t3);">找到 ${data.search_results.length} 个片段。去「知识库」标签页按来源查看和添加。</div>`;
+        replyHtml += `<div style="margin-top:6px;font-size:11px;color:var(--t-tertiary);">找到 ${data.search_results.length} 个片段。去「知识库」标签页按来源查看和添加。</div>`;
       }
+
       contentEl.innerHTML = replyHtml;
 
       // Refresh form fields if config was changed
@@ -1131,11 +1304,11 @@
         populateForm(sc);
       }
     } catch (e) {
-      const contentEl = aiDiv.querySelector('.bubble-ai');
-      const ph = contentEl.querySelector('.typing-placeholder');
+      const contentEl = aiDiv.querySelector('.chat-bubble--ai');
+      const ph = contentEl.querySelector('.chat-placeholder');
       if (ph) ph.remove();
-      contentEl.classList.remove('typing-cursor');
-      contentEl.innerHTML = `<span style="color:var(--c-err);">错误：${esc(e.message)}</span>`;
+      contentEl.classList.remove('chat-streaming');
+      contentEl.innerHTML = `<span style="color:var(--c-err-t);">Error: ${esc(e.message)}</span>`;
     } finally {
       agentStreaming = false;
       document.getElementById('btn-sc-agent-send').disabled = false;

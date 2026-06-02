@@ -3,12 +3,8 @@ import uuid
 from typing import Any
 
 from agents.doc_agent import RawDocument
-from pipeline.chunker import chunk_text
-from pipeline.deduper import filter_duplicates
-from pipeline.embedder import embed_dense, embed_sparse
 from pipeline.extractor import extract_metadata
-from storage.metadata_db import append_task_log, insert_chunks, update_source_status, update_task
-from storage.vector_store import ChunkDoc, upsert_chunks
+from storage.metadata_db import append_task_log, update_source_status, update_task
 
 
 async def run_ingest_pipeline(
@@ -17,129 +13,78 @@ async def run_ingest_pipeline(
     raw_doc: RawDocument,
     extra_metadata: dict[str, Any] | None = None,
 ) -> int:
-    """Full ingest pipeline: chunk → embed → store. Returns stored chunk count."""
+    """Wiki-first ingest: extract text → generate wiki pages. Returns wiki page count."""
     await update_task(task_id, "processing")
     await update_source_status(source_id, "processing")
-    await append_task_log(task_id, "⚙️ 开始摄入流程")
+    await append_task_log(task_id, "📥 开始知识提取")
 
     try:
-        await append_task_log(task_id, "📄 提取元数据")
+        await append_task_log(task_id, "📄 解析元数据")
         meta = extract_metadata(
             raw_doc.content,
             raw_doc.metadata.get("file_type", "unknown"),
             url=raw_doc.metadata.get("source_url"),
         )
-        meta.update(raw_doc.metadata)
         if extra_metadata:
             meta.update(extra_metadata)
-        meta["source_id"] = source_id
 
-        # Quality check for URL-fetched content
-        if meta.get("source_url") and len(raw_doc.content.strip()) < 100:
-            await append_task_log(task_id, f"🚫 内容过短（{len(raw_doc.content.strip())}字符）")
-            await update_task(task_id, "done")
-            await update_source_status(source_id, "done")
-            return 0
-
-        # Auto-tag: call LLM to extract tags when none were provided
+        # Auto-tag: only when no tags were manually assigned
         from config import settings
-        if settings.autotag_enabled and not meta.get("tags"):
+        tags = meta.get("tags") or []
+        if settings.autotag_enabled and (not tags or (isinstance(tags, list) and len(tags) == 0)):
             try:
-                await append_task_log(task_id, "🏷️ 自动标签中…")
-                from pipeline.tagger import auto_tag
-                from storage.metadata_db import update_source_tags
-                tags = await auto_tag(raw_doc.content)
-                if tags:
-                    meta["tags"] = tags
-                    await update_source_tags(source_id, tags)
-                    await append_task_log(task_id, f"🏷️ 标签：{', '.join(tags)}")
-            except Exception as _tag_err:
-                import logging as _lg
-                _lg.getLogger(__name__).warning("auto_tag failed for %s: %s", source_id, _tag_err)
+                from pipeline.tagger import run_auto_tag
+                title = meta.get("title") or raw_doc.metadata.get("title") or raw_doc.metadata.get("source_url") or source_id
+                auto_tags = await run_auto_tag(raw_doc.content[:3000], title)
+                if auto_tags:
+                    meta["tags"] = list(auto_tags)
+                    await append_task_log(task_id, f"🏷️ 自动标签: {', '.join(auto_tags)}")
+                    from storage.metadata_db import update_source_tags
+                    await update_source_tags(source_id, list(auto_tags))
+            except Exception:
+                pass
 
-        await append_task_log(task_id, "✂️ 分块中…")
-        text_chunks = chunk_text(raw_doc.content, source_id=source_id, base_metadata=meta)
-        if not text_chunks:
-            await append_task_log(task_id, "⚠️ 无有效文本片段，已跳过")
-            await update_task(task_id, "done")
-            await update_source_status(source_id, "done")
-            return 0
+        title = meta.get("title") or raw_doc.metadata.get("title") or source_id
+        await append_task_log(task_id, "🧠 Wiki 生成: LLM 分析与页面创建中…")
+        try:
+            from utils.agent_bus import emit
+            emit(f"📥 摄入: {title[:60]}", kind="progress", agent="ingest", task_id=task_id)
+        except Exception:
+            pass
+        from wiki.generator import WikiGenerator
+        gen = WikiGenerator(
+            settings.data_dir,
+            source_truncate_chars=settings.wiki_max_source_chars,
+            generation_concurrency=settings.wiki_generation_concurrency,
+        )
+        result = await gen.generate(
+            source_id=source_id,
+            source_text=raw_doc.content,
+            source_metadata=dict(meta),
+            task_id=task_id,
+        )
 
-        await append_task_log(task_id, f"✂️ 分块完成，共 {len(text_chunks)} 个片段")
+        total = result.pages_created + result.pages_updated
+        if result.error:
+            await append_task_log(task_id, f"⚠️ Wiki 分析失败: {result.error}")
+            try:
+                from utils.agent_bus import emit
+                emit(f"⚠️ Wiki 失败: {result.error[:80]}", kind="error", agent="ingest", task_id=task_id)
+            except Exception:
+                pass
+        elif total == 0:
+            await append_task_log(task_id, "⚠️ Wiki 未生成新页面（可能内容过短或无实体）")
+        else:
+            await append_task_log(task_id, f"✅ Wiki: {result.pages_created} 新页面 / {result.pages_updated} 更新 / {result.edges_added} 边")
+            try:
+                from utils.agent_bus import emit
+                emit(f"✅ Wiki: {result.pages_created} 新页面 / {result.pages_updated} 更新", kind="success", agent="ingest", task_id=task_id)
+            except Exception:
+                pass
 
-        chunk_dicts = [
-            {
-                "id": str(uuid.uuid4()),
-                "source_id": source_id,
-                "content": c.content,
-                "chunk_index": c.chunk_index,
-                "metadata": c.metadata,
-            }
-            for c in text_chunks
-        ]
-
-        await append_task_log(task_id, "🔍 去重检查…")
-        unique = await filter_duplicates(chunk_dicts)
-        if not unique:
-            await append_task_log(task_id, "⚠️ 所有片段均重复，已跳过")
-            await update_task(task_id, "done")
-            await update_source_status(source_id, "done")
-            return 0
-        await append_task_log(task_id, f"🔍 去重后 {len(unique)} 个片段")
-
-        texts = [c["content"] for c in unique]
-        await append_task_log(task_id, f"🧠 向量化 {len(texts)} 个片段…")
-        dense_vecs = await embed_dense(texts)
-        sparse_vecs = embed_sparse(texts)
-        await append_task_log(task_id, "🧠 向量化完成")
-
-        chunk_docs = [
-            ChunkDoc(
-                id=c["id"],
-                content=c["content"],
-                dense_vector=dv,
-                sparse_indices=sv[0],
-                sparse_values=sv[1],
-                metadata=c["metadata"],
-            )
-            for c, dv, sv in zip(unique, dense_vecs, sparse_vecs)
-        ]
-
-        await upsert_chunks(chunk_docs)
-        await insert_chunks(unique)
-
-        await append_task_log(task_id, f"✅ 摄入完成，存储 {len(unique)} 个片段")
         await update_task(task_id, "done")
         await update_source_status(source_id, "done")
-
-        # L2 wiki layer (best-effort, async). The worker may not be
-        # running (test harnesses, CLI ingest) — enqueue_event handles
-        # that case and just returns False. We never block ingest on
-        # wiki maintenance and never raise.
-        try:
-            from wiki import enqueue_event
-            from wiki.worker import WikiEvent
-            title = (
-                meta.get("title")
-                or raw_doc.metadata.get("title")
-                or meta.get("source_url")
-                or source_id
-            )
-            await enqueue_event(WikiEvent(
-                kind="ingest",
-                source_id=source_id,
-                summary=f"{title} ({len(unique)} chunks)",
-                raw_text=raw_doc.content,
-                source_metadata=dict(meta),
-            ))
-        except Exception as exc:  # noqa: BLE001
-            # The wiki layer is purely additive — if it ever broke
-            # ingest we'd want to know but never want to fail the
-            # user's request.
-            from logging import getLogger
-            getLogger(__name__).debug("wiki enqueue failed (non-fatal): %s", exc)
-
-        return len(unique)
+        return total
 
     except Exception as exc:
         await append_task_log(task_id, f"❌ 错误：{exc}")

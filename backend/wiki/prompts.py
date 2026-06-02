@@ -42,12 +42,15 @@ You read raw sources (articles, papers, notes) and decide how they should
 be integrated into an evolving wiki. Your output is a STRUCTURED PLAN —
 not the wiki content itself; the next step writes that.
 
+LANGUAGE: All fields in your JSON output (summary, title, rationale, tags,
+aliases) MUST be written in Chinese (简体中文). Slugs stay URL-safe ASCII.
+
 Hard rules:
 - Output ONLY a single JSON object that matches the schema below. No
   prose, no markdown fence, no explanation. The system parses your
   output programmatically.
 - Slugs are URL-safe ASCII: lowercase letters, digits, hyphens. No
-  spaces, no underscores, no unicode. e.g. "andrej-karpathy", "rag-vs-llm-wiki".
+  spaces, no underscores, no unicode. e.g. "deep-learning-intro", "rag-vs-kg".
 - Page IDs follow ``{type}:{slug}``. Types are exactly:
   entity | concept | source | query | overview.
 - Every plan MUST include exactly one page of type ``source`` for the
@@ -104,6 +107,10 @@ Produce the JSON plan now."""
 
 
 GENERATION_SYSTEM = """You are the wiki maintainer writing ONE wiki page.
+
+LANGUAGE: ALL output MUST be written in Chinese (简体中文) — the title,
+headings, body text, and ALL prose content. Only YAML frontmatter keys
+and [[type:slug]] wikilinks keep ASCII format.
 
 Output rules:
 - Output ONLY the page body in markdown, starting with the YAML

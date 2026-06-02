@@ -9,49 +9,49 @@
   const CHAT_TEMPLATES = {
     assistant: {
       badge: 'Knowledge Q&A',
-      heading: '直接提问，按资料回答',
-      subtitle: '基于知识库的对话式助手',
-      welcome: '你好，我会优先基于当前知识库中的内容来回答你的问题。',
-      placeholder: '输入你的问题，开始检索与问答…',
-      disclaimer: '回答由 AI 基于资料生成，请对关键信息再次核验。',
+      heading: 'Hi, how can I help?',
+      subtitle: '',
+      welcome: 'Ask any question about your knowledge base.',
+      placeholder: 'Ask a question...',
+      disclaimer: 'AI may make mistakes. Verify important information.',
       color: '#5b8cff',
       tone: 'light',
-      hints: ['基于资料回答', '支持长文本问答', '保留引用链路'],
+      hints: [],
     },
     guide: {
       badge: 'Guided Explainer',
-      heading: '想先从哪一段开始？',
-      subtitle: '适合课程、故事与讲解型场景',
-      welcome: '欢迎来到这里，我会结合资料内容为你梳理重点、背景和细节。',
-      placeholder: '想先了解哪一部分内容？',
-      disclaimer: '讲解内容会结合资料总结生成，引用与细节请结合原文复核。',
+      heading: 'What would you like to explore?',
+      subtitle: '',
+      welcome: 'I\'ll walk you through the material step by step.',
+      placeholder: 'What topic interests you?',
+      disclaimer: 'AI may make mistakes. Verify important information.',
       color: '#f07c52',
       tone: 'light',
-      hints: ['适合课程讲解', '先梳理脉络再深入细节', '适合连续追问'],
+      hints: [],
     },
     support: {
       badge: 'Support Desk',
-      heading: '把问题告诉我，我来排查',
-      subtitle: '面向客户支持与产品答疑',
-      welcome: '你好，我会优先基于知识库里的流程、FAQ 与说明文档来回答你。',
-      placeholder: '描述你的问题、报错或使用场景…',
-      disclaimer: '客服答案可能随版本变化，请以正式公告和产品后台为准。',
+      heading: 'How can I help you?',
+      subtitle: '',
+      welcome: 'Describe your issue and I\'ll find answers from our knowledge base.',
+      placeholder: 'Describe your problem or question...',
+      disclaimer: 'AI may make mistakes. Verify important information.',
       color: '#1bb98a',
       tone: 'dark',
-      hints: ['FAQ 与流程优先', '适合支持与排障', '关键步骤可追溯'],
+      hints: [],
     },
   };
 
   const PREVIEW_SCENARIO = {
-    name: '知识资料问答',
-    description: '离线预览模式',
+    name: 'Knowledge Q&A',
+    description: '',
     ui_config: {
       template: 'assistant',
-      title: '知识资料问答',
-      subtitle: '离线预览模式',
-      welcome: '你好，我会优先基于当前知识库中的内容来回答你的问题。',
-      placeholder: '输入你的问题，开始检索与问答…',
-      disclaimer: '回答由 AI 基于资料生成，请对关键信息再次核验。',
+      title: 'Knowledge Q&A',
+      subtitle: '',
+      welcome: 'Ask any question about your knowledge base.',
+      placeholder: 'Ask a question...',
+      disclaimer: 'AI may make mistakes. Verify important information.',
       color: '#5b8cff',
     },
   };
@@ -65,12 +65,12 @@
     return;
   }
 
-  const messagesEl = document.getElementById('chat-messages');
-  const inputEl = document.getElementById('chat-input');
-  const welcomeEl = document.getElementById('welcome-message');
-  const apiKeyInput = document.getElementById('api-key-input');
-  const sendBtn = document.getElementById('btn-send');
-  const chatDisclaimer = document.getElementById('chat-disclaimer');
+  let messagesEl = document.getElementById('chat-messages');
+  let inputEl = document.getElementById('chat-input');
+  let welcomeEl = document.getElementById('welcome-message');
+  let apiKeyInput = document.getElementById('api-key-input');
+  let sendBtn = document.getElementById('btn-send');
+  let chatDisclaimer = document.getElementById('chat-disclaimer');
 
   let chatHistory = [];
   let isStreaming = false;
@@ -78,12 +78,23 @@
   let messageSeq = 0;
   let previewMode = previewRequested;
 
-  // Persist API key
+  // Persist API key — saved on button click, not every keystroke
   const storageKey = `omnikb_kb_key_${scenarioId || 'preview'}`;
   apiKeyInput.value = localStorage.getItem(storageKey) || '';
-  apiKeyInput.addEventListener('change', () => {
-    localStorage.setItem(storageKey, apiKeyInput.value.trim());
-  });
+  const btnSettings = document.getElementById('btn-show-key-modal');
+  if (btnSettings && apiKeyInput.value) btnSettings.classList.add('has-key');
+
+  // ── Key modal ────────────────────────────────────────
+  const keyModal = document.getElementById('key-modal-backdrop');
+  const btnCloseModal = document.getElementById('btn-close-key-modal');
+  const btnSaveKey = document.getElementById('btn-save-key');
+
+  // Key modal event listeners moved to bindAllEvents()
+
+  // Key visibility toggle
+  const btnKeyToggle = document.getElementById('btn-key-toggle');
+  const iconKeyEye = document.getElementById('icon-key-eye');
+  // Key visibility toggle moved to bindAllEvents()
 
   function esc(s) {
     return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -201,7 +212,7 @@
 
   async function loadScenario() {
     if (previewMode) {
-      applyPreviewScenario('离线预览模式');
+      applyPreviewScenario('');
       return;
     }
 
@@ -213,7 +224,7 @@
       applyUiConfig(sc);
     } catch (e) {
       previewMode = true;
-      applyPreviewScenario('当前后端不可达，已切换到离线预览模式');
+      applyPreviewScenario('');
     }
   }
 
@@ -260,19 +271,94 @@
     applyBrandTokens(shell, ui.color);
 
     document.getElementById('custom-css').textContent = sanitizeCustomCss(ui.css);
+
+    // ── Apply agent-written full page customizations ──
+    if (sc && sc.ui_config) {
+      const uiCfg = sc.ui_config;
+      if (uiCfg.page_html) {
+        document.body.innerHTML = uiCfg.page_html;
+        rebindDomRefs();
+        bindAllEvents();
+      }
+      if (uiCfg.page_css) {
+        document.getElementById('custom-css').textContent = sanitizeCustomCss(uiCfg.page_css);
+      }
+      if (uiCfg.page_js) {
+        try { new Function(uiCfg.page_js)(); } catch(e) {}
+      }
+    }
   }
 
+  function rebindDomRefs() {
+    messagesEl = document.getElementById('chat-messages');
+    inputEl = document.getElementById('chat-input');
+    welcomeEl = document.getElementById('welcome-message');
+    apiKeyInput = document.getElementById('api-key-input');
+    sendBtn = document.getElementById('btn-send');
+    chatDisclaimer = document.getElementById('chat-disclaimer');
+  }
+
+  function bindAllEvents() {
+    const btnSettings = document.getElementById('btn-show-key-modal');
+    const btnCloseModal = document.getElementById('btn-close-key-modal');
+    const keyModal = document.getElementById('key-modal-backdrop');
+    const btnSaveKey = document.getElementById('btn-save-key');
+
+    if (btnSettings) btnSettings.addEventListener('click', () => keyModal.classList.remove('hidden'));
+    if (btnCloseModal) btnCloseModal.addEventListener('click', () => keyModal.classList.add('hidden'));
+    keyModal.addEventListener('click', e => { if (e.target === keyModal) keyModal.classList.add('hidden'); });
+    btnSaveKey.addEventListener('click', () => {
+      localStorage.setItem(storageKey, apiKeyInput.value.trim());
+      if (btnSettings) btnSettings.classList.toggle('has-key', !!apiKeyInput.value.trim());
+      keyModal.classList.add('hidden');
+      toast('API 密钥已保存', 'success');
+    });
+
+    // Key visibility toggle
+    const btnKeyToggle = document.getElementById('btn-key-toggle');
+    const iconKeyEye = document.getElementById('icon-key-eye');
+    if (btnKeyToggle && iconKeyEye) {
+      btnKeyToggle.addEventListener('click', () => {
+        const isVisible = apiKeyInput.type === 'text';
+        apiKeyInput.type = isVisible ? 'password' : 'text';
+        if (isVisible) {
+          iconKeyEye.innerHTML = '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>';
+        } else {
+          iconKeyEye.innerHTML = '<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/>';
+        }
+      });
+    }
+
+    // Send / input / clear
+    sendBtn.addEventListener('click', sendMessage);
+    inputEl.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+    });
+    inputEl.addEventListener('input', resizeComposer);
+    document.getElementById('btn-clear-chat').addEventListener('click', resetConversation);
+  }
+
+  bindAllEvents();
   loadScenario();
 
   // ── Markdown rendering ─────────────────────────────────────────
 
-  // Configure marked for safe, real-time rendering
+  // Configure marked + highlight.js for safe, real-time rendering
   if (typeof marked !== 'undefined') {
     marked.setOptions({
       breaks: true,
       gfm: true,
       silent: true, // ignore errors, keep rendering
     });
+    if (typeof hljs !== 'undefined') {
+      marked.setOptions({
+        highlight: function(code, lang) {
+          const language = hljs.getLanguage(lang) ? lang : 'plaintext';
+          return hljs.highlight(code, { language }).value;
+        },
+        langPrefix: 'hljs language-',
+      });
+    }
   }
 
   function renderMarkdown(text) {
@@ -335,13 +421,7 @@
 
   // ── Send message ───────────────────────────────────────────────
 
-  document.getElementById('btn-send').addEventListener('click', sendMessage);
-  inputEl.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
-  });
-  inputEl.addEventListener('input', resizeComposer);
-
-  document.getElementById('btn-clear-chat').addEventListener('click', resetConversation);
+  // Send/input/clear listeners moved to bindAllEvents()
 
   async function sendMessage() {
     if (isStreaming) return;
@@ -350,7 +430,7 @@
 
     const apiKey = apiKeyInput.value.trim();
     if (!previewMode && !apiKey) {
-      alert('请先输入 API 密钥');
+      toast('请先输入 API 密钥', 'warning');
       return;
     }
 
@@ -361,32 +441,43 @@
     chatHistory.push({ role: 'user', content: text });
     addMessage('user', text);
 
-    const aiMsgId = addMessage('assistant');
-    const contentEl = document.getElementById(`${aiMsgId}-content`);
-    contentEl.classList.add('typing-cursor');
+    // Don't create AI bubble yet — wait for first token
+    let aiMsgId = null;
+    let contentEl = null;
 
     isStreaming = true;
     sendBtn.disabled = true;
 
     if (previewMode) {
+      // Still need a bubble for preview mode too
+      aiMsgId = addMessage('assistant');
+      contentEl = document.getElementById(`${aiMsgId}-content`);
+      contentEl.classList.add('typing-cursor');
       runPreviewAnswer(text, contentEl);
       return;
     }
 
     let fullText = '';
-    let renderPending = false;
-    let lastRenderedLen = 0;
-    function scheduleRender() {
-      if (renderPending) return;
-      renderPending = true;
-      requestAnimationFrame(() => {
-        renderPending = false;
-        if (fullText.length !== lastRenderedLen) {
-          lastRenderedLen = renderToElement(contentEl, fullText, lastRenderedLen);
-          const atBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 80;
-          if (atBottom) messagesEl.scrollTop = messagesEl.scrollHeight;
-        }
-      });
+    let firstToken = true;
+
+    function ensureAiBubble() {
+      if (!aiMsgId) {
+        aiMsgId = addMessage('assistant');
+        contentEl = document.getElementById(`${aiMsgId}-content`);
+        if (contentEl) contentEl.classList.add('typing-cursor');
+      }
+    }
+
+    function scheduleStreamRender() {
+      // Direct render — no debounce for true streaming feel
+      if (!contentEl) return;
+      contentEl.innerHTML = renderMarkdown(fullText);
+      if (typeof hljs !== 'undefined') {
+        contentEl.querySelectorAll('pre code:not(.hljs)').forEach(b => hljs.highlightElement(b));
+      }
+      _addCopyButtons(contentEl);
+      const atBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 80;
+      if (atBottom) messagesEl.scrollTop = messagesEl.scrollHeight;
     }
 
     try {
@@ -425,23 +516,35 @@
           try {
             const evt = JSON.parse(raw);
             if (evt.type === 'token') {
+              if (firstToken) {
+                firstToken = false;
+                ensureAiBubble();
+              }
               fullText += evt.content;
-              scheduleRender();
+              scheduleStreamRender();
             } else if (evt.type === 'citations') {
+              ensureAiBubble();
               showCitations(evt.citations, contentEl);
             }
           } catch {}
         }
       }
 
-      if (renderPending) renderPending = false;
-      contentEl.classList.remove('typing-cursor');
-      contentEl.innerHTML = renderMarkdown(fullText);
+      if (contentEl) {
+        contentEl.classList.remove('typing-cursor');
+        contentEl.innerHTML = renderMarkdown(fullText);
+        if (typeof hljs !== 'undefined') {
+          contentEl.querySelectorAll('pre code:not(.hljs)').forEach(b => hljs.highlightElement(b));
+        }
+      }
       chatHistory.push({ role: 'assistant', content: fullText });
 
     } catch (e) {
-      contentEl.classList.remove('typing-cursor');
-      contentEl.innerHTML = `<span style="color:var(--c-err-t);">错误：${esc(e.message)}</span>`;
+      if (!contentEl) ensureAiBubble();
+      if (contentEl) {
+        contentEl.classList.remove('typing-cursor');
+        contentEl.innerHTML = `<span style="color:var(--c-err-t);">Error: ${esc(e.message)}</span>`;
+      }
     } finally {
       isStreaming = false;
       sendBtn.disabled = false;
@@ -450,23 +553,10 @@
 
   function showCitations(citations, targetEl) {
     if (!citations || !citations.length) return;
-    // Render citations inline below the answer
-    const existing = targetEl.querySelector('.kbchat-citation-list');
-    if (existing) existing.remove();
-    const block = document.createElement('div');
-    block.className = 'kbchat-citation-list';
-    block.innerHTML = `
-      <div class="kbchat-citation-divider"></div>
-      <ol class="kbchat-citation-items">
-        ${citations.map((c, i) => `
-          <li value="${c.index || i + 1}">
-            <span class="kbchat-citation-source">${esc(c.source || 'unknown')}</span>
-            ${c.score ? `<span class="kbchat-citation-score">${c.score.toFixed(2)}</span>` : ''}
-            <span class="kbchat-citation-text">${esc((c.content || '').substring(0, 200))}</span>
-          </li>
-        `).join('')}
-      </ol>`;
-    targetEl.appendChild(block);
+    if (window.OmnikbCitations) {
+      OmnikbCitations.clear(targetEl);
+      OmnikbCitations.render(targetEl, citations);
+    }
   }
 
   function runPreviewAnswer(text, contentEl) {
@@ -482,6 +572,7 @@
 
     const step = () => {
       if (index < lines.length) {
+        _addCopyButtons(contentEl);
         fullText += `${index ? '\n\n' : ''}${lines[index]}`;
         contentEl.innerHTML = renderMarkdown(fullText);
         messagesEl.scrollTop = messagesEl.scrollHeight;
@@ -499,7 +590,40 @@
     step();
   }
 
+  // ── Dark mode highlight.js theme swap ─────────────────────────
+
+  function syncHljsTheme() {
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    document.querySelectorAll('link[id^="hljs-theme"]').forEach(l => {
+      l.disabled = l.id.includes('light') ? isDark : !isDark;
+    });
+  }
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', syncHljsTheme);
+  window.addEventListener('omni-theme-change', syncHljsTheme);
+  syncHljsTheme();
+
   // Focus input on load
   resizeComposer();
   inputEl.focus();
+
+  function _addCopyButtons(el) {
+    el.querySelectorAll('pre').forEach(pre => {
+      if (pre.querySelector('.kbchat-copy-btn')) return;
+      const wrapper = document.createElement('div');
+      wrapper.className = 'kbchat-code-block';
+      pre.parentNode.insertBefore(wrapper, pre);
+      wrapper.appendChild(pre);
+      const btn = document.createElement('button');
+      btn.className = 'kbchat-copy-btn';
+      btn.textContent = '复制';
+      btn.onclick = () => {
+        const code = pre.textContent || '';
+        navigator.clipboard.writeText(code).then(() => {
+          btn.textContent = '已复制!';
+          setTimeout(() => btn.textContent = '复制', 2000);
+        });
+      };
+      wrapper.appendChild(btn);
+    });
+  }
 })();

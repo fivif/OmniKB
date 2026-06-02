@@ -1,550 +1,317 @@
-# OmniKB — Universal AI Knowledge Base Agent
+<h1 align="center">OmniKB</h1>
+<h3 align="center">Universal AI Knowledge Base — Wiki-first, RAG-free, Agent-native</h3>
+<h4 align="center">全渠道摄入 · 混合语义检索 · LLM 自动建维 · Agent 智能采集 · MCP 协议开放</h4>
 
-全渠道摄入 · 混合语义检索 · RAG 流式对话 · MCP 协议开放 · Agent 智能采集
+<p align="center">
+  <a href="https://github.com/xzay/omnikb"><img src="https://img.shields.io/badge/GitHub-omnikb-blue?logo=github" alt="GitHub"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="License: MIT"></a>
+  <a href="#"><img src="https://img.shields.io/badge/python-3.11+-blue?logo=python&logoColor=white" alt="Python 3.11+"></a>
+  <a href="#"><img src="https://img.shields.io/badge/LLM-DeepSeek_V4-536DFE" alt="DeepSeek V4"></a>
+  <a href="#"><img src="https://img.shields.io/badge/storage-SQLite_+_Qdrant-orange?logo=sqlite" alt="Storage"></a>
+  <a href="#"><img src="https://img.shields.io/badge/API-OpenAI_Compatible-412991" alt="OpenAI Compatible"></a>
+</p>
 
-## 快速开始
+<p align="center">
+  <a href="#-什么是-omnikb">中文</a> ·
+  <a href="#-what-is-omnikb">English</a>
+</p>
+
+---
+
+## 🧠 什么是 OmniKB
+
+**OmniKB** 是一个"维基优先"的通用 AI 知识库。与传统 RAG 不同，我们不把文档切成碎片交给向量数据库——而是让 LLM 阅读、分析、生成结构化维基页面。维基本身就是知识库。
+
+核心洞察来自 [Andrej Karpathy 的 LLM-Wiki 构想](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f)：LLM 应该像人类学生一样建立结构化的知识体系，而不是在一堆碎片里翻找。OmniKB 践行了这一理念。
+
+### 架构总览
+
+```
+┌────────────────────────────────────────────────────────────────────┐
+│                        WIKI-FIRST PIPELINE                         │
+│                                                                    │
+│  Sources ──► Extract ──► Wiki Generator (LLM)                     │
+│    URL         文本          │  ┌────────────────────────────┐     │
+│    PDF        Whisper         ├──► Entity / Concept / Source  ├──┐  │
+│    Video      OCR             │  │  Markdown + Frontmatter     │  │  │
+│    Text       抓取            │  └────────────────────────────┘  │  │
+│                               │                                    │  │
+│                               ├──► Knowledge Graph ──────────────┐│  │
+│                               │  [[wikilink]] + D3.js Force     ││  │
+│                               │                                   ││  │
+│                               ├──► index.md ◄── Progressive     ││  │
+│                               │  Disclosure Layer                ││  │
+│                               │                                   ││  │
+│                               └──► read_wiki_page ───► LLM Chat  ││  │
+│                                  MCP Tools · SSE Streaming        ││  │
+└────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## ✨ 核心特性
+
+| | |
+|---|---|
+| 🧠 **Wiki-First Architecture** | LLM 读取、分析、生成结构化维基页面。entity / concept / source / query 四类页面，markdown + frontmatter 标准格式。维基本身即知识库。 |
+| 🔗 **Knowledge Graph** | `[[wikilink]]` 交叉引用自动建立双向边，D3.js 力导向图谱可视化。graph_neighbors BFS 邻域探索。支持 surprising_connection / bridge / knowledge_gap 三种图谱洞察。 |
+| 💬 **True Streaming Chat** | SSE token-by-token 流式输出。wiki_index 渐进式披露：LLM 先扫描索引，再按需调用 `read_wiki_page(id)` 获取全量内容。引用溯源至源级。 |
+| 🎯 **Scenario Isolation** | 每个场景绑定独立的知识源子集、LLM 配置和 API Key。场景可发布为独立 Q&A 页面，适合客户支持、内部文档问答等场景。 |
+| 📡 **MCP Server** | 标准 Model Context Protocol。13 个工具（search_kb / ask_kb / ingest_url / browser_fetch / search_wiki / read_wiki_page / list_wiki_pages / graph_neighbors / deep_research...），SSE + stdio 双传输模式，Bearer Token 鉴权，滑动窗口限流。 |
+| 🕸️ **Web Agent** | 自主 URL 采集，Plan→Execute→Verify 三阶段循环。四层抓取策略（静态→Scrapling→Playwright→JsHook CDP），9 种反思检查点，预算守卫三重上限。 |
+| 🔍 **Deep Research** | 维基页面 knowledge_gap 自动检测 → 多查询搜索 (DDG) → 并行 URL 调查 → LLM 综合 → `## Recent Research` 追加。三种触发方式：手动/半自动/全自动周期轮询，任务持久化，失败隔离。 |
+| 🎨 **AURA UI** | 极简设计系统，5 个 CSS 令牌文件 + 8 个组件样式 + 7 个面板样式。明暗双主题，⌘K 命令面板，引用链可视化。 |
+| ⚡ **Zero Embedding (L2)** | L2 维基层不做任何向量嵌入、不做分块。混合检索仅用于 L1 遗留路径。维基层的检索是纯 tokenized 评分——轻量、快速、零外部依赖。 |
+
+---
+
+## 🚀 快速开始
 
 ```bash
-# 1. 配置环境变量
-cp .env.example .env    # 编辑 .env，填入 API Key
+# 1. 克隆仓库
+git clone https://github.com/xzay/omnikb
+cd omnikb
 
-# 2. 安装依赖
-cd backend
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+# 2. 配置环境变量
+cp .env.example .env
+# 编辑 .env，至少填入 LLM_API_KEY
 
-# 3. 启动（默认 QDRANT_MODE=local 本地文件持久化，无需额外服务）
-python main.py          # http://localhost:6886
+# 3. 安装依赖
+pip install -r backend/requirements.txt
+
+# 4. 启动（QDRANT_MODE=local 默认本地文件持久化）
+python backend/main.py
+
+# 5. 打开浏览器
+open http://localhost:6886
 ```
 
-## 界面预览
-
-### 摄入面板
-
-![Upload](docs/screenshots/01-upload.png)
-
-支持文件拖拽、URL 智能抓取、文本粘贴、批量任务队列。
-
-### 检索工作台
-
-![Search](docs/screenshots/02-search.png)
-
-混合语义检索，Dense + BM25 + RRF 融合，按来源/类型/标签过滤。
-
-### RAG 流式对话
-
-![Chat](docs/screenshots/03-chat.png)
-
-SSE 流式输出，引用溯源，Agent 自主调用检索工具。
-
-### 知识库管理
-
-![KB Manager](docs/screenshots/04-kb-manager.png)
-
-来源列表、标签管理、批量操作、数据导出。
-
-### 场景/问答管理
-
-![Scenarios](docs/screenshots/05-scenarios.png)
-
-创建限定范围的公开 Q&A API，独立 LLM 配置和 API Key。
-
-### 设置面板
-
-![Settings](docs/screenshots/06-settings.png)
-
-LLM 提供商、模型、代理、系统提示词等运行时配置。
-
-### Agent 实时控制台
-
-![Agent Console](docs/screenshots/09-agent-console.png)
-
-类型化事件流实时广播，任务状态追踪。
-
-### 独立知识库问答页
-
-![KB Chat](docs/screenshots/07-kb-chat-standalone.png)
-
-可嵌入外部站点的独立问答页面。
-
-### 场景 API 调试页
-
-![Scenario API](docs/screenshots/08-scenario-api.png)
-
-场景 API 接入文档与在线调试工具。
-
-## 核心功能
-
-### 数据摄入
-
-| 渠道 | 说明 |
-|---|---|
-| 文件上传 | TXT / MD / PDF / DOCX / HTML / JSON / CSV |
-| 视频转录 | MP4 / MKV / AVI / MOV / WebM → faster-whisper + ffmpeg |
-| 音频转录 | MP3 / WAV / M4A / OGG / FLAC |
-| URL 智能抓取 | AI Agent 自主判断策略，四层 fallback（httpx → scrapling → patchright → jshook CDP） |
-| 粘贴文本 | 任意文本直接入库 |
-| 图片 OCR | Vision Agent，PDF 低文字页自动 OCR |
-| 视频帧描述 | 间隔截帧 + VL 模型描述 |
-| Cookie 注入 | 支持认证页面采集 |
-
-质量保障：
-- **Web Judge** — LLM 评分 0-10，低于阈值自动丢弃
-- **URL 分析** — 规则 + LLM 双层分析页面采集策略
-- **研究状态追踪** — record_fact / close_subgoal 显式维护事实账本
-
-### 检索
-
-- **混合搜索**：Dense (BGE-M3 1024d) + Sparse (BM25) + RRF 融合
-- **重排序**：Cross-encoder `bge-reranker-v2-m3` 精排（可选开关）
-- **查询扩展**：领域词表覆盖 + 长查询自动分解子查询 + 轮询合并
-- **结果多样化**：同来源最多 3 条，跨来源覆盖
-- **过滤搜索**：按来源 / 类型 / 标签筛选
-- **高亮溯源**：命中关键词 `<mark>` 标记
-- **降级容错**：嵌入 API 故障时自动回退为纯 LLM 模式
-
-### RAG 对话
-
-- SSE 流式输出，引用溯源（chunk 级，含分数和来源 URL）
-- 迭代检索：LLM 判断上下文充分性，不足时自动补充（最多 2 轮）
-- 多轮会话持久化（SQLite），支持 DeepSeek 与第三方兼容网关
-- Agentic Chat 模式：Agent 可自主调用 search_kb / list_sources / fetch_url
-
-### MCP Server
-
-对外暴露 8 个标准工具，支持 **stdio** 和 **SSE** 双传输模式：
-
-| 工具 | 说明 |
-|---|---|
-| `search_kb` | 混合搜索知识库 |
-| `ask_kb` | 检索上下文 + LLM 综合回答 |
-| `ingest_url` | 智能抓取并摄入 URL（支持 cookies/intent） |
-| `ingest_text` | 摄入文本 |
-| `list_sources` | 列出知识库来源 |
-| `get_chunk` | 按 ID 获取 chunk |
-| `browser_fetch` | 浏览器渲染抓取 |
-| `jshook_call` | jshookmcp CDP 工具调用 |
-
-特性：Bearer Token 鉴权、滑动窗口速率限制（60次/60秒/IP）、调用日志持久化（SQLite）。
-
-### Agent 运行时
-
-自研 `agent_core` — Provider 无关的 Agent 循环引擎（2,292 行，13 文件）：
-
-- **5 步生命周期**：ContextTransform → LLMStream → ToolExec → SteeringCheck → GracefulStop
-- **9 种类型化事件**：SSE 实时广播（agent_start, turn_start, message_start/end, tool_execution_start/end, turn_end, agent_end）
-- **BudgetTracker 预算守卫**：input/output token、wall-clock 三重上限，超额优雅终止，附带完整快照
-- **反思检查点**：每 N 次工具调用注入自检提示，替代硬上限——Agent 自行总结进度、关闭子目标、调整方向
-- **消息压缩**：Token 感知自动摘要压缩（双触发：上下文窗口接近 + 绝对 token 阈值）
-- **提示缓存**：DeepSeek / OpenAI-compatible 缓存适配，减少重复 Token 消耗
-- **转向注入**：运行中可接收外部指令（中断 / 转向），支持真 human-in-the-loop
-- **技能记忆**：`recall_skill` → `save_skill` 闭环，常用 recipe 自动上浮
-- **工具输出截断**：超量自动溢出到磁盘，LLM 仅见预览
-
-### Web Agent 三阶段循环
-
-```
-Plan → Execute → Verify
-
-1. Plan:   分析 URL 拓扑，输出 subgoals + success_criteria
-2. Execute: 四层工具梯（http_get → browser_get_text → jshook CDP），自动升级
-3. Verify:  强制 self_check，不足则补充，2 次失败后诚实输出
-```
-
-### LLM-Wiki 二级索引（叠加层）
-
-灵感来自 [Karpathy 的 LLM-Wiki gist](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) — RAG 留作规模兜底，wiki 层负责跨文综合 / 累积 / 可视化。**完全叠加，不替换 RAG**。
-
-- **L1（RAG）**：chunks + embeddings + Qdrant，适合规模与实时检索
-- **L2（Wiki）**：LLM 维护的 entity / concept / source / query 页面（markdown + frontmatter），存 `data/wiki/`，wikilink 双向边，sigma.js 力导向图谱
-
-每次摄入触发：
-1. RAG 立即可用（不变）
-2. 后台 wiki worker 异步生成 / 增量更新 wiki 页面（可关，wallet-friendly）
-3. wiki 失败永远不影响 RAG（叠加层 cardinal 原则）
-
-**Lint + Insights**：四类页面健康问题（orphan / contradicts / superseded / empty_body）+ 三类图谱洞察（surprising_connection / bridge / **knowledge_gap**），UI 可视化展示，活动按钮一键巡检。
-
-### Deep Research 自主补全
-
-LLM 自查自补的最后一环：
-
-```
-ingest → 生成 wiki 页 → lint 找出 knowledge_gap →
-auto_dispatch_from_gaps → 每个 gap 页跑 DDG 搜索 →
-  agents/web/loop.run_agent 抓取每个 URL（Plan→Execute→Verify）→
-  LLM 综合 → 追加 ## Recent Research (date) 到页面
-```
-
-**Append-only 不变量**：永远只追加 section，绝不覆盖已有正文（Karpathy 模式硬约束）。失败隔离：单 URL 失败 → 其余继续；全 URL 失败 → 整体放弃，页面不动。
-
-任务持久化到 sqlite `wiki_research_task` 表 + 进程内 dict 双层（重启不丢、可审计、可跨 worker 进程）。3 个触发方式：
+### Docker 部署
 
 ```bash
-# 1. 手动 / UI（页面右上角望远镜按钮）
-POST /wiki/research { "page_id": "entity:karpathy" }
-
-# 2. 半自动：lint 后批量
-GET /wiki/insights?auto_research=true
-
-# 3. 全自动：周期 worker（默认关）
-WIKI_AUTO_RESEARCH_ENABLED=true
-WIKI_AUTO_RESEARCH_INTERVAL_HOURS=6
-WIKI_AUTO_RESEARCH_MAX_PER_RUN=3
-WIKI_AUTO_RESEARCH_COOLDOWN_HOURS=24
+cp .env.example .env   # 编辑 .env 填入 API Key
+docker compose up -d
+docker compose logs -f omnikb
+# 打开 http://localhost:6886
 ```
 
-Cooldown 防滥触发，max_per_run 守钱包，`abandoned` 状态自动重试（崩溃恢复），`done`/`failed` 严格冷却。
+---
 
-## 技术架构
+## 🧱 技术栈
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│              FRONTEND  Vanilla JS + TailwindCSS              │
-│  Upload · Search · Chat · KB Manager · Scenarios · Settings │
-│                   Agent Console (底部实时)                    │
-└──────────────────────┬───────────────────────────────────────┘
-                       │ REST / SSE
-┌──────────────────────▼───────────────────────────────────────┐
-│                  BACKEND API  FastAPI                        │
-│  /ingest  /search  /chat  /kb  /agent  /scenarios  /settings│
-│  /metrics  /mcp                                              │
-└────┬──────────────────────────────────┬──────────────────────┘
-     │                                  │
-┌────▼────────────────────┐  ┌──────────▼──────────────────────┐
-│  AGENT SYSTEM           │  │  MCP SERVER  FastMCP           │
-│  agent_core 运行时       │  │  8 工具 · SSE/stdio · 鉴权    │
-│  ──────────────────     │  └─────────────────────────────────┘
-│  WebAgent  DocAgent     │
-│  MediaAgent  VisionAgent│
-│  WebJudge  URLAnalyst   │
-└────┬────────────────────┘
-     │
-┌────▼─────────────────────────────────────────────────────────┐
-│                PROCESSING PIPELINE                           │
-│  AutoTag → Chunk → Embed(Dense∥Sparse) → Dedup → Rerank → Index │
-└────┬─────────────────────────────────────────────────────────┘
-     │
-┌────▼─────────────────────────────────────────────────────────┐
-│                   STORAGE LAYER                              │
-│   Qdrant (向量)  │  SQLite (元数据 · WAL)  │  File Store     │
-└──────────────────────────────────────────────────────────────┘
-```
+### Backend
 
-## 项目结构
+| 层 | 技术 |
+|---|---|
+| 框架 | **FastAPI** — 异步 HTTP，SSE 流式，CORS 中间件 |
+| LLM | **DeepSeek-V4** / **OpenAI-compatible** — 1M 上下文，代理支持 |
+| 数据库 | **SQLite** (aiosqlite · WAL 模式) — 元数据、维基页面、研究任务、MCP 日志 |
+| 向量存储 | **Qdrant** (local / remote / memory) — L1 遗留混合检索 |
+| 嵌入 | **BGE-M3** 1024d (dense) + **BM25** (sparse) — 双向量嵌入 |
+| 重排序 | **bge-reranker-v2-m3** Cross-encoder — 可选精排 |
+| 语音转录 | **faster-whisper** (tiny~large-v2) — ffmpeg 音频提取 |
+| Agent 引擎 | **agent_core** — 自研 Provider 无关 Agent 循环（预算守卫 · 反思检查点 · 提示缓存 · 转向注入 · 消息压缩 · 工具截断溢出） |
+| MCP | **FastMCP** — SSE + stdio 双模式，Bearer Token 鉴权 |
+| 爬虫 | **scrapling · patchright · JsHook CDP** — 四级采集策略 |
+| 配置 | **Pydantic Settings** — 60+ 环境变量，运行时自检，密钥脱敏 |
 
-```
-OmniKB/
-├── .env.example
-├── README.md
-├── docs/                          # API + 部署文档
-├── tests/                         # agent_core 单元测试 + QA 检索评估
-├── frontend/
-│   ├── index.html
-│   ├── kb-chat.html
-│   ├── scenario-api.html
-│   ├── ominIKB.png                # Logo 源文件
-│   ├── favicon-32.png
-│   ├── logo-64.png / logo-128.png
-│   ├── omnibot-widget.js          # 嵌入式聊天组件
-│   ├── css/
-│   │   ├── main.css
-│   │   ├── tokens.css             # 设计令牌（颜色/间距/字体）
-│   │   ├── reset.css              # CSS Reset
-│   │   ├── layout.css             # 全局布局
-│   │   ├── components/            # 组件样式（button/card/input/toast/…）
-│   │   └── panels/                # 面板样式（chat/upload/search/kb/…）
-│   └── js/
-│       ├── app.js                 # 全局状态、路由、Tab 切换
-│       ├── theme.js               # 明暗主题切换
-│       ├── upload.js              # 摄入面板（拖拽/URL/文本/任务队列）
-│       ├── search.js              # 检索工作台（混合/语义/BM25）
-│       ├── chat.js                # RAG 流式对话
-│       ├── kb-manager.js          # 知识库管理（来源/标签/批量/导出）
-│       ├── kb-chat.js             # 知识库问答面板
-│       ├── settings.js            # 设置面板（LLM/模型/代理）
-│       ├── agent-console.js       # Agent 实时控制台（类型化事件）
-│       ├── citation-chain.js      # 引用链可视化
-│       ├── command-palette.js     # 命令面板（⌘K）
-│       ├── scenario-manager.js    # 场景/QA 管理
-│       └── scenario-api.js        # 场景 API 客户端
-└── backend/
-    ├── requirements.txt
-    ├── main.py                    # FastAPI 入口 · 中间件 · lifespan
-    ├── config.py                  # Pydantic 配置（38 个 env 变量）
-    ├── agent_core/                # Provider 无关 Agent 运行时
-    │   ├── loop.py                # run_loop 主循环（5 步生命周期）
-    │   ├── events.py              # AgentEvent + EventStream 广播总线
-    │   ├── budget.py              # BudgetTracker 预算守卫
-    │   ├── compaction.py          # Token 感知消息压缩
-    │   ├── cache.py               # 提示缓存适配
-    │   ├── steering.py            # 转向队列
-    │   ├── tool.py                # ToolExecutor + batch 执行
-    │   ├── truncate.py            # 工具输出截断 + 磁盘溢出
-    │   ├── tokens.py              # Token 计数
-    │   ├── hooks.py               # Hooks 接口
-    │   ├── messages.py            # 消息类型
-    │   └── state.py               # AgentState
-    ├── agents/
-    │   ├── orchestrator.py        # 摄入流水线调度
-    │   ├── doc_agent.py           # 文档解析（TXT/MD/PDF/DOCX/HTML）
-    │   ├── media_agent.py         # 音视频转录（faster-whisper + ffmpeg）
-    │   ├── web_agent.py           # 网页抓取（四层 fallback）
-    │   ├── web_judge.py           # LLM 页面质量评分 0-10
-     │   ├── url_analyst.py         # 规则 + LLM 双层 URL 策略分析
-     │   ├── vision_agent.py        # 图片 OCR + 视频帧描述
-     │   ├── jshook_client.py       # JsHookMCP 客户端
-     │   ├── llm.py                 # LLM 工厂（DeepSeek / 兼容网关）
-     │   └── web/                   # Web Agent 子模块
-     │       ├── loop.py            # web_agent_loop 主循环
-    │       ├── handler.py         # 请求处理器 + 工具定义
-    │       ├── prompts.py         # 系统提示词（Plan→Execute→Verify）
-    │       ├── research_state.py  # 研究状态追踪
-    │       ├── session.py         # 会话持久化
-    │       ├── pool.py            # JsHook / Playwright 连接池
-    │       ├── seeds/             # 种子 URL 模板
-    │       └── tools/             # http / browser / jshook / parse / memory
-    ├── pipeline/
-    │   ├── chunker.py             # 文本分块（800 chars / 160 overlap）
-    │   ├── embedder.py            # Dense(1024d) + Sparse(BM25) 嵌入
-    │   ├── extractor.py           # 元数据提取
-    │   ├── deduper.py             # SHA256 去重
-    │   ├── reranker.py            # Cross-encoder 重排序
-    │   ├── tagger.py              # LLM 自动标签
-    │   └── query_expander.py      # 查询扩展
-    ├── storage/
-    │   ├── vector_store.py        # Qdrant（local/remote/memory）
-    │   ├── metadata_db.py         # SQLite（aiosqlite · WAL）
-    │   └── file_store.py          # 原始文件存储
-    ├── mcp_server/
-    │   ├── server.py              # FastMCP + SSE 工厂
-    │   ├── tools.py               # 8 个 MCP 工具 + 调用日志
-    │   └── run_stdio.py           # stdio 入口
-    ├── api/
-    │   ├── ingest.py              # 摄入（file/text/url + 任务管理）
-    │   ├── search.py              # 检索（hybrid/semantic/bm25）
-    │   ├── chat.py                # RAG 流式对话（SSE + 迭代检索）
-    │   ├── kb.py                  # 知识库管理（CRUD + 批量 + 导出）
-    │   ├── kb_api.py              # 知识库问答 API
-    │   ├── agent_stream.py        # Agent SSE 事件流 + 转向
-    │   ├── settings.py            # 运行时配置读写
-    │   ├── scenarios.py           # 场景/QA 管理
-    │   ├── metrics.py             # Prometheus 指标
-    │   ├── mcp_logs.py            # MCP 调用日志查询
-    │   └── chat_tools.py          # Agentic Chat 专用工具
-    └── utils/
-        └── agent_bus.py           # Agent 消息总线
-```
+### Frontend
 
-## API 端点
+| 层 | 技术 |
+|---|---|
+| 框架 | **Vanilla JavaScript** — 零框架，直接 DOM API |
+| 布局 | **CSS Grid + Flexbox** — 响应式工具栏面板 |
+| 主题 | **AURA Design System** — CSS 自定义属性，明暗切换 |
+| 图谱 | **D3.js** — 力导向维基链接图 |
+| 渲染 | **marked** — markdown 转 HTML |
+| 高亮 | **highlight.js** — 代码块着色 |
+| 流式 | **SSE EventSource** — Agent 事件 + Chat 双向实时 |
 
-### 摄入
+---
 
-| Method | Path | 说明 |
-|---|---|---|
-| `POST` | `/ingest/file` | 上传文件 |
-| `POST` | `/ingest/text` | 摄入文本 |
-| `POST` | `/ingest/url` | 智能抓取 URL |
-| `GET` | `/ingest/tasks` | 任务列表 |
-| `GET` | `/ingest/tasks/{id}` | 任务状态 |
+## 📊 项目数据
 
-### 检索 & 对话
+| 指标 | 数值 |
+|---|---|
+| Python 后端 | ~19,600 行 / 94 个文件 |
+| JS/CSS/HTML 前端 | ~16,800 行 / 25 个文件 |
+| API 路由 | 10 个路由模块 |
+| MCP 工具 | 13 个标准工具 |
+| CSS 令牌 + 组件 + 面板 | 20 个样式文件 |
+| Agent 核心模块 | 13 个文件 (agent_core) |
 
-| Method | Path | 说明 |
-|---|---|---|
-| `GET` | `/search` | 混合检索（q, top_k, mode, filter） |
-| `POST` | `/chat` | RAG 流式对话（SSE） |
-| `DELETE` | `/chat/sessions/{thread_id}` | 删除会话 |
-| `GET` | `/chat/models` | 可用模型列表 |
+---
 
-### 知识库管理
+## 📖 文档
 
-| Method | Path | 说明 |
-|---|---|---|
-| `GET` | `/kb/sources` | 来源列表 |
-| `GET` | `/kb/sources/{id}` | 来源详情 + chunks |
-| `DELETE` | `/kb/sources/{id}` | 删除来源及数据 |
-| `PATCH` | `/kb/sources/{id}/tags` | 更新标签 |
-| `POST` | `/kb/sources/batch-delete` | 批量删除 |
-| `POST` | `/kb/sources/batch-tag` | 批量标签 |
-| `GET` | `/kb/tags` | 标签列表 |
-| `GET` | `/kb/stats` | 知识库统计 |
-| `GET` | `/kb/export` | 导出（JSON/CSV/ZIP） |
+| 文档 | 路径 |
+|---|---|
+| 快速开始 | 见上方 `## 快速开始` |
+| API 参考 | [`docs/API.md`](docs/API.md) |
+| 架构设计 | 见上方 `## 架构总览` + [`docs/`](docs/) |
+| 部署指南 | [`docs/DEPLOY.md`](docs/DEPLOY.md) |
+| 环境变量 | [`.env.example`](.env.example) |
+| 演进日志 | [`progress.md`](progress.md) |
 
-### Agent
+---
 
-| Method | Path | 说明 |
-|---|---|---|
-| `GET` | `/agent/events` | Agent 事件流 SSE（v1） |
-| `GET` | `/agent/v2/events` | Agent 事件流 SSE（v2 类型化） |
-| `POST` | `/agent/{task_id}/steer` | 向运行中 Agent 注入指令 |
-| `GET` | `/agent/sessions` | Session 列表 |
-| `GET` | `/agent/sessions/{id}` | Session 详情 + 消息历史 |
-| `GET` | `/agent/active-tasks` | 活跃任务列表 |
-
-### 场景管理
-
-| Method | Path | 说明 |
-|---|---|---|
-| `GET` | `/scenarios` | 场景列表 |
-| `POST` | `/scenarios` | 创建场景 |
-| `GET`/`PUT`/`DELETE` | `/scenarios/{id}` | 场景 CRUD |
-| `GET`/`POST`/`DELETE` | `/scenarios/{id}/sources` | 场景来源管理 |
-| `GET`/`POST`/`DELETE` | `/scenarios/{id}/keys` | 场景答案键管理 |
-| `POST` | `/scenarios/{id}/agent/assist` | Agent 辅助标注 |
-
-### 设置 & 运维
-
-| Method | Path | 说明 |
-|---|---|---|
-| `GET`/`POST` | `/settings/proxy` | 代理配置 |
-| `GET`/`POST` | `/settings/system-prompt` | RAG 系统提示词 |
-| `GET`/`POST` | `/settings/llm` | LLM 参数 |
-| `GET` | `/settings/models/status` | 模型下载状态 |
-| `POST` | `/settings/models/download` | 下载模型 |
-| `GET` | `/health` | 健康检查 |
-| `GET` | `/metrics` | Prometheus 指标 |
-| `GET/POST` | `/mcp` | MCP SSE 端点 |
-| `GET` | `/mcp/logs` | MCP 调用日志 |
-
-## 环境变量
-
-### LLM
-
-| 变量 | 说明 | 默认值 |
-|---|---|---|
-| `LLM_PROVIDER` | deepseek / custom | `deepseek` |
-| `LLM_MODEL` | 模型名称 | `deepseek-v4-pro` |
-| `LLM_BASE_URL` | DeepSeek 或第三方兼容网关地址（`deepseek` 可留空走官方默认） | — |
-| `LLM_API_KEY` | DeepSeek 或第三方兼容 API 密钥 | — |
-| `LLM_EXTRA_BODY_JSON` | OpenAI-compatible extra_body（如 `{"enable_thinking": false}`） | — |
-| `OPENAI_API_KEY` | 仅 embedding_provider=openai 或兼容旧配置时使用 | — |
-
-### Embedding
-
-| 变量 | 说明 | 默认值 |
-|---|---|---|
-| `EMBEDDING_PROVIDER` | siliconflow / openai | `siliconflow` |
-| `EMBEDDING_MODEL` | 嵌入模型 | `BAAI/bge-m3` |
-| `EMBEDDING_DIMENSIONS` | 向量维度 | `1024` |
-| `SILICONFLOW_API_KEY` | 硅基流动 API Key | — |
-| `SILICONFLOW_BASE_URL` | 硅基流动 API 地址 | `https://api.siliconflow.cn/v1` |
-| `EMBEDDING_CONCURRENCY` | 最大并发嵌入请求 | `3` |
-| `EMBEDDING_BATCH_SIZE` | 每次 API 调用文本数 | `32` |
-| `EMBEDDING_RPM_LIMIT` | 每分钟请求上限（0=关闭） | `10` |
-
-### 存储 & Qdrant
-
-| 变量 | 说明 | 默认值 |
-|---|---|---|
-| `QDRANT_URL` | Qdrant 服务地址 | `http://localhost:6333` |
-| `QDRANT_MODE` | local / remote / memory | `local` |
-| `QDRANT_LOCAL_PATH` | 本地持久化路径 | `./data/qdrant` |
-| `QDRANT_COLLECTION` | 集合名称 | `omnikb` |
-| `DATA_DIR` | 数据目录 | `./data` |
-| `SQLITE_PATH` | SQLite 数据库路径 | `./data/omnikb.db` |
-
-### Vision 多模态
-
-| 变量 | 说明 | 默认值 |
-|---|---|---|
-| `VISION_ENABLED` | 视觉能力开关 | `false` |
-| `VISION_PROVIDER` | 视觉 LLM 提供商（空=继承 LLM_PROVIDER；支持 deepseek/custom） | — |
-| `VISION_MODEL` | 视觉模型名称 | `gpt-4o-mini` |
-| `VISION_API_KEY` | 视觉 API 密钥（空=继承） | — |
-| `VISION_BASE_URL` | 视觉 API 地址（空=继承） | — |
-| `VISION_FRAME_INTERVAL` | 视频帧间隔（秒，0=禁用） | `60` |
-| `VISION_PDF_OCR_THRESHOLD` | PDF 低文字页 OCR 阈值 | `80` |
-
-### Web Agent
-
-| 变量 | 说明 | 默认值 |
-|---|---|---|
-| `WEB_JUDGE_ENABLED` | LLM 页面评分过滤 | `false` |
-| `WEB_JUDGE_MIN_SCORE` | 最低入库分数（0-10） | `4` |
-| `WEB_AGENT_MAX_INPUT_TOKENS` | input token 上限（0=关闭） | `200000` |
-| `WEB_AGENT_MAX_OUTPUT_TOKENS` | output token 上限 | `50000` |
-| `WEB_AGENT_MAX_SECONDS` | 墙钟时间上限（秒） | `300` |
-| `WEB_AGENT_MAX_TOOL_CALLS` | 工具调用次数上限（0=关闭） | `0` |
-| `WEB_AGENT_REFLECTION_INTERVAL` | 反思检查点间隔（次，0=关闭） | `8` |
-| `JSHOOK_POOL_SIZE` | jshook 连接池大小 | `2` |
-| `PLAYWRIGHT_POOL_SIZE` | Playwright 浏览器池大小 | `1` |
-
-### Chat Agent
-
-| 变量 | 说明 | 默认值 |
-|---|---|---|
-| `CHAT_AGENT_ENABLED` | 启用 Agentic Chat | `true` |
-| `CHAT_AGENT_MAX_TURNS` | 最大对话轮次 | `6` |
-| `CHAT_AGENT_MAX_TOOL_CALLS` | 工具调用上限 | `10` |
-| `RAG_SYSTEM_PROMPT` | RAG 系统提示词 | 内置默认 |
-
-### 其他
-
-| 变量 | 说明 | 默认值 |
-|---|---|---|
-| `WHISPER_MODEL_SIZE` | faster-whisper 模型大小 | `base` |
-| `RERANKER_ENABLED` | 重排序开关 | `false` |
-| `RERANKER_MODEL` | 重排序模型 | `BAAI/bge-reranker-v2-m3` |
-| `AUTOTAG_ENABLED` | 自动标签 | `false` |
-| `MCP_API_KEY` | MCP 鉴权密钥 | 必填 |
-| `HTTP_PROXY` | HTTP 代理地址 | — |
-| `HF_ENDPOINT` | HuggingFace 镜像 | — |
-| `FASTEMBED_CACHE_PATH` | BM25 模型缓存目录 | `~/.cache/fastembed` |
-
-## 测试
-
-### agent_core 单元测试
-
-10 个测试文件覆盖核心模块：loop、tool、events、compaction、cache、steering、truncate、tokens、state、messages。
-
-### 检索评估
-
-测试数据由 AI 搜索互联网整理生成，评分基于检索结果与期望关键词的匹配度，**仅反映系统检索召回能力，不构成对任何产品或事实的断言**。
-
-#### DeepSeek 知识库（24 题）
-
-12 篇 AI 生成的 DeepSeek 产品线文档，覆盖公司背景、V4/V3/R1/Coder/VL2/OCR/Prover 各模型、API 文档、Agent 集成、产品时间线共 11 个类别，19 个来源、约 150 个 chunk。
-
-| 问题 | 期望关键词 | 检索结果 | 评分 |
-|---|---|---|---|
-| DeepSeek-V3 总参数量和激活参数量？ | `671B`, `37B`, `MoE` | top1 chunk 精确命中 | 优秀 |
-| DeepSeek-V4-Pro 参数？上下文长度？ | `862B`, `1M` | top1 命中 862B，top3 命中 1M | 优秀 |
-| DeepSeek-R1 发布时间？许可证？ | `2025/01/20`, `MIT` | top1 命中完整日期 + MIT | 优秀 |
-| DeepSeek-Coder 支持语言数？训练数据量？ | `87`, `2T` | top1 命中 87 languages，top2 命中 2T | 优秀 |
-| DeepSeek API 的 OpenAI 兼容 Base URL？ | `api.deepseek.com` | top4 chunk 命中完整 URL | 部分覆盖 |
-| DeepSeek 产品线包含哪些模型系列？ | 7 个系列名 | 覆盖 V4/V3/R1/Coder/VL2/OCR/Prover 全部 | 优秀 |
-
-#### OpenAI 知识库（30 题）
-
-9 篇 AI 生成的 OpenAI 产品文档（公司背景 / GPT / 推理模型 / GPT-5 / 图像视频 / 语音 / 嵌入审核 / API 服务 / 定价限制），覆盖 10 个类别。
-
-| 问题 | 期望关键词 | 检索结果 | 评分 |
-|---|---|---|---|
-| GPT-4o 上下文窗口？定价？ | `128K`, `2.50`, `10.00` | top1 chunk 命中 128K + $2.50/$10.00 | 优秀 |
-| o 系列推理模型包含哪些型号？ | `o1`, `o3`, `o4-mini`, `o3-pro` | 跨 chunk 覆盖全部 | 优秀 |
-| Whisper 定价？支持音频格式？ | `0.006`, `flac`, `mp3`, `wav`, `ogg` | top1 命中全部 | 优秀 |
-| Rate Limit Tier 5 的 RPM 和 TPM？ | `30000`, `150000000` | top1 chunk 精确命中 | 优秀 |
-| DALL-E 3 支持尺寸？HD 1024x1024 价格？ | `1024`, `0.08` | top1 chunk 命中 | 优秀 |
-
-两套共 **54 题**。迭代优化措施：
-
-- **分块调优**：1000/200 → 800/160，匹配精度明显提升
-- **查询扩展**：宽泛问题自动拆分为多路子查询
-- **Cross-encoder 重排**：长尾问题召回被埋答案
-- **来源去重**：同来源最多 3 条，避免单一文档霸榜
-- **迭代检索**：LLM 判断上下文充分性，不足时自动补充
-
-## 致谢
-
-- [**jshookmcp**](https://github.com/vmoranv/jshookmcp) — 下一代 JS 逆向 MCP 工具，CDP 拦截和动态脚本注入，Web Agent Layer 3 核心依赖
-- [**claude-code-skill-scrapling**](https://github.com/Cedriccmh/claude-code-skill-scrapling) — 基于 scrapling 的网页抓取最佳实践，Layer 1 & 2 参考实现
-- [**agent-browser**](https://github.com/vercel-labs/agent-browser) — Vercel Labs 浏览器自动化 CLI，已切换为常驻 patchright PlaywrightPool 实现
-- [**Qdrant**](https://qdrant.tech/) — 高性能向量数据库，原生 Dense + Sparse 混合搜索和 RRF 融合
-- [**FastEmbed**](https://github.com/qdrant/fastembed) — 轻量级嵌入库，BM25 稀疏向量生成
-- [**FastMCP**](https://github.com/jlowin/fastmcp) — MCP Server 框架
-
-## License
+## 📜 License
 
 MIT
+
+---
+
+<p align="center"><em>Built with ♥ by the OmniKB team</em></p>
+
+---
+
+---
+
+# 🇬🇧 English
+
+---
+
+## 🧠 What is OmniKB
+
+**OmniKB** is a **wiki-first** universal AI knowledge base. Unlike traditional RAG, we don't chunk documents into vector databases — instead, **the LLM reads, analyzes, and generates structured wiki pages**. The wiki IS the knowledge base.
+
+The core insight comes from [Andrej Karpathy's LLM-Wiki gist](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f): LLMs should build structured knowledge like a human student, not rummage through piles of fragments. OmniKB puts that idea into practice.
+
+### Architecture Overview
+
+```
+┌────────────────────────────────────────────────────────────────────┐
+│                        WIKI-FIRST PIPELINE                         │
+│                                                                    │
+│  Sources ──► Extract ──► Wiki Generator (LLM)                     │
+│    URL         Text          │  ┌────────────────────────────┐     │
+│    PDF        Whisper        ├──► Entity / Concept / Source  ├──┐  │
+│    Video      OCR             │  │  Markdown + Frontmatter     │  │  │
+│    Text       Crawl           │  └────────────────────────────┘  │  │
+│                               │                                    │  │
+│                               ├──► Knowledge Graph ──────────────┐│  │
+│                               │  [[wikilink]] + D3.js Force     ││  │
+│                               │                                   ││  │
+│                               ├──► index.md ◄── Progressive     ││  │
+│                               │  Disclosure Layer                ││  │
+│                               │                                   ││  │
+│                               └──► read_wiki_page ───► LLM Chat  ││  │
+│                                  MCP Tools · SSE Streaming        ││  │
+└────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## ✨ Key Features
+
+| | |
+|---|---|
+| 🧠 **Wiki-First Architecture** | LLM reads, analyzes, generates structured wiki pages — entity, concept, source, query types. Pure markdown + frontmatter. The wiki IS the knowledge base. |
+| 🔗 **Knowledge Graph** | `[[wikilink]]` cross-references build bidirectional edges automatically. D3.js force-directed visualization. `graph_neighbors` BFS neighborhood exploration. Three graph insight types: surprising_connection, bridge, knowledge_gap. |
+| 💬 **True Streaming Chat** | SSE token-by-token output. wiki_index progressive disclosure: LLM scans the index first, then calls `read_wiki_page(id)` on-demand for full content. Source-level citation traceability. |
+| 🎯 **Scenario Isolation** | Each scenario binds an independent source subset, LLM config, and API Key. Scenarios publish as standalone Q&A pages — perfect for customer support or internal doc QA. |
+| 📡 **MCP Server** | Standard Model Context Protocol. 13 tools (search_kb, ask_kb, ingest_url, browser_fetch, search_wiki, read_wiki_page, list_wiki_pages, graph_neighbors, deep_research...). Dual transport: SSE + stdio. Bearer Token auth. Sliding-window rate limiting. |
+| 🕸️ **Web Agent** | Autonomous URL capture. Plan→Execute→Verify three-stage loop. Four-tier fetching (static→Scrapling→Playwright→JsHook CDP). 9 reflection checkpoints. Triple budget guard. |
+| 🔍 **Deep Research** | Auto-detect knowledge_gap in wiki pages → multi-query web search (DDG) → parallel URL investigation → LLM synthesis → append `## Recent Research` section. Three trigger modes: manual / semi-auto / periodic worker. Task persistence. Failure isolation. |
+| 🎨 **AURA UI** | Minimalist design system. 5 CSS token files + 8 component stylesheets + 7 panel stylesheets. Dark/light themes. ⌘K command palette. Citation chain visualization. |
+| ⚡ **Zero Embedding (L2)** | No vector embeddings, no chunking at the L2 wiki layer. Retrieval is pure tokenized scoring — lightweight, fast, zero external dependencies. |
+
+---
+
+## 🚀 Quick Start
+
+```bash
+# 1. Clone
+git clone https://github.com/xzay/omnikb
+cd omnikb
+
+# 2. Configure
+cp .env.example .env
+# Edit .env — at minimum set LLM_API_KEY
+
+# 3. Install
+pip install -r backend/requirements.txt
+
+# 4. Run (QDRANT_MODE=local by default, no external services)
+python backend/main.py
+
+# 5. Open
+open http://localhost:6886
+```
+
+### Docker
+
+```bash
+cp .env.example .env   # edit .env with your API keys
+docker compose up -d
+docker compose logs -f omnikb
+# Open http://localhost:6886
+```
+
+---
+
+## 🧱 Tech Stack
+
+### Backend
+
+| Layer | Technology |
+|---|---|
+| Framework | **FastAPI** — async HTTP, SSE streaming, CORS middleware |
+| LLM | **DeepSeek-V4** / **OpenAI-compatible** — 1M context, proxy support |
+| Database | **SQLite** (aiosqlite · WAL mode) — metadata, wiki pages, research tasks, MCP logs |
+| Vector Store | **Qdrant** (local / remote / memory) — L1 legacy hybrid search |
+| Embeddings | **BGE-M3** 1024d (dense) + **BM25** (sparse) — dual-vector |
+| Reranker | **bge-reranker-v2-m3** Cross-encoder — optional precision boost |
+| Speech | **faster-whisper** (tiny~large-v2) — ffmpeg audio extraction |
+| Agent Engine | **agent_core** — custom provider-agnostic agent loop (budget guard · reflection checkpoints · prompt caching · steering injection · message compaction · tool truncation overflow) |
+| MCP | **FastMCP** — SSE + stdio dual mode, Bearer Token auth |
+| Crawling | **scrapling · patchright · JsHook CDP** — 4-tier fetch strategy |
+| Config | **Pydantic Settings** — 60+ env vars, runtime validation, secret redaction |
+
+### Frontend
+
+| Layer | Technology |
+|---|---|
+| Framework | **Vanilla JavaScript** — zero framework, direct DOM API |
+| Layout | **CSS Grid + Flexbox** — responsive toolbar panels |
+| Theme | **AURA Design System** — CSS custom properties, dark/light |
+| Graph | **D3.js** — force-directed wiki link graph |
+| Rendering | **marked** — markdown to HTML |
+| Highlighting | **highlight.js** — code block coloring |
+| Streaming | **SSE EventSource** — agent events + chat bidirectional real-time |
+
+---
+
+## 📊 Project Stats
+
+| Metric | Count |
+|---|---|
+| Python Backend | ~19,600 lines / 94 files |
+| JS/CSS/HTML Frontend | ~16,800 lines / 25 files |
+| API Route Modules | 10 |
+| MCP Tools | 13 |
+| CSS Stylesheets | 20 |
+| Agent Core Modules | 13 |
+
+---
+
+## 📖 Documentation
+
+| Document | Path |
+|---|---|
+| Quick Start | See `## Quick Start` above |
+| API Reference | [`docs/API.md`](docs/API.md) |
+| Architecture | See `## Architecture Overview` above + [`docs/`](docs/) |
+| Deployment | [`docs/DEPLOY.md`](docs/DEPLOY.md) |
+| Environment Variables | [`.env.example`](.env.example) |
+| Evolution Log | [`progress.md`](progress.md) |
+
+---
+
+## 📜 License
+
+MIT
+
+---
+
+<p align="center"><em>Built with ♥ by the OmniKB team</em></p>

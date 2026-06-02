@@ -1,4 +1,6 @@
-/* ─── Table ─────────────────────────────────────────────────── */
+/* ─── Table — Minimal, Obsidian-inspired ────────────────────────
+   Cleaner rows, less borders, more spacing. AURA UI tokens.
+   ─────────────────────────────────────────────────────────────── */
 
 .table-wrapper {
   border: 1px solid var(--bd-subtle);
@@ -15,7 +17,7 @@
 
 .table th {
   text-align: left;
-  padding: var(--sp-2) var(--sp-3);
+  padding: 10px 14px;
   font-weight: 600;
   color: var(--t-secondary);
   background: var(--bg-muted);
@@ -23,24 +25,41 @@
   white-space: nowrap;
   font-size: var(--fs-xs);
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
 }
 
 .table td {
-  padding: var(--sp-3);
+  padding: 10px 14px;
   border-bottom: 1px solid var(--bd-subtle);
   color: var(--t-primary);
   vertical-align: middle;
 }
 
-.table tr:last-child td { border-bottom: none; }
+.table tbody tr:last-child td {
+  border-bottom: none;
+}
 
-.table tbody tr { transition: background var(--dur-fast) var(--ease-out); }
-.table tbody tr:hover { background: var(--bg-hover); }
+.table tbody tr {
+  transition: background var(--dur-fast) var(--ease-out);
+}
+.table tbody tr:hover {
+  background: var(--bg-hover);
+}
 
-.table-striped tbody tr:nth-child(even) { background: var(--bg-muted); }
-.table-striped tbody tr:nth-child(even):hover { background: var(--bg-hover); }
+.table-striped tbody tr:nth-child(even) {
+  background: var(--bg-muted);
+}
+.table-striped tbody tr:nth-child(even):hover {
+  background: var(--bg-hover);
+}
 
-.table-compact td, .table-compact th { padding: var(--sp-1) var(--sp-2); }
+.table-compact td,
+.table-compact th {
+  padding: 6px 10px;
+}
 
-.table-sticky-head thead th { position: sticky; top: 0; z-index: 1; }
+.table-sticky-head thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}

@@ -50,8 +50,10 @@ from storage.metadata_db import (
     upsert_wikilink,
 )
 
+from agent_core.events import AgentEvent, get_event_stream
+
 from .bootstrap import page_path
-from .parser import parse_page, render_page, slugify
+from .parser import atomic_write, parse_page, render_page, slugify, strip_code_fences
 from .prompts import build_analysis_messages, build_generation_messages
 
 logger = logging.getLogger(__name__)
@@ -120,6 +122,20 @@ class WikiGenerator:
         self._truncate = max(1000, int(source_truncate_chars))
         self._sem = asyncio.Semaphore(max(1, int(generation_concurrency)))
 
+    # ── Event publishing ────────────────────────────────────────
+
+    @staticmethod
+    def _publish_event(type: str, data: dict, task_id: str | None) -> None:
+        if task_id is None:
+            return
+        try:
+            stream = get_event_stream()
+            evt = AgentEvent(type=type, task_id=task_id, data=data)
+            import asyncio
+            asyncio.create_task(stream.publish(evt))
+        except Exception:
+            pass
+
     # ── Public entry ──────────────────────────────────────────
 
     async def generate(
@@ -128,9 +144,13 @@ class WikiGenerator:
         source_id: str,
         source_text: str,
         source_metadata: dict[str, Any] | None = None,
+        task_id: str | None = None,
     ) -> GenerationResult:
         """Run the two-step pipeline for one ingested source."""
         meta = dict(source_metadata or {})
+        title = meta.get("title", source_id)
+        WikiGenerator._publish_event("wiki_analysis_start", {"source_id": source_id, "title": title[:120]}, task_id)
+
         if not source_text.strip():
             return GenerationResult(error="empty source text")
 
@@ -150,6 +170,11 @@ class WikiGenerator:
         except Exception as exc:  # noqa: BLE001
             logger.exception("wiki analysis failed for %s: %s", source_id, exc)
             return GenerationResult(error=f"analysis: {type(exc).__name__}: {exc}")
+
+        WikiGenerator._publish_event("wiki_analysis_complete", {
+            "source_id": source_id, "plan_pages": len(plan.get("pages", [])),
+            "summary": (plan.get("summary") or "")[:200],
+        }, task_id)
 
         if not plan.get("pages"):
             return GenerationResult(error="analysis returned no pages")
@@ -177,11 +202,14 @@ class WikiGenerator:
             if kind == "created":
                 result.pages_created += 1
                 result.page_ids.append(page_id)
+                WikiGenerator._publish_event("wiki_page_created", {"source_id": source_id, "page_id": page_id, "kind": kind}, task_id)
             elif kind == "updated":
                 result.pages_updated += 1
                 result.page_ids.append(page_id)
+                WikiGenerator._publish_event("wiki_page_created", {"source_id": source_id, "page_id": page_id, "kind": kind}, task_id)
             else:
                 result.pages_failed += 1
+                WikiGenerator._publish_event("wiki_page_error", {"source_id": source_id, "error": "page generation returned failed"}, task_id)
 
         # Step 3 — wikilinks. Done after all pages so cascade FK is satisfied.
         for edge in plan.get("wikilinks") or []:
@@ -223,6 +251,15 @@ class WikiGenerator:
         except Exception:  # noqa: BLE001
             pass
 
+        WikiGenerator._publish_event("wiki_sync_complete", {
+            "source_id": source_id,
+            "pages_created": result.pages_created,
+            "pages_updated": result.pages_updated,
+            "pages_failed": result.pages_failed,
+            "edges_added": result.edges_added,
+            "page_ids": result.page_ids,
+        }, task_id)
+
         return result
 
     # ── Step 1: analysis ─────────────────────────────────────
@@ -245,7 +282,10 @@ class WikiGenerator:
             purpose_excerpt=purpose_excerpt,
             index_excerpt=index_excerpt,
         )
+        # Emit thinking card for agent console
+        WikiGenerator._publish_event("message_start", {"source_id": source_id, "step": "analysis", "summary": "LLM 分析中…"}, None)
         raw = await self._invoke(messages)
+        WikiGenerator._publish_event("message_end", {"source_id": source_id, "step": "analysis", "content": raw[:200]}, None)
         plan = _extract_json_object(raw)
         if not isinstance(plan, dict):
             raise ValueError(f"analysis output is not a JSON object: {raw[:120]}")
@@ -290,15 +330,17 @@ class WikiGenerator:
             existing_page=existing_text,
         )
 
+        WikiGenerator._publish_event("message_start", {"source_id": source_id, "step": "generation", "page_id": page_id}, None)
         async with self._sem:
             raw = await self._invoke(messages)
+        WikiGenerator._publish_event("message_end", {"source_id": source_id, "step": "generation", "page_id": page_id, "content": raw[:150]}, None)
 
         # Parse + validate the LLM output. We accept the same markdown
         # we'd accept on a manual edit.
         if not raw or not raw.strip():
             return ("failed", page_id)
 
-        page_text = _strip_code_fences(raw).strip() + "\n"
+        page_text = strip_code_fences(raw).strip() + "\n"
         try:
             parsed = parse_page(page_text)
         except Exception as exc:  # noqa: BLE001
@@ -321,7 +363,7 @@ class WikiGenerator:
         # row never points at a non-existent file.
         on_disk = self._page_disk_path(page_type, slug)
         try:
-            await asyncio.to_thread(_atomic_write, on_disk, rendered)
+            await asyncio.to_thread(atomic_write, on_disk, rendered)
         except OSError as exc:
             logger.error("wiki page disk write failed for %s: %s", page_id, exc)
             return ("failed", page_id)
@@ -432,33 +474,10 @@ class WikiGenerator:
             lines.append("")
 
         path = self._data_dir / "wiki" / "index.md"
-        await asyncio.to_thread(_atomic_write, path, "\n".join(lines) + "\n")
+        await asyncio.to_thread(atomic_write, path, "\n".join(lines) + "\n")
 
 
 # ── Helpers (module-private) ─────────────────────────────────────────
-
-
-def _atomic_write(path: Path, content: str) -> None:
-    """Write to ``path.tmp`` then rename — never leaves a partial file."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(content, encoding="utf-8")
-    tmp.replace(path)
-
-
-def _strip_code_fences(text: str) -> str:
-    """LLMs sometimes wrap their output in ```markdown ... ```. Peel
-    the outermost fence if present so :func:`parse_page` sees the
-    raw frontmatter."""
-    text = text.strip()
-    if text.startswith("```"):
-        # Drop opening fence
-        nl = text.find("\n")
-        if nl > 0:
-            text = text[nl + 1:]
-        if text.endswith("```"):
-            text = text[:-3]
-    return text
 
 
 _JSON_OBJECT_RE = re.compile(r"\{.*\}", re.DOTALL)
@@ -475,7 +494,7 @@ def _extract_json_object(text: str) -> dict[str, Any] | None:
     if not text:
         return None
     # Strip code fences first
-    cleaned = _strip_code_fences(text)
+    cleaned = strip_code_fences(text)
     try:
         return json.loads(cleaned)
     except json.JSONDecodeError:

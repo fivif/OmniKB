@@ -13,7 +13,6 @@
           <div class="section-head">
             <div>
               <div class="section-title">选择摄入方式</div>
-              <div class="section-subtitle">把后端已有能力完整露出来，不再只给你一半入口。</div>
             </div>
           </div>
 
@@ -21,24 +20,20 @@
             <button class="mode-card ingest-mode-card active" data-mode="file" type="button">
               <span class="mode-card-icon">📁</span>
               <span class="mode-card-title">文件 / 文件夹</span>
-              <span class="mode-card-copy">拖拽上传、批量选择、截图粘贴，适合本地资料快速入库。</span>
               <span class="mode-card-badge">Batch</span>
             </button>
             <button class="mode-card ingest-mode-card" data-mode="page" type="button">
               <span class="mode-card-icon">🔗</span>
               <span class="mode-card-title">智能抓取</span>
-              <span class="mode-card-copy">AI Agent 自主选择策略，智能判断抓取方式，适应各种页面。</span>
               <span class="mode-card-badge">Smart</span>
             </button>
             <button class="mode-card ingest-mode-card" data-mode="text" type="button">
               <span class="mode-card-icon">✍️</span>
               <span class="mode-card-title">粘贴文本</span>
-              <span class="mode-card-copy">适合临时笔记、代码片段、会议纪要和复制来的结构化内容。</span>
               <span class="mode-card-badge">Quick Note</span>
             </button>
           </div>
 
-          <div class="surface-note">提示：智能抓取支持“收集意图”。当后端启用 Web Judge 时，它会帮助你过滤掉抓到但没有价值的页面。</div>
 
           <div class="upload-panels">
             <div id="mode-file" class="ingest-panel stack-md">
@@ -55,8 +50,8 @@
                   <label for="file-input" class="btn btn-primary upload-action-label">浏览文件</label>
                   <label for="folder-input" class="btn btn-secondary upload-action-label">选择文件夹</label>
                 </div>
-                <div class="upload-drop-meta">TXT · MD · PDF · DOCX · HTML · JSON · CSV · 图片 · 视频 · 音频</div>
-                <input id="file-input" type="file" class="hidden" multiple accept=".txt,.md,.pdf,.docx,.html,.json,.csv,.mp4,.mkv,.avi,.mov,.webm,.mp3,.wav,.m4a,.ogg,.flac,.jpg,.jpeg,.png,.gif,.webp,.bmp,.tiff,.tif" />
+                <div class="upload-drop-meta">TXT · MD · PDF · DOCX · HTML · JSON · CSV · 图片</div>
+                <input id="file-input" type="file" class="hidden" multiple accept=".txt,.md,.pdf,.docx,.html,.json,.csv,.jpg,.jpeg,.png,.gif,.webp,.bmp,.tiff,.tif" />
                 <input id="folder-input" type="file" class="hidden" webkitdirectory multiple />
                 <span id="folder-hint" class="upload-inline-hint"></span>
               </div>
@@ -84,7 +79,7 @@
                 </div>
                 <div class="stack-sm">
                   <label class="form-label">收集意图</label>
-                  <input id="url-intent" type="text" class="input" placeholder="例如：Python async 教程、RAG 技术文章" />
+                  <input id="url-intent" type="text" class="input" placeholder="例如：Python async 教程、LLM 技术文章" />
                 </div>
               </div>
               <div class="toolbar-row">

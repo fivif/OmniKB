@@ -5,6 +5,7 @@ import logging
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from typing import TypeVar
 
 import aiosqlite
 
@@ -91,16 +92,6 @@ CREATE TABLE IF NOT EXISTS sources (
     updated_at  TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS chunks (
-    id          TEXT PRIMARY KEY,
-    source_id   TEXT NOT NULL,
-    content     TEXT NOT NULL,
-    chunk_index INTEGER NOT NULL,
-    metadata    TEXT NOT NULL DEFAULT '{}',
-    created_at  TEXT NOT NULL,
-    FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE CASCADE
-);
-
 CREATE TABLE IF NOT EXISTS tasks (
     id          TEXT PRIMARY KEY,
     source_id   TEXT NOT NULL,
@@ -111,7 +102,6 @@ CREATE TABLE IF NOT EXISTS tasks (
     updated_at  TEXT NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_chunks_source ON chunks(source_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_source  ON tasks(source_id);
 
 CREATE TABLE IF NOT EXISTS chat_sessions (
@@ -120,17 +110,6 @@ CREATE TABLE IF NOT EXISTS chat_sessions (
     created_at    TEXT NOT NULL,
     updated_at    TEXT NOT NULL
 );
-
-CREATE TABLE IF NOT EXISTS mcp_call_logs (
-    id             TEXT PRIMARY KEY,
-    tool_name      TEXT NOT NULL,
-    args_json      TEXT NOT NULL DEFAULT '{}',
-    result_preview TEXT,
-    duration_ms    INTEGER,
-    called_at      TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_mcp_logs_tool ON mcp_call_logs(tool_name);
-CREATE INDEX IF NOT EXISTS idx_mcp_logs_time ON mcp_call_logs(called_at);
 
 CREATE TABLE IF NOT EXISTS sessions (
     id          TEXT PRIMARY KEY,
@@ -300,14 +279,23 @@ async def init_db() -> None:
             except Exception:
                 pass  # column already exists
 
-        # Expression index on content_hash inside metadata JSON. Without this,
-        # ``check_content_hash_exists`` degenerates to a full table scan once
-        # the chunks table grows beyond a few thousand rows.
+        # Drop orphaned tables (vectors removed, data unused)
+        for ddl in (
+            "DROP TABLE IF EXISTS chunks",
+            "DROP TABLE IF EXISTS mcp_call_logs",
+        ):
+            try:
+                await db.execute(ddl)
+            except Exception:
+                pass
+
+        # Slug migration: add slug column + unique index to scenarios
         try:
-            await db.execute(
-                "CREATE INDEX IF NOT EXISTS idx_chunks_content_hash "
-                "ON chunks(json_extract(metadata, '$.content_hash'))"
-            )
+            await db.execute("ALTER TABLE scenarios ADD COLUMN slug TEXT")
+        except Exception:
+            pass  # column already exists
+        try:
+            await db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_scenarios_slug ON scenarios(slug)")
         except Exception:
             pass
 
@@ -368,6 +356,22 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+_T = TypeVar("_T")
+
+
+def _build_in_placeholders(values: list, *, column: str = "id") -> tuple[str, list]:
+    """Build a ``(?, ?, ...)`` placeholder string from ``values``.
+
+    Returns ``(placeholders, flat_params)`` for use with f-string SQL.
+    Also asserts that every element is a plain string to guard against
+    accidental injection of SQL fragments via f-string interpolation.
+    """
+    if not values:
+        raise ValueError(f"empty values for IN clause on {column}")
+    assert all(isinstance(x, str) for x in values), f"{column} must be strings"
+    return ",".join("?" * len(values)), list(values)
+
+
 # ── Sources ───────────────────────────────────────────────────
 
 async def insert_source(src: dict) -> None:
@@ -404,18 +408,27 @@ async def list_sources(
     limit: int = 50,
     offset: int = 0,
     filter_tag: str | None = None,
+    status: str | None = "done",
 ) -> list[dict]:
+    """List sources, newest-first. Pass ``status=None`` to include all statuses."""
     async with _connect() as db:
         db.row_factory = aiosqlite.Row
+        where: list[str] = []
+        params: list = []
+
+        if status is not None:
+            where.append("status = ?")
+            params.append(status)
         if filter_tag:
-            sql = (
-                "SELECT * FROM sources WHERE tags LIKE ? "
-                "ORDER BY created_at DESC LIMIT ? OFFSET ?"
-            )
-            params = (f'%"{filter_tag}"%', limit, offset)
-        else:
-            sql = "SELECT * FROM sources ORDER BY created_at DESC LIMIT ? OFFSET ?"
-            params = (limit, offset)
+            where.append("tags LIKE ?")
+            params.append(f'%"{filter_tag}"%')
+
+        sql = "SELECT * FROM sources"
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        sql += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
+
         async with db.execute(sql, params) as cur:
             rows = await cur.fetchall()
             result = []
@@ -460,14 +473,67 @@ async def get_all_tags() -> list[str]:
     return sorted(all_tags)
 
 
+async def _cleanup_wiki_for_source_ids(source_ids: list[str], db: aiosqlite.Connection) -> None:
+    """Delete wiki pages and edges that reference any of the given source IDs.
+
+    wiki_pages.source_ids is a JSON array. We delete any page whose
+    source_ids array contains at least one of the deleted source IDs.
+    Cascading deletes (wikilinks, research tasks) follow automatically
+    via the foreign key ON DELETE CASCADE in the schema.
+    """
+    if not source_ids:
+        return
+    # Find wiki pages linked to these sources via JSON source_ids
+    page_ids = set()
+    for sid in source_ids:
+        # JSON array contains the source id as a quoted string (e.g. ["id1","id2"])
+        async with db.execute(
+            "SELECT id FROM wiki_pages WHERE source_ids LIKE ?",
+            (f"%\"{sid}\"%",),
+        ) as cur:
+            async for row in cur:
+                page_ids.add(row[0])
+    if page_ids:
+        # Read file paths BEFORE deleting so we can clean up disk
+        path_placeholders, path_params = _build_in_placeholders(list(page_ids), column="wiki_page_ids")
+        file_paths = []
+        async with db.execute(
+            f"SELECT file_path FROM wiki_pages WHERE id IN ({path_placeholders})", path_params,
+        ) as cur:
+            async for row in cur:
+                file_paths.append(row[0])
+        # Delete DB rows (cascades to wikilinks via FK)
+        await db.execute(
+            f"DELETE FROM wiki_pages WHERE id IN ({path_placeholders})", path_params,
+        )
+        # Delete disk files
+        import os as _os
+        from pathlib import Path as _Path
+        from config import settings as _settings
+        data_root = _Path(_settings.data_dir).resolve()
+        for fp in file_paths:
+            try:
+                full = data_root / fp
+                if full.exists():
+                    full.unlink()
+            except Exception:
+                pass
+
+
 async def delete_source(source_id: str) -> None:
     async with _connect() as db:
+        await _cleanup_wiki_for_source_ids([source_id], db)
         await db.execute("DELETE FROM sources WHERE id = ?", (source_id,))
         await db.commit()
 
 
-async def count_sources() -> int:
+async def count_sources(status: str | None = "done") -> int:
+    """Count sources. Pass ``status=None`` to count all, or a specific status."""
     async with _connect() as db:
+        if status is not None:
+            async with db.execute("SELECT COUNT(*) FROM sources WHERE status = ?", (status,)) as cur:
+                row = await cur.fetchone()
+                return row[0] if row else 0
         async with db.execute("SELECT COUNT(*) FROM sources") as cur:
             row = await cur.fetchone()
             return row[0] if row else 0
@@ -510,17 +576,8 @@ async def list_chunks_by_source(
 
 
 async def get_chunk(chunk_id: str) -> dict | None:
-    async with _connect() as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT * FROM chunks WHERE id = ?", (chunk_id,)
-        ) as cur:
-            row = await cur.fetchone()
-            if row:
-                d = dict(row)
-                d["metadata"] = json.loads(d["metadata"])
-                return d
-    return None
+    return None  # chunks table removed, RAG deprecated
+
 
 
 async def check_content_hash_exists(content_hash: str) -> bool:
@@ -533,10 +590,8 @@ async def check_content_hash_exists(content_hash: str) -> bool:
 
 
 async def count_chunks() -> int:
-    async with _connect() as db:
-        async with db.execute("SELECT COUNT(*) FROM chunks") as cur:
-            row = await cur.fetchone()
-            return row[0] if row else 0
+    return 0  # chunks table removed, RAG deprecated
+
 
 
 # ── Tasks ─────────────────────────────────────────────────────
@@ -761,10 +816,11 @@ async def batch_delete_sources(source_ids: list[str]) -> int:
     """Delete multiple sources by ID. Returns count deleted."""
     if not source_ids:
         return 0
-    placeholders = ",".join("?" * len(source_ids))
+    placeholders, params = _build_in_placeholders(source_ids, column="source_ids")
     async with _connect() as db:
-        await db.execute(f"DELETE FROM sources WHERE id IN ({placeholders})", source_ids)
-        await db.execute(f"DELETE FROM chunks WHERE source_id IN ({placeholders})", source_ids)
+        await _cleanup_wiki_for_source_ids(source_ids, db)
+        await db.execute(f"DELETE FROM sources WHERE id IN ({placeholders})", params)
+        await db.execute(f"DELETE FROM chunks WHERE source_id IN ({placeholders})", params)
         await db.commit()
     return len(source_ids)
 
@@ -782,20 +838,20 @@ async def batch_update_tags(
     """
     if not source_ids:
         return
-    placeholders = ",".join("?" * len(source_ids))
+    placeholders, params = _build_in_placeholders(source_ids, column="source_ids")
     now = _now()
     async with _connect() as db:
         if mode == "replace":
             tags_json = json.dumps(tags)
             await db.execute(
                 f"UPDATE sources SET tags = ?, updated_at = ? WHERE id IN ({placeholders})",
-                [tags_json, now] + source_ids,
+                [tags_json, now] + params,
             )
         else:
             # Read current tags, merge/remove, write back
             db.row_factory = aiosqlite.Row
             async with db.execute(
-                f"SELECT id, tags FROM sources WHERE id IN ({placeholders})", source_ids
+                f"SELECT id, tags FROM sources WHERE id IN ({placeholders})", params
             ) as cur:
                 rows = await cur.fetchall()
             for row in rows:
@@ -957,10 +1013,24 @@ async def list_scenarios() -> list[dict]:
 
 
 async def get_scenario(scenario_id: str) -> dict | None:
+    """Look up a scenario by id (UUID) or by slug.
+
+    Tries exact id match first; falls back to slug match so that public
+    URLs like ``/kb-chat.html?scenario=my-slug`` resolve without the UUID.
+    """
     async with _connect() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             "SELECT * FROM scenarios WHERE id = ?", (scenario_id,)
+        ) as cur:
+            row = await cur.fetchone()
+            if row:
+                d = dict(row)
+                d["ui_config"] = json.loads(d["ui_config"])
+                return d
+        # Fallback: try slug lookup
+        async with db.execute(
+            "SELECT * FROM scenarios WHERE slug = ?", (scenario_id,)
         ) as cur:
             row = await cur.fetchone()
             if row:
@@ -975,14 +1045,15 @@ async def insert_scenario(sc: dict) -> None:
     async with _connect() as db:
         await db.execute(
             """INSERT INTO scenarios
-               (id, name, description, system_prompt, llm_provider,
+               (id, slug, name, description, system_prompt, llm_provider,
                 llm_model, llm_base_url, llm_api_key, ui_config,
                 created_at, updated_at)
-               VALUES (:id, :name, :description, :system_prompt, :llm_provider,
+               VALUES (:id, :slug, :name, :description, :system_prompt, :llm_provider,
                        :llm_model, :llm_base_url, :llm_api_key, :ui_config,
                        :created_at, :updated_at)""",
             {
                 "id": sc["id"],
+                "slug": sc.get("slug", ""),
                 "name": sc["name"],
                 "description": sc.get("description", ""),
                 "system_prompt": sc.get("system_prompt", ""),
@@ -1001,7 +1072,7 @@ async def insert_scenario(sc: dict) -> None:
 async def update_scenario(scenario_id: str, updates: dict) -> None:
     fields = []
     values = []
-    for key in ("name", "description", "system_prompt", "llm_provider",
+    for key in ("slug", "name", "description", "system_prompt", "llm_provider",
                 "llm_model", "llm_base_url", "llm_api_key"):
         if key in updates:
             fields.append(f"{key} = ?")
@@ -1026,6 +1097,17 @@ async def delete_scenario(scenario_id: str) -> None:
     async with _connect() as db:
         await db.execute("DELETE FROM scenarios WHERE id = ?", (scenario_id,))
         await db.commit()
+
+
+async def list_scenario_source_ids(scenario_id: str) -> list[str]:
+    """Return distinct source_ids linked to a scenario (whole-source refs only)."""
+    async with _connect() as db:
+        async with db.execute(
+            """SELECT DISTINCT source_id FROM scenario_sources
+               WHERE scenario_id = ? AND source_id IS NOT NULL AND chunk_id = ''""",
+            (scenario_id,),
+        ) as cur:
+            return [r[0] for r in await cur.fetchall()]
 
 
 # ── Scenario sources ───────────────────────────────────────────
@@ -1334,6 +1416,14 @@ async def list_wiki_pages(
             return [_row_to_wiki_page(r) for r in rows]
 
 
+async def count_wikilinks() -> int:
+    """Return the total number of wikilink edges."""
+    async with _connect() as db:
+        async with db.execute("SELECT COUNT(*) FROM wikilinks") as cur:
+            row = await cur.fetchone()
+            return int(row[0]) if row else 0
+
+
 async def count_wiki_pages_by_type() -> dict[str, int]:
     """Return ``{page_type: count}`` for every present type. Useful for
     sidebar badges and graph legends."""
@@ -1359,15 +1449,16 @@ async def upsert_wikilink(
     relation: str = "mentions",
     weight: float = 1.0,
 ) -> None:
-    """Idempotent edge insert. Updating ``weight`` on a duplicate edge
-    is the simplest accumulation strategy — every time the LLM mentions
-    page A from page B again the edge gets stronger."""
+    """Idempotent edge insert. Uses ``MAX(weight, excluded.weight)``
+    ("latest is truth") so that each LLM run supplies a fresh weight
+    rather than accumulating unboundedly. This avoids unbounded growth
+    and keeps edges proportional to their strongest signal."""
     async with _connect() as db:
         await db.execute(
             """INSERT INTO wikilinks (src_page_id, dst_page_id, relation, weight, created_at)
                VALUES (?, ?, ?, ?, ?)
                ON CONFLICT(src_page_id, dst_page_id, relation) DO UPDATE
-                 SET weight = wikilinks.weight + excluded.weight""",
+                 SET weight = MAX(wikilinks.weight, excluded.weight)""",
             (src_page_id, dst_page_id, relation, weight, _now()),
         )
         await db.commit()
@@ -1414,6 +1505,61 @@ async def list_wikilinks(
             ]
 
 
+async def list_wikilinks_batch(
+    src_ids: set[str] | None = None,
+    dst_ids: set[str] | None = None,
+) -> list[dict]:
+    """Fetch all edges whose src or dst is in the given sets in one query.
+
+    Avoids the N+1 pattern in :func:`graph_neighbors` by pulling all
+    relevant edges in a single round-trip.
+    """
+    where: list[str] = []
+    params: list = []
+
+    if src_ids:
+        placeholders, vals = _build_in_placeholders(list(src_ids), column="src_page_id")
+        where.append(f"src_page_id IN ({placeholders})")
+        params.extend(vals)
+    if dst_ids:
+        placeholders, vals = _build_in_placeholders(list(dst_ids), column="dst_page_id")
+        where.append(f"dst_page_id IN ({placeholders})")
+        params.extend(vals)
+
+    if not where:
+        return []
+
+    sql = "SELECT src_page_id, dst_page_id, relation, weight, created_at FROM wikilinks"
+    sql += " WHERE " + " OR ".join(where)
+
+    async with _connect() as db:
+        async with db.execute(sql, params) as cur:
+            rows = await cur.fetchall()
+            return [
+                {
+                    "src_page_id": r[0],
+                    "dst_page_id": r[1],
+                    "relation":    r[2],
+                    "weight":      r[3],
+                    "created_at":  r[4],
+                }
+                for r in rows
+            ]
+
+
+async def get_wiki_pages_batch(page_ids: set[str]) -> list[dict]:
+    """Fetch multiple wiki pages in a single query."""
+    if not page_ids:
+        return []
+    placeholders, params = _build_in_placeholders(list(page_ids), column="page_ids")
+    sql = f"SELECT * FROM wiki_pages WHERE id IN ({placeholders})"
+    async with _connect() as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(sql, params) as cur:
+            rows = await cur.fetchall()
+            return [_row_to_wiki_page(r) for r in rows]
+
+
 async def graph_neighbors(page_id: str, *, hops: int = 1) -> dict:
     """Breadth-first neighbour expansion up to ``hops`` away.
 
@@ -1441,23 +1587,25 @@ async def graph_neighbors(page_id: str, *, hops: int = 1) -> dict:
     for _ in range(hops):
         if not frontier:
             break
+        # Fetch ALL edges connected to ANY frontier node in one query.
+        all_edges = await list_wikilinks_batch(src_ids=frontier, dst_ids=frontier)
         next_frontier: set[str] = set()
-        for pid in frontier:
-            outgoing = await list_wikilinks(src=pid)
-            incoming = await list_wikilinks(dst=pid)
-            for e in outgoing + incoming:
-                key = (e["src_page_id"], e["dst_page_id"], e["relation"])
-                if key in seen_edges:
-                    continue
-                seen_edges.add(key)
-                edges.append(e)
-                for other in (e["src_page_id"], e["dst_page_id"]):
-                    if other not in seen_pages:
-                        seen_pages.add(other)
-                        next_frontier.add(other)
-                        page = await get_wiki_page(other)
-                        if page:
-                            nodes.append(page)
+        new_page_ids: set[str] = set()
+        for e in all_edges:
+            key = (e["src_page_id"], e["dst_page_id"], e["relation"])
+            if key in seen_edges:
+                continue
+            seen_edges.add(key)
+            edges.append(e)
+            for other in (e["src_page_id"], e["dst_page_id"]):
+                if other not in seen_pages:
+                    seen_pages.add(other)
+                    new_page_ids.add(other)
+        # Batch-fetch all newly discovered pages in one query.
+        if new_page_ids:
+            new_pages = await get_wiki_pages_batch(new_page_ids)
+            nodes.extend(new_pages)
+            next_frontier = new_page_ids
         frontier = next_frontier
 
     return {"nodes": nodes, "edges": edges}

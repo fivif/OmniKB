@@ -23,23 +23,44 @@ from storage.metadata_db import (
 
 logger = logging.getLogger(__name__)
 
+MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50 MB
+
 router = APIRouter()
 
 
 class TextIngestRequest(BaseModel):
-    content: str
+    content: str = ""
+    text: str = ""  # alias for content
     title: str = "Untitled"
-    tags: list[str] = []
+    tags: str | list[str] = []  # accepts comma-separated string OR list
+
+    def model_post_init(self, __context):
+        if not self.content and self.text:
+            object.__setattr__(self, 'content', self.text)
+
+    @staticmethod
+    def _normalize_tags(v: str | list[str]) -> list[str]:
+        if isinstance(v, str):
+            return [t.strip() for t in v.split(",") if t.strip()]
+        if isinstance(v, list):
+            return [t for t in v if isinstance(t, str) and t.strip()]
+        return []
 
 
 class UrlIngestRequest(BaseModel):
     url: str
     title: str | None = None
-    tags: list[str] = []
-    cookies: dict[str, str] | None = None  # {name: value} for authenticated pages
-    # Free-text description of what to collect, used by the LLM judge.
-    # If empty, tags are joined as fallback intent.
+    tags: str | list[str] = []  # accepts comma-separated string OR list
+    cookies: dict[str, str] | None = None
     intent: str = ""
+
+    @staticmethod
+    def _normalize_tags(v: str | list[str]) -> list[str]:
+        if isinstance(v, str):
+            return [t.strip() for t in v.split(",") if t.strip()]
+        if isinstance(v, list):
+            return [t for t in v if isinstance(t, str) and t.strip()]
+        return []
 
 
 # ── Background task runners ───────────────────────────────────
@@ -51,20 +72,26 @@ async def _run_file_task(
     file_type: str,
     extra: dict,
 ) -> None:
-    ext = f".{file_type.lower()}"
-    await append_task_log(task_id, f"📂 收到文件，类型 {file_type.upper()}")
-    # Route media files (video/audio) to MediaAgent
     try:
-        from agents.media_agent import is_media_file, transcribe_async
-        if is_media_file(ext):
-            from config import settings
-            raw_doc = await transcribe_async(file_path, settings.whisper_model_size)
-        else:
+        ext = f".{file_type.lower()}"
+        await append_task_log(task_id, f"📂 收到文件，类型 {file_type.upper()}")
+        # Route media files (video/audio) to MediaAgent
+        try:
+            from agents.media_agent import is_media_file, transcribe_async
+            if is_media_file(ext):
+                from config import settings
+                raw_doc = await transcribe_async(file_path, settings.whisper_model_size)
+            else:
+                raw_doc = await parse_file_async(file_path, file_type)
+        except ImportError:
+            # faster-whisper not installed — fall back to doc parser
             raw_doc = await parse_file_async(file_path, file_type)
-    except ImportError:
-        # faster-whisper not installed — fall back to doc parser
-        raw_doc = await parse_file_async(file_path, file_type)
-    await run_ingest_pipeline(source_id, task_id, raw_doc, extra_metadata=extra)
+        await run_ingest_pipeline(source_id, task_id, raw_doc, extra_metadata=extra)
+    except Exception as exc:
+        logger.exception("Background file task %s failed", task_id)
+        await append_task_log(task_id, f"❌ 处理失败：{exc}")
+        await update_task(task_id, "error", error=str(exc))
+        await update_source_status(source_id, "error")
 
 
 async def _run_text_task(
@@ -73,9 +100,15 @@ async def _run_text_task(
     content: str,
     extra: dict,
 ) -> None:
-    await append_task_log(task_id, f"📝 收到文本，{len(content)} 字符")
-    raw_doc = parse_text(content)
-    await run_ingest_pipeline(source_id, task_id, raw_doc, extra_metadata=extra)
+    try:
+        await append_task_log(task_id, f"📝 收到文本，{len(content)} 字符")
+        raw_doc = parse_text(content)
+        await run_ingest_pipeline(source_id, task_id, raw_doc, extra_metadata=extra)
+    except Exception as exc:
+        logger.exception("Background text task %s failed", task_id)
+        await append_task_log(task_id, f"❌ 处理失败：{exc}")
+        await update_task(task_id, "error", error=str(exc))
+        await update_source_status(source_id, "error")
 
 
 async def _run_url_task(
@@ -86,25 +119,39 @@ async def _run_url_task(
     cookies: dict | None = None,
     intent: str = "",
 ) -> None:
-    await append_task_log(task_id, f"🌐 智能抓取：{url}{'  意图：' + intent if intent else ''}")
-    from agents.web.loop import run_agent
     try:
-        raw_doc = await run_agent(url=url, intent=intent, task_id=task_id)
+        await update_task(task_id, "processing")
+        await append_task_log(task_id, f"🌐 智能抓取：{url}{'  意图：' + intent if intent else ''}")
+        from agents.web.loop import run_agent
+        try:
+            raw_doc = await run_agent(url=url, intent=intent, task_id=task_id)
+        except Exception as exc:
+            await append_task_log(task_id, f"❌ 智能抓取失败：{exc}")
+            await update_task(task_id, "error", error=str(exc))
+            await update_source_status(source_id, "error")
+            return
+        # Reject empty or trivial content (agent returned a plan instead of real content)
+        content = (raw_doc.content or "").strip()
+        if len(content) < 200:
+            await append_task_log(task_id, f"🚫 抓取内容过短（{len(content)} 字），可能为抓取计划而非实际内容，已跳过")
+            await update_task(task_id, "error", error="Content too short — likely a scraping plan, not real page content")
+            await update_source_status(source_id, "error")
+            return
+        # Apply quality gates (web_judge) to agent output
+        try:
+            from agents.web_agent import _apply_quality_gates
+            raw_doc = await _apply_quality_gates(raw_doc, url, intent)
+        except ValueError as exc:
+            await append_task_log(task_id, f"🚫 Agent 输出被 LLM 判定无价值，已跳过：{exc}")
+            await update_task(task_id, "done")
+            await update_source_status(source_id, "done")
+            return
+        await run_ingest_pipeline(source_id, task_id, raw_doc, extra_metadata=extra)
     except Exception as exc:
-        await append_task_log(task_id, f"❌ 智能抓取失败：{exc}")
+        logger.exception("Background url task %s failed", task_id)
+        await append_task_log(task_id, f"❌ 处理失败：{exc}")
         await update_task(task_id, "error", error=str(exc))
         await update_source_status(source_id, "error")
-        return
-    # Apply quality gates (web_judge) to agent output
-    try:
-        from agents.web_agent import _apply_quality_gates
-        raw_doc = await _apply_quality_gates(raw_doc, url, intent)
-    except ValueError as exc:
-        await append_task_log(task_id, f"🚫 Agent 输出被 LLM 判定无价值，已跳过：{exc}")
-        await update_task(task_id, "done")
-        await update_source_status(source_id, "done")
-        return
-    await run_ingest_pipeline(source_id, task_id, raw_doc, extra_metadata=extra)
 
 
 # `_run_site_task` schedules per-page ingest via `insert_task` directly inside
@@ -126,7 +173,11 @@ async def ingest_file(
         filename = upload.filename or "unknown"
         ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "txt"
 
+        if upload.size is not None and upload.size > MAX_UPLOAD_SIZE:
+            raise HTTPException(status_code=413, detail=f"File too large ({upload.size} bytes). Maximum: 50MB")
         content = await upload.read()
+        if len(content) > MAX_UPLOAD_SIZE:
+            raise HTTPException(status_code=413, detail=f"File too large ({len(content)} bytes). Maximum: 50MB")
         saved_path = await save_file(source_id, filename, content)
 
         await insert_source(
@@ -156,16 +207,17 @@ async def ingest_file(
 async def ingest_text(req: TextIngestRequest, background_tasks: BackgroundTasks):
     source_id = str(uuid.uuid4())
     task_id = str(uuid.uuid4())
+    tags = TextIngestRequest._normalize_tags(req.tags)
 
     await insert_source(
-        {"id": source_id, "name": req.title, "type": "text", "url": None, "tags": req.tags}
+        {"id": source_id, "name": req.title, "type": "text", "url": None, "tags": tags}
     )
     await insert_task({
         "id": task_id, "source_id": source_id, "status": "pending",
         "params": {
             "kind": "text",
             "content": req.content,
-            "extra": {"source_name": req.title, "tags": req.tags},
+            "extra": {"source_name": req.title, "tags": tags},
         },
     })
 
@@ -182,16 +234,17 @@ async def ingest_url(req: UrlIngestRequest, background_tasks: BackgroundTasks):
     source_id = str(uuid.uuid4())
     task_id = str(uuid.uuid4())
     title = req.title or req.url
+    tags = UrlIngestRequest._normalize_tags(req.tags)
 
     await insert_source(
-        {"id": source_id, "name": title, "type": "url", "url": req.url, "tags": req.tags}
+        {"id": source_id, "name": title, "type": "url", "url": req.url, "tags": tags}
     )
     await insert_task({
         "id": task_id, "source_id": source_id, "status": "pending",
         "params": {
             "kind": "url",
             "url": req.url,
-            "extra": {"source_name": title, "source_url": req.url, "tags": req.tags},
+            "extra": {"source_name": title, "source_url": req.url, "tags": tags},
             "cookies": req.cookies,
             "intent": req.intent or ", ".join(req.tags),
         },
@@ -268,6 +321,7 @@ async def resume_pending_tasks() -> dict:
                     failed += 1
                     continue
                 await append_task_log(task_id, "🔁 启动重放：file")
+                await update_task(task_id, "processing")
                 asyncio.create_task(_run_file_task(
                     source_id, task_id, fp,
                     params.get("file_type", "txt"),
@@ -282,11 +336,13 @@ async def resume_pending_tasks() -> dict:
                     failed += 1
                     continue
                 await append_task_log(task_id, "🔁 启动重放：text")
+                await update_task(task_id, "processing")
                 asyncio.create_task(_run_text_task(
                     source_id, task_id, content, params.get("extra") or {},
                 ))
             elif kind == "url":
                 await append_task_log(task_id, "🔁 启动重放：url")
+                await update_task(task_id, "processing")
                 asyncio.create_task(_run_url_task(
                     source_id, task_id, params.get("url", ""),
                     params.get("extra") or {},
