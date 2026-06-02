@@ -542,37 +542,15 @@ async def count_sources(status: str | None = "done") -> int:
 # ── Chunks ────────────────────────────────────────────────────
 
 async def insert_chunks(chunks: list[dict]) -> None:
-    now = _now()
-    async with _connect() as db:
-        await db.executemany(
-            """INSERT OR IGNORE INTO chunks
-               (id, source_id, content, chunk_index, metadata, created_at)
-               VALUES (:id, :source_id, :content, :chunk_index, :metadata, :created_at)""",
-            [
-                {
-                    **c,
-                    "metadata": json.dumps(c.get("metadata", {})),
-                    "created_at": now,
-                }
-                for c in chunks
-            ],
-        )
-        await db.commit()
+    pass  # chunks table removed, RAG deprecated
+
 
 
 async def list_chunks_by_source(
     source_id: str, limit: int = 100, offset: int = 0
 ) -> list[dict]:
-    async with _connect() as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute(
-            "SELECT * FROM chunks WHERE source_id = ? ORDER BY chunk_index LIMIT ? OFFSET ?",
-            (source_id, limit, offset),
-        ) as cur:
-            rows = await cur.fetchall()
-            return [
-                {**dict(r), "metadata": json.loads(r["metadata"])} for r in rows
-            ]
+    return []  # chunks table removed
+
 
 
 async def get_chunk(chunk_id: str) -> dict | None:
@@ -797,16 +775,7 @@ async def export_all_data() -> dict:
             src = dict(row)
             src["tags"] = json.loads(src["tags"])
 
-            async with db.execute(
-                "SELECT id, content, chunk_index, metadata FROM chunks "
-                "WHERE source_id = ? ORDER BY chunk_index",
-                (src["id"],),
-            ) as ccur:
-                chunk_rows = await ccur.fetchall()
-            src["chunks"] = [
-                {**dict(c), "metadata": json.loads(c["metadata"])}
-                for c in chunk_rows
-            ]
+            src["chunks"] = []  # chunks table removed, RAG deprecated
             sources.append(src)
 
     return {"sources": sources, "total_sources": len(sources)}
@@ -820,7 +789,7 @@ async def batch_delete_sources(source_ids: list[str]) -> int:
     async with _connect() as db:
         await _cleanup_wiki_for_source_ids(source_ids, db)
         await db.execute(f"DELETE FROM sources WHERE id IN ({placeholders})", params)
-        await db.execute(f"DELETE FROM chunks WHERE source_id IN ({placeholders})", params)
+        pass  # chunks table removed
         await db.commit()
     return len(source_ids)
 
@@ -1113,21 +1082,26 @@ async def list_scenario_source_ids(scenario_id: str) -> list[str]:
 # ── Scenario sources ───────────────────────────────────────────
 
 async def list_scenario_sources(scenario_id: str) -> list[dict]:
-    """Return chunks linked to a scenario, enriched with source info."""
+    """Return sources linked to a scenario with basic metadata."""
     async with _connect() as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
-            """SELECT ss.source_id, COALESCE(ss.chunk_id, '') AS chunk_id, ss.added_by, ss.created_at,
-                      c.content AS chunk_content, c.chunk_index,
-                      s.name AS source_name, s.type AS source_type
+            """SELECT DISTINCT ss.source_id, ss.chunk_id, ss.added_by, ss.created_at,
+                      s.name, s.type, s.url, s.tags, s.status
                FROM scenario_sources ss
-               LEFT JOIN chunks c ON ss.chunk_id = c.id
-               LEFT JOIN sources s ON ss.source_id = s.id
-               WHERE ss.scenario_id = ?
+               JOIN sources s ON s.id = ss.source_id
+               WHERE ss.scenario_id = ? AND ss.source_id IS NOT NULL
                ORDER BY ss.created_at DESC""",
             (scenario_id,),
         ) as cur:
-            return [dict(r) for r in await cur.fetchall()]
+            rows = await cur.fetchall()
+            result = []
+            for row in rows:
+                d = dict(row)
+                d["tags"] = json.loads(d.get("tags", "[]"))
+                result.append(d)
+            return result
+
 
 
 async def add_scenario_source(

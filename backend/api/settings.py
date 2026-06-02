@@ -215,3 +215,29 @@ async def update_vision_settings(body: VisionSettingsUpdate):
 
     return {**_read_runtime_vision_settings(), "updated": True}
 
+
+class AdminPasswordUpdate(BaseModel):
+    password: str = Field(default="", description="New admin password. Empty string disables auth.")
+
+
+@router.get("/admin-password", tags=["settings"])
+async def get_admin_password():
+    """Return whether admin auth is currently enabled (never the password itself)."""
+    from config import settings
+    return {"auth_enabled": bool((settings.admin_password or "").strip())}
+
+
+@router.post("/admin-password", tags=["settings"])
+async def update_admin_password(body: AdminPasswordUpdate):
+    """Update the admin password at runtime and persist to .env.
+
+    An empty password disables authentication for the admin panel.
+    """
+    from config import settings
+
+    pwd = body.password.strip()
+    async with _settings_lock:
+        settings.admin_password = pwd
+    _persist_env("ADMIN_PASSWORD", pwd)
+    return {"updated": True, "auth_enabled": bool(pwd)}
+

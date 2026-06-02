@@ -56,6 +56,7 @@ from api import metrics
 from api import scenarios
 from api import settings as settings_api
 from api import wiki as wiki_api
+from api.auth import AdminAuthMiddleware, router as auth_router
 from mcp_server.server import create_mcp_app
 
 # ── Logging setup ─────────────────────────────────────────────
@@ -260,6 +261,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.add_middleware(AdminAuthMiddleware)
 app.add_middleware(McpRateLimiter)
 app.add_middleware(
     CORSMiddleware,
@@ -286,6 +288,7 @@ app.include_router(kb.router,       prefix="/kb",        tags=["kb"])
 app.include_router(mcp_logs.router,    prefix="/mcp/logs",  tags=["mcp"])
 app.include_router(agent_stream.router, prefix="/agent",     tags=["agent"])
 app.include_router(metrics.router,      prefix="/metrics",   tags=["metrics"])
+app.include_router(auth_router,       prefix="/auth",     tags=["auth"])
 app.include_router(settings_api.router, prefix="/settings",  tags=["settings"])
 app.include_router(scenarios.router,  prefix="/scenarios", tags=["scenarios"])
 app.include_router(kb_api.router,    prefix="/kb-api",   tags=["kb-api"])

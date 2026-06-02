@@ -158,6 +158,12 @@ class Settings(BaseSettings):
     # progress and re-plans — replaces hard tool-call caps. 0 = disabled.
     web_agent_reflection_interval: int = 8
 
+    # ── Admin authentication ─────────────────────────────────────
+    # When non-empty, the main admin panel requires password auth via
+    # cookie-based session. kb-chat.html, kb-api/*, /health, /mcp/*
+    # and /scenario-api.html are never protected.
+    admin_password: str = ""
+
     # ── Chat agent (agentic chat with KB tools) ────────────────────
     # When true, /chat routes through an agent loop that can call
     # search_kb / list_sources / fetch_url. Falls back to the legacy

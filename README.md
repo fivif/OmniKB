@@ -66,6 +66,7 @@
 | 🏢 **快速企业部署** | 单文件启动 `python backend/main.py`，无需外部服务。Web UI 配置 LLM，重启不丢。Docker 可选 |
 | 📡 **MCP 协议** | `read_wiki_page` + `fetch_url_preview` 工具暴露给 Claude/其他 AI Agent |
 | 🎨 **AURA Design** | 极简 Slate 色系，明暗双主题，spring 弹性过渡，响应式布局 |
+| 🔐 **Cookie 鉴权** | `ADMIN_PASSWORD` 环境变量一键开启，Cookie 30 天持久，Web UI 热更新无需重启 |
 
 ---
 
@@ -77,6 +78,7 @@ cd OmniKB
 cp .env.example .env
 # 编辑 .env，填入 LLM_PROVIDER / LLM_MODEL / LLM_BASE_URL
 # API Key 可在 Web UI 设置面板填入，会自动回写 .env
+# ADMIN_PASSWORD=xxx        ← 设置管理面板密码（留空则不启用鉴权）
 
 pip install -r backend/requirements.txt
 python backend/main.py
@@ -92,6 +94,18 @@ python backend/main.py
 4. Agent 助手 → 「改成暗色卡片风格」 → 实时预览
 5. 创建 API Key → 复制链接 → 嵌入官网
 ```
+
+### 鉴权机制
+
+| 路径 | 鉴权要求 |
+|---|---|
+| `/` `/admin` `/index.html` 管理面板 | 需登录 |
+| `/api/*` 管理 API | 需登录（Cookie 或自动转发） |
+| `/login.html` `/kb-chat.html` `/kb-api/*` `/mcp/*` `/scenario-api.html` | 免鉴权 |
+
+- **开启鉴权**：在 `.env` 中设置 `ADMIN_PASSWORD=your_password`，或在 Web UI 设置面板热更新
+- **关闭鉴权**：留空 `ADMIN_PASSWORD`，所有请求直接放行
+- **登录态**：Cookie `omnikb_auth`，httponly，30 天有效期
 
 ---
 
@@ -180,6 +194,7 @@ Inspired by [Karpathy's LLM-Wiki pattern](https://gist.github.com/karpathy/442a6
 | 🎯 **Scenario Publishing** | Select sources → configure template/LLM → generate standalone Q&A page → API Key auth |
 | 🤖 **Agent Page Editor** | Natural language commands → rewrite layout, inject HTML/CSS/JS, one-click reset |
 | 🏢 **Zero-Dependency Deploy** | Single-file startup, no external services, Web UI config, Docker optional |
+| 🔐 **Cookie Auth** | `ADMIN_PASSWORD` one-liner, 30-day cookie, hot-reload via Web UI without restart |
 
 ---
 
@@ -189,6 +204,7 @@ Inspired by [Karpathy's LLM-Wiki pattern](https://gist.github.com/karpathy/442a6
 git clone https://github.com/fivif/OmniKB
 cd OmniKB
 cp .env.example .env
+# ADMIN_PASSWORD=xxx        ← set to enable admin panel auth (empty = no auth)
 pip install -r backend/requirements.txt
 python backend/main.py
 # Open http://localhost:6886

@@ -106,6 +106,31 @@
             </div>
           </section>
 
+          <section class="section-card">
+            <div class="section-card-body stack-md">
+              <div class="section-head">
+                <div>
+                  <div class="section-title">Admin 管理密码</div>
+                  <div class="section-subtitle">设置后台面板登录密码。留空则关闭鉴权，任何人均可直接访问。</div>
+                </div>
+              </div>
+
+              <div class="field-grid settings-form-grid">
+                <div class="stack-sm settings-field" style="grid-column: 1 / -1;">
+                  <label class="form-label">Admin 密码</label>
+                  <input id="s-admin-password" class="input settings-key-input" type="password" placeholder="留空 = 关闭鉴权" autocomplete="new-password" />
+                </div>
+              </div>
+
+              <div id="admin-password-status" class="surface-note" style="margin-top:8px;"></div>
+
+              <div class="settings-save-row" style="margin-top:12px;">
+                <button id="btn-save-admin-password" class="btn btn-primary" type="button">保存 Admin 密码</button>
+                <span id="admin-password-saved" class="settings-flash">已更新</span>
+              </div>
+            </div>
+          </section>
+
         </div>
 
         <aside class="stack-md">
@@ -171,6 +196,10 @@
     visionBaseUrl: document.getElementById('s-vision-base-url'),
     visionApiKey: document.getElementById('s-vision-key'),
     visionFrameInterval: document.getElementById('s-vision-frame-interval'),
+
+    adminPassword: document.getElementById('s-admin-password'),
+    adminPasswordStatus: document.getElementById('admin-password-status'),
+    adminPasswordSaved: document.getElementById('admin-password-saved'),
   };
 
   const defaults = {
@@ -186,6 +215,8 @@
     vision_base_url: '',
     vision_api_key: '',
     vision_frame_interval: 60,
+
+    admin_password: '',
   };
 
   function normalizeProvider(value) {
@@ -238,6 +269,7 @@
       vision_base_url: saved.vision_base_url || '',
       vision_api_key: saved.vision_api_key || '',
       vision_frame_interval: saved.vision_frame_interval !== undefined ? saved.vision_frame_interval : defaults.vision_frame_interval,
+      admin_password: saved.admin_password || defaults.admin_password,
     };
   }
 
@@ -257,6 +289,7 @@
       vision_base_url: refs.visionBaseUrl.value.trim(),
       vision_api_key: refs.visionApiKey.value.trim(),
       vision_frame_interval: parseInt(refs.visionFrameInterval.value, 10) || defaults.vision_frame_interval,
+      admin_password: refs.adminPassword.value.trim(),
     };
   }
 
@@ -313,6 +346,7 @@
     refs.visionBaseUrl.value = values.vision_base_url || '';
     refs.visionApiKey.value = values.vision_api_key || '';
     refs.visionFrameInterval.value = values.vision_frame_interval !== undefined ? values.vision_frame_interval : defaults.vision_frame_interval;
+    refs.adminPassword.value = values.admin_password || '';
 
     updateProviderMeta();
     updateSummary(collectRuntimeValues());
@@ -350,6 +384,9 @@
         vision_frame_interval: values.vision_frame_interval,
       }),
     });
+
+    // Admin password sync is handled by its dedicated button, not auto-synced here
+    // to avoid sending the password to the network on every keystroke.
 
     applyRuntimeValues({
       ...values,
@@ -439,6 +476,15 @@
       if (shouldReplay) {
         await syncRuntimeSettings({ silent: true, skipLocalSave: true });
       }
+      // Load admin password status (never the password itself)
+      try {
+        const adminStatus = await requestJson('/settings/admin-password').catch(() => ({ auth_enabled: false }));
+        if (refs.adminPasswordStatus) {
+          refs.adminPasswordStatus.textContent = adminStatus.auth_enabled
+            ? '当前状态：鉴权已开启。'
+            : '当前状态：鉴权已关闭。';
+        }
+      } catch {}
     } catch {}
   }
 
@@ -464,11 +510,40 @@
     }
   }
 
+  // ── Admin password ──────────────────────────────────────────
 
+  async function loadAdminPasswordStatus() {
+    try {
+      const data = await requestJson('/settings/admin-password');
+      if (refs.adminPasswordStatus) {
+        refs.adminPasswordStatus.textContent = data.auth_enabled
+          ? '当前状态：鉴权已开启。修改密码后需点击下方按钮保存。'
+          : '当前状态：鉴权已关闭（留空密码）。';
+      }
+    } catch {
+      // Ignore — will show nothing
+    }
+  }
 
+  async function saveAdminPassword() {
+    const pwd = refs.adminPassword.value.trim();
+    try {
+      await requestJson('/settings/admin-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: pwd }),
+      });
+      showFlash(refs.adminPasswordSaved, pwd ? 'Admin 密码已更新' : '鉴权已关闭');
+      // Persist locally
+      saveSettings({ ...loadSettings(), admin_password: pwd });
+      // Refresh status
+      await loadAdminPasswordStatus();
+    } catch (e) {
+      toast('Admin 密码更新失败: ' + (e.message || '未知错误'), 'error');
+    }
+  }
 
-
-
+  document.getElementById('btn-save-admin-password').addEventListener('click', saveAdminPassword);
 
   [refs.apiBase, refs.proxy, refs.model, refs.baseUrl, refs.apiKey].forEach(node => {
     node.addEventListener('input', persistLocalDraft);
@@ -504,11 +579,13 @@
     if (event.detail === 'settings') {
       loadRuntimeSettings();
       loadSystemPrompt();
+      loadAdminPasswordStatus();
     }
   });
 
   // Initial load
   loadRuntimeSettings();
   loadSystemPrompt();
+  loadAdminPasswordStatus();
 
 })();

@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>OmniKB Login</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png"/>
+  <style>
+    :root {
+      --bg: #0a0a0f;
+      --card-bg: #111118;
+      --border: #1e1e2e;
+      --text: #c9d1d9;
+      --text-muted: #6b7280;
+      --accent: #5e6ad2;
+      --accent-hover: #4f5bc1;
+      --input-bg: #0d0d14;
+      --danger: #ef4444;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+    }
+    .login-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 40px 36px;
+      width: 380px;
+      max-width: 90vw;
+    }
+    .login-card h1 {
+      font-size: 22px;
+      font-weight: 600;
+      margin-bottom: 4px;
+      color: #fff;
+    }
+    .login-card .subtitle {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-bottom: 28px;
+    }
+    .login-card input {
+      width: 100%;
+      padding: 10px 14px;
+      background: var(--input-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .login-card input:focus {
+      border-color: var(--accent);
+    }
+    .login-card button {
+      width: 100%;
+      margin-top: 14px;
+      padding: 10px 0;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .login-card button:hover { background: var(--accent-hover); }
+    .login-card button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .login-card .error {
+      color: var(--danger);
+      font-size: 13px;
+      margin-top: 10px;
+      min-height: 20px;
+    }
+  </style>
+</head>
+<body>
+<div class="login-card">
+  <h1>OmniKB</h1>
+  <p class="subtitle">Universal AI Knowledge Base</p>
+  <form id="login-form">
+    <input type="password" id="password-input" placeholder="Enter admin password" required autofocus/>
+    <button type="submit" id="submit-btn">Sign in</button>
+    <div class="error" id="login-error"></div>
+  </form>
+</div>
+<script>
+  const form = document.getElementById('login-form');
+  const input = document.getElementById('password-input');
+  const btn = document.getElementById('submit-btn');
+  const err = document.getElementById('login-error');
+
+  form.onsubmit = async function(e) {
+    e.preventDefault();
+    const pwd = input.value.trim();
+    if (!pwd) return;
+
+    btn.disabled = true;
+    btn.textContent = 'Signing in...';
+    err.textContent = '';
+
+    try {
+      const res = await fetch('/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: pwd }),
+      });
+      if (res.ok) {
+        const dest = new URLSearchParams(window.location.search).get('next') || '/';
+        window.location.href = dest;
+      } else {
+        const data = await res.json().catch(() => ({}));
+        err.textContent = data.detail || 'Incorrect password';
+        btn.disabled = false;
+        btn.textContent = 'Sign in';
+      }
+    } catch {
+      err.textContent = 'Network error — cannot reach backend';
+      btn.disabled = false;
+      btn.textContent = 'Sign in';
+    }
+  };
+</script>
+</body>
+</html>
