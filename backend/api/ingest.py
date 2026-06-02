@@ -34,7 +34,7 @@ class TextIngestRequest(BaseModel):
     title: str = "Untitled"
     tags: str | list[str] = []  # accepts comma-separated string OR list
 
-    def model_post_init(self, __context):
+    def model_post_init(self, _ctx):
         if not self.content and self.text:
             object.__setattr__(self, 'content', self.text)
 
