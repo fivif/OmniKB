@@ -64,6 +64,8 @@
 
       <div id="batch-toolbar" class="kb-batch-toolbar hidden">
         <span id="batch-count" class="kb-batch-count"></span>
+        <button id="btn-select-all" class="kb-batch-btn" type="button" title="全选当前页">☐ 全选</button>
+        <button id="btn-deselect-all" class="kb-batch-btn kb-batch-btn--ghost hidden" type="button" title="取消全选">☑ 取消全选</button>
         <div class="kb-batch-spacer"></div>
         <select id="kb-scenario-select" class="kb-batch-select">
           <option value="">选择场景</option>
@@ -250,6 +252,32 @@
     if (checked) selectedIds.add(id);
     else selectedIds.delete(id);
     updateSelectionUI();
+    updateSelectAllButtons();
+  }
+
+  function selectAllVisible() {
+    document.querySelectorAll('.kb-row-checkbox').forEach(cb => {
+      cb.checked = true;
+      selectedIds.add(cb.dataset.id);
+    });
+    updateSelectionUI();
+    updateSelectAllButtons();
+  }
+
+  function deselectAll() {
+    clearSelection();
+    updateSelectAllButtons();
+  }
+
+  function updateSelectAllButtons() {
+    const btnSelectAll = document.getElementById('btn-select-all');
+    const btnDeselectAll = document.getElementById('btn-deselect-all');
+    if (!btnSelectAll || !btnDeselectAll) return;
+    const allCbs = document.querySelectorAll('.kb-row-checkbox');
+    const allChecked = allCbs.length > 0 && [...allCbs].every(cb => cb.checked);
+    const someChecked = [...allCbs].some(cb => cb.checked);
+    btnSelectAll.classList.toggle('hidden', allChecked);
+    btnDeselectAll.classList.toggle('hidden', !someChecked);
   }
 
   function clearSelection() {
@@ -402,6 +430,7 @@
     container.querySelectorAll('.kb-row-checkbox').forEach(cb => {
       cb.addEventListener('change', () => toggleSelect(cb.dataset.id, cb.checked));
     });
+    updateSelectAllButtons();
 
     // Source name click -> open chunks drawer
     container.querySelectorAll('.kb-source-name').forEach(btn => {
@@ -697,7 +726,9 @@
   document.getElementById('btn-batch-remove-tag').addEventListener('click', () => batchTag('remove'));
   document.getElementById('kb-scenario-select').addEventListener('change', updateSelectionUI);
   document.getElementById('btn-batch-add-scenario').addEventListener('click', batchAddToScenario);
-  document.getElementById('btn-batch-clear').addEventListener('click', clearSelection);
+  document.getElementById('btn-batch-clear').addEventListener('click', deselectAll);
+  document.getElementById('btn-select-all').addEventListener('click', selectAllVisible);
+  document.getElementById('btn-deselect-all').addEventListener('click', deselectAll);
 
   document.getElementById('btn-batch-delete').addEventListener('click', () => {
     if (!selectedIds.size) return;
