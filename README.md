@@ -17,6 +17,12 @@
 </p>
 
 <p align="center">
+  <img src="https://cdn3.ldstatic.com/original/4X/5/1/f/51f1739699ec0b35ee4e73fe7dec721f0645a370.jpeg" width="48%" alt="Wiki 界面"/>
+  <img src="https://cdn3.ldstatic.com/original/4X/e/a/4/ea46abac257ac90d405bb09f0cf6b95f2993d2b5.png" width="48%" alt="测试报告"/>
+</p>
+<p align="center"><em>左：Wiki 知识图谱 ｜ 右：500 题大规模幻觉测试报告</em></p>
+
+<p align="center">
   <a href="#-什么是-omnikb">中文</a> ·
   <a href="#-what-is-omnikb">English</a>
 </p>
