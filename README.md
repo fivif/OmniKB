@@ -1,6 +1,6 @@
 <h1 align="center">OmniKB</h1>
-<h3 align="center">Wiki-first Universal AI Knowledge Base</h3>
-<h4 align="center">上传即维基 · LLM 自动建图 · 1M 上下文直读 · 零嵌入开销</h4>
+<h3 align="center">按场景划分的知识库问答系统</h3>
+<h4 align="center">多源聚合 · 场景专属 Wiki · 一键发布 · 零嵌入开销</h4>
 
 <p align="center">
   <a href="https://github.com/fivif/OmniKB"><img src="https://img.shields.io/badge/GitHub-OmniKB-blue?logo=github" alt="GitHub"></a>
@@ -12,6 +12,11 @@
 </p>
 
 <p align="center">
+  🌐 <a href="https://kb.xzay.de/s/mfd">在线体验</a> ·
+  📊 <a href="https://kb.xzay.de/test">测试报告</a>
+</p>
+
+<p align="center">
   <a href="#-什么是-omnikb">中文</a> ·
   <a href="#-what-is-omnikb">English</a>
 </p>
@@ -20,7 +25,14 @@
 
 ## 🧠 什么是 OmniKB
 
-**OmniKB** 不是 RAG 知识库。不分割文档、不做向量嵌入、不用语义搜索。LLM 直接阅读源文件，生成结构化的 Wiki 页面——维基本身就是知识库。
+**OmniKB** 是一个按场景划分的知识库问答系统。核心思路：
+
+1. **导入知识源** — 上传文档、粘贴文本、抓取 URL
+2. **创建场景** — 每个场景绑定自己的知识源，配置专属 system prompt、UI 模板、API 密钥
+3. **一键发布** — 自动生成公开问答页（`/s/your-slug`），嵌入官网或作为 Agent 的专属知识库
+4. **Wiki 建图** — LLM 自动分析源内容，生成结构化 Wiki 页面，构建知识图谱
+
+不同场景可以绑定不同知识源，快速切换。同时可以作为 AI Agent 的专属知识库——每个 Agent 绑定自己的场景 API，互不干扰。
 
 参考 [Karpathy 的 LLM-Wiki 构想](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) 和 [nashsu/llm_wiki](https://github.com/nashsu/llm_wiki) 的实现范式。
 
@@ -88,12 +100,23 @@ python backend/main.py
 ### 场景发布流程
 
 ```
-1. 上传资料 → 知识库管理
-2. Wiki 面板 → 同步生成 Wiki 页面
-3. 问答管理 → 新建场景 → 关联知识源 → 配置 UI 模板
-4. Agent 助手 → 「改成暗色卡片风格」 → 实时预览
-5. 创建 API Key → 复制链接 → 嵌入官网
+1. 上传资料 → 知识库管理（支持多源批量导入）
+2. Wiki 面板 → 批量生成 Wiki 页面
+3. 场景管理 → 新建场景 → 绑定知识源 → 自定义公开 URL (/s/your-slug)
+4. 配置 UI 模板 → system prompt → API 密钥
+5. 发布 → 作为独立问答页 | 嵌入官网 | Agent 专属知识库
 ```
+
+### 为什么用场景划分？
+
+不同场景 = 不同知识域，互不干扰：
+
+| 场景 | 知识源 | 用途 |
+|---|---|---|
+| 民法典助手 | 民法典各编条文 | 法律咨询 / 律师 Agent |
+| 产品手册 | 产品文档、FAQ | 客服系统 / 用户自助 |
+| 内部 Wiki | 公司制度、技术文档 | 员工助手 / 入职培训 |
+| 竞品分析 | 竞品资料、评测 | 市场分析 Agent |
 
 ### 鉴权机制
 
