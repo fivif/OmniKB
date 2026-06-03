@@ -48,6 +48,7 @@ class ScenarioUpdate(BaseModel):
     name: str | None = None
     description: str | None = None
     system_prompt: str | None = None
+    slug: str | None = None
     llm_provider: str | None = None
     llm_model: str | None = None
     llm_base_url: str | None = None
@@ -157,6 +158,19 @@ async def update_one_scenario(scenario_id: str, body: ScenarioUpdate):
     if not existing:
         raise HTTPException(status_code=404, detail="Scenario not found")
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
+
+    # Validate slug if provided
+    if "slug" in updates:
+        slug = updates["slug"].strip()
+        if not slug:
+            del updates["slug"]
+        elif len(slug) > 30:
+            raise HTTPException(status_code=400, detail="Slug must be at most 30 characters")
+        elif not _SLUG_RE.match(slug):
+            raise HTTPException(status_code=400, detail="Slug must be lowercase alphanumeric with optional hyphens (e.g. my-support-bot)")
+        else:
+            updates["slug"] = slug
+
     if {"llm_provider", "llm_model", "llm_base_url"} & set(updates):
         merged = {**existing, **updates}
         updates["llm_provider"] = _normalize_scenario_llm_fields(merged)["llm_provider"]
