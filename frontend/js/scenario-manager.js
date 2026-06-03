@@ -236,7 +236,7 @@
 	                    </div>
 	                    <div class="sc-field-group">
 	                      <label>URL 标识 <span style="font-size:0.75em;color:var(--accent);margin-left:6px">公开链接</span></label>
-	                      <input id="sc-slug" type="text" placeholder="例如: civil-code-assistant，留空自动生成" oninput="(function(v){var p=document.getElementById('sc-slug-preview');p.textContent=v?location.origin+'/kb-chat.html?scenario='+v:'（保存后自动生成）';p.style.display=v?'':'none'})(this.value)" />
+	                      <input id="sc-slug" type="text" placeholder="例如: civil-code-assistant，留空自动生成" oninput="(function(v){var p=document.getElementById('sc-slug-preview');p.textContent=v?location.origin+'/s/'+v:'（保存后自动生成）';p.style.display=v?'':'none'})(this.value)" />
 	                    </div>
 	                    <div class="sc-field-group sc-field-span-2">
 	                      <label>描述</label>
@@ -609,7 +609,7 @@
   function getScenarioPublicUrl(scenario) {
     const sc = scenario || {};
     const slugOrId = (sc.slug || sc.id || '');
-    const url = new URL(`kb-chat.html?scenario=${encodeURIComponent(slugOrId)}`, window.location.href);
+    const url = new URL(`s/${encodeURIComponent(slugOrId)}`, window.location.href);
     if (url.protocol === 'file:') {
       url.searchParams.set('api', getStoredApiBase());
     }
@@ -619,7 +619,7 @@
   function getScenarioApiDocUrl(scenario) {
     const sc = scenario || {};
     const slugOrId = (sc.slug || sc.id || '');
-    const url = new URL(`scenario-api.html?scenario=${encodeURIComponent(slugOrId)}`, window.location.href);
+    const url = new URL(`s/${encodeURIComponent(slugOrId)}/api`, window.location.href);
     if (url.protocol === 'file:') {
       url.searchParams.set('api', getStoredApiBase());
     }
