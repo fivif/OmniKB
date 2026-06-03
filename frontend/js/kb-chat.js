@@ -1,9 +1,13 @@
 /* ── Public KB Chat (scenario Q&A page) ─────────────────────── */
 
 (function initKbChat() {
-  // Parse scenario ID from URL
+  // Parse scenario ID from URL: /s/slug or ?scenario=id
   const params = new URLSearchParams(window.location.search);
-  const scenarioId = params.get('scenario');
+  let scenarioId = params.get('scenario');
+  if (!scenarioId) {
+    const pathMatch = window.location.pathname.match(/^\/s\/([a-z0-9-]+)$/);
+    if (pathMatch) scenarioId = pathMatch[1];
+  }
   const previewRequested = params.get('demo') === '1' || !scenarioId;
   const DEFAULT_TEMPLATE = 'assistant';
   const CHAT_TEMPLATES = {
