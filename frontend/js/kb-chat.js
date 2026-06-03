@@ -400,16 +400,22 @@
 
   function addMessage(role, content = '', id = null) {
     const isUser = role === 'user';
+    const isThinking = role === 'thinking';
     const msgId = id || makeMessageId(role);
     const el = document.createElement('div');
     el.id = msgId;
-    el.className = `kbchat-message-row ${isUser ? 'is-user' : 'is-assistant'}`;
-    el.innerHTML = `
-      <div class="kbchat-message-author">${isUser ? '你' : 'AI 助手'}</div>
-      <div class="kbchat-message-bubble ${isUser ? 'bubble-user' : 'bubble-ai'}" id="${msgId}-content">
-        ${isUser ? esc(content) : ''}
-      </div>
-    `;
+    if (isThinking) {
+      el.className = 'think-row';
+      el.innerHTML = content;
+    } else {
+      el.className = `kbchat-message-row ${isUser ? 'is-user' : 'is-assistant'}`;
+      el.innerHTML = `
+        <div class="kbchat-message-author">${isUser ? '你' : 'AI 助手'}</div>
+        <div class="kbchat-message-bubble ${isUser ? 'bubble-user' : 'bubble-ai'}" id="${msgId}-content">
+          ${isUser ? esc(content) : ''}
+        </div>
+      `;
+    }
     messagesEl.appendChild(el);
     messagesEl.scrollTop = messagesEl.scrollHeight;
     return msgId;
@@ -463,6 +469,53 @@
 
     let fullText = '';
     let firstToken = true;
+    let thinkMsgId = null;
+    let thinkPages = [];
+
+    function ensureThinkingCard() {
+      if (thinkMsgId) return;
+      thinkMsgId = addMessage('thinking', '');
+      const thinkDiv = document.getElementById(thinkMsgId);
+      if (thinkDiv) {
+        thinkDiv.innerHTML = '<div class="think-card"><div class="think-header"><span class="think-spinner"></span><span class="think-title">正在检索知识库...</span></div><div class="think-pages"></div></div>';
+      }
+    }
+
+    function addThinkingPage(pages) {
+      if (!pages) return;
+      const thinkDiv = document.getElementById(thinkMsgId);
+      if (!thinkDiv) return;
+      const pagesEl = thinkDiv.querySelector('.think-pages');
+      if (!pagesEl) return;
+      const items = pages.filter(p => !thinkPages.includes(p));
+      thinkPages.push(...items);
+      for (const p of items) {
+        const tag = document.createElement('span');
+        tag.className = 'think-page-tag';
+        tag.textContent = '📄 ' + p;
+        pagesEl.appendChild(tag);
+      }
+      thinkDiv.querySelector('.think-title').textContent = `已检索 ${thinkPages.length} 个页面`;
+    }
+
+    function finishThinking() {
+      const thinkDiv = document.getElementById(thinkMsgId);
+      if (!thinkDiv) return;
+      thinkDiv.querySelector('.think-spinner').classList.replace('think-spinner', 'think-check');
+      thinkDiv.querySelector('.think-check').textContent = '✅';
+      thinkDiv.querySelector('.think-title').textContent = `已检索 ${thinkPages.length} 个页面`;
+      // 折叠思考卡片
+      thinkDiv.classList.add('think-done');
+      setTimeout(() => {
+        thinkDiv.querySelector('.think-card').style.maxHeight = '40px';
+      }, 1500);
+    }
+
+    function toggleThinking(e) {
+      const card = e.currentTarget.querySelector('.think-card');
+      if (!card) return;
+      card.style.maxHeight = card.style.maxHeight === '40px' ? card.scrollHeight + 'px' : '40px';
+    }
 
     function ensureAiBubble() {
       if (!aiMsgId) {
@@ -519,9 +572,16 @@
           if (raw === '[DONE]') break;
           try {
             const evt = JSON.parse(raw);
-            if (evt.type === 'token') {
+            if (evt.type === 'tool_call') {
+              ensureThinkingCard();
+              const pageName = evt.args?.page_id || evt.name || '';
+              if (pageName) addThinkingPage([pageName.replace(/_/g, ' ')]);
+            } else if (evt.type === 'tool_result') {
+              // tool completed
+            } else if (evt.type === 'token') {
               if (firstToken) {
                 firstToken = false;
+                if (thinkMsgId) finishThinking();
                 ensureAiBubble();
               }
               fullText += evt.content;
