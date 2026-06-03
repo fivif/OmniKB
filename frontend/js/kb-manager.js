@@ -70,6 +70,7 @@
         <select id="kb-scenario-select" class="kb-batch-select">
           <option value="">选择场景</option>
         </select>
+        <button id="btn-batch-wiki" class="kb-batch-btn kb-batch-btn--primary" type="button" title="为选中的来源批量生成 Wiki 页面">🧠 生成 Wiki</button>
         <button id="btn-batch-add-scenario" class="kb-batch-btn kb-batch-btn--primary" type="button">${ICONS.plus} 加入场景</button>
         <input id="batch-tag-input" class="kb-batch-input" type="text" placeholder="标签（逗号分隔）" />
         <button id="btn-batch-add-tag" class="kb-batch-btn" type="button">追加标签</button>
@@ -679,6 +680,28 @@
     }
   }
 
+  // ── Batch generate Wiki ─────────────────────────────────────
+  async function batchGenerateWiki() {
+    if (!selectedIds.size) { toast('请先选择来源', 'error'); return; }
+    const ids = [...selectedIds];
+    try {
+      const base = (typeof getApiBase === 'function' ? getApiBase() : '');
+      const r = await fetch(base + '/wiki/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source_ids: ids }),
+      });
+      const data = await r.json();
+      if (r.ok) {
+        toast(`Wiki 生成已启动: ${data.accepted} 个处理, ${data.rejected} 个跳过`, 'success');
+      } else {
+        toast('Wiki 生成失败: ' + (data.detail || r.statusText), 'error');
+      }
+    } catch (e) {
+      toast('Wiki 生成失败: ' + e.message, 'error');
+    }
+  }
+
   // ── Batch add to scenario ──────────────────────────────────
   async function batchAddToScenario() {
     const scenarioId = document.getElementById('kb-scenario-select').value;
@@ -726,6 +749,7 @@
   document.getElementById('btn-batch-remove-tag').addEventListener('click', () => batchTag('remove'));
   document.getElementById('kb-scenario-select').addEventListener('change', updateSelectionUI);
   document.getElementById('btn-batch-add-scenario').addEventListener('click', batchAddToScenario);
+  document.getElementById('btn-batch-wiki').addEventListener('click', batchGenerateWiki);
   document.getElementById('btn-batch-clear').addEventListener('click', deselectAll);
   document.getElementById('btn-select-all').addEventListener('click', selectAllVisible);
   document.getElementById('btn-deselect-all').addEventListener('click', deselectAll);
