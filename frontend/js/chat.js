@@ -63,7 +63,7 @@
   _updateThreadDisplay();
 
   async function loadModels() {
-    const base = loadSettings().api_base || 'http://localhost:6886';
+    const base = loadSettings().api_base || '';
     const selectEl = document.getElementById('chat-model');
     try {
       const resp = await fetch(`${base}/chat/models`);
@@ -218,7 +218,7 @@
     }
 
     try {
-      const base = loadSettings().api_base || 'http://localhost:6886';
+      const base = loadSettings().api_base || '';
       const res = await fetch(`${base}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

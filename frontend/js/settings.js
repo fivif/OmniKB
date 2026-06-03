@@ -17,10 +17,6 @@
 
               <div class="field-grid settings-form-grid">
                 <div class="stack-sm settings-field">
-                  <label class="form-label">后端地址</label>
-                  <input id="s-api-base" class="input" type="text" placeholder="http://localhost:6886" />
-                </div>
-                <div class="stack-sm settings-field">
                   <label class="form-label">HTTP 代理</label>
                   <input id="s-proxy" class="input" type="text" placeholder="http://127.0.0.1:7890" />
                 </div>
@@ -144,7 +140,7 @@
               <div class="stats-grid settings-summary-grid">
                 <div class="stats-card">
                   <span class="stats-label">后端</span>
-                  <strong id="settings-summary-base" class="stats-value">http://localhost:6886</strong>
+                  <strong id="settings-summary-base" class="stats-value">同源自动</strong>
                 </div>
                 <div class="stats-card">
                   <span class="stats-label">代理</span>
@@ -176,7 +172,6 @@
   `;
 
   const refs = {
-    apiBase: document.getElementById('s-api-base'),
     proxy: document.getElementById('s-proxy'),
     provider: document.getElementById('s-llm-provider'),
     model: document.getElementById('s-llm-model'),
@@ -203,7 +198,6 @@
   };
 
   const defaults = {
-    api_base: 'http://localhost:6886',
     http_proxy: '',
     llm_provider: 'custom',
     llm_model: '',
@@ -226,12 +220,8 @@
 
   let promptDebounceTimer = null;
 
-  function getBase() {
-    return refs.apiBase.value.trim() || defaults.api_base;
-  }
-
   async function requestJson(path, options = {}) {
-    const response = await fetch(`${getBase()}${path}`, options);
+    const response = await fetch(path, options);
     const text = await response.text();
     let data = {};
     if (text) {
@@ -257,7 +247,6 @@
   function localDraft() {
     const saved = loadSettings();
     return {
-      api_base: saved.api_base || defaults.api_base,
       http_proxy: saved.http_proxy || '',
       llm_provider: saved.llm_provider ? normalizeProvider(saved.llm_provider) : '',
       llm_model: saved.llm_model || '',
@@ -277,7 +266,6 @@
     const provider = normalizeProvider(refs.provider.value);
     const baseUrl = refs.baseUrl.value.trim();
     return {
-      api_base: getBase(),
       http_proxy: refs.proxy.value.trim(),
       llm_provider: provider,
       llm_model: refs.model.value.trim() || defaults.llm_model,
@@ -311,7 +299,7 @@
   }
 
   function updateSummary(values) {
-    refs.summaryBase.textContent = values.api_base;
+    refs.summaryBase.textContent = '当前域名 (同源自动)';
     refs.summaryProxy.textContent = values.http_proxy || '直连';
     refs.summaryProvider.textContent = 'OpenAI-compatible';
     refs.summaryModel.textContent = values.llm_model || '未设置';
@@ -334,7 +322,6 @@
   }
 
   function applyRuntimeValues(values) {
-    refs.apiBase.value = values.api_base || defaults.api_base;
     refs.proxy.value = values.http_proxy || '';
     refs.provider.value = normalizeProvider(values.llm_provider);
     refs.model.value = values.llm_model || defaults.llm_model;
@@ -421,7 +408,6 @@
     const local = localDraft();
     console.log('loadRuntimeSettings: loaded', local);
     applyRuntimeValues({
-      api_base: local.api_base,
       http_proxy: local.http_proxy,
       llm_provider: local.llm_provider || defaults.llm_provider,
       llm_model: local.llm_model || defaults.llm_model,
@@ -448,7 +434,6 @@
       ]);
 
       applyRuntimeValues({
-        api_base: local.api_base,
         http_proxy: local.http_proxy || proxy.proxy || '',
         llm_provider: normalizeProvider(local.llm_provider || llm.provider || defaults.llm_provider),
         llm_model: local.llm_model || llm.model || defaults.llm_model,
@@ -545,7 +530,7 @@
 
   document.getElementById('btn-save-admin-password').addEventListener('click', saveAdminPassword);
 
-  [refs.apiBase, refs.proxy, refs.model, refs.baseUrl, refs.apiKey].forEach(node => {
+  [refs.proxy, refs.model, refs.baseUrl, refs.apiKey].forEach(node => {
     node.addEventListener('input', persistLocalDraft);
     node.addEventListener('change', persistLocalDraft);
   });

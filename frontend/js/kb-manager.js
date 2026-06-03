@@ -526,7 +526,7 @@
             btn.disabled = true;
             btn.textContent = '生成中…';
             try {
-              const base = (window.getApiBase && window.getApiBase()) || 'http://localhost:6886';
+              const base = (window.getApiBase && window.getApiBase()) || '';
               const r = await fetch(base + '/wiki/sync', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
@@ -719,7 +719,7 @@
   });
   ['json', 'csv', 'zip'].forEach(format => {
     document.getElementById(`export-${format}`).addEventListener('click', () => {
-      const base = typeof getApiBase === 'function' ? getApiBase() : 'http://localhost:6886';
+      const base = typeof getApiBase === 'function' ? getApiBase() : '';
       window.open(`${base}/kb/export?fmt=${format}`, '_blank');
       document.getElementById('export-menu').classList.add('hidden');
     });

@@ -49,7 +49,7 @@
         if (s && s.api_base) return s.api_base;
       }
     } catch(e) {}
-    return 'http://localhost:6886';
+    return '';
   }
   async function apiGet(path) {
     const res = await fetch(apiBase() + path, { cache: 'no-store' });

@@ -70,9 +70,9 @@
   function getStoredApiBase() {
     try {
       const saved = JSON.parse(localStorage.getItem('omnikb_settings') || '{}');
-      return String(saved.api_base || 'http://localhost:6886').replace(/\/+$/, '');
+      return String(saved.api_base || '').replace(/\/+$/, '');
     } catch {
-      return 'http://localhost:6886';
+      return '';
     }
   }
 
@@ -183,240 +183,241 @@
 
   // ── Render layout ──────────────────────────────────────────────
 
-  panel.innerHTML = `
-    <div class="sc-shell flex h-full">
-      <!-- Left: scenario list -->
-      <aside class="sc-sidebar flex-shrink-0 border-r flex flex-col" style="width:280px;background:var(--bg-muted);border-color:var(--bd);">
-        <div class="sc-sidebar-head px-4 py-4 border-b flex items-center justify-between" style="border-color:var(--bd);">
-          <div>
-            <div class="sc-sidebar-kicker">Scene Library</div>
-            <h2 class="text-sm font-semibold" style="color:var(--t1);">场景列表</h2>
-          </div>
-          <button id="btn-sc-new" class="w-6 h-6 flex items-center justify-center rounded-md transition-colors" style="background:var(--accent-bg);color:var(--accent);font-size:16px;line-height:1;" title="新建场景">+</button>
-        </div>
-        <div id="scenario-list" class="sc-list flex-1 overflow-y-auto p-3"></div>
-      </aside>
+	panel.innerHTML = `
+	    <div class="sc-shell">
+	      <!-- Sidebar: Scenario list -->
+	      <aside class="sc-sidebar">
+	        <div class="sc-sidebar-head">
+	          <div>
+	            <div class="sc-sidebar-kicker">Scene Library</div>
+	            <h2>场景列表</h2>
+	          </div>
+	          <button id="btn-sc-new" class="sc-btn-new-scenario" title="新建场景">+</button>
+	        </div>
+	        <div id="scenario-list" class="sc-list"></div>
+	      </aside>
 
-      <!-- Right: detail -->
-      <main class="sc-main flex-1 flex flex-col min-w-0 overflow-hidden">
-        <div id="sc-detail-empty" class="sc-detail-empty flex-1 flex items-center justify-center">
-          <div class="sc-detail-empty-copy text-center">
-            <div class="sc-detail-empty-icon">⚙️</div>
-            <p class="text-sm font-medium" style="color:var(--t2);">选择一个场景</p>
-            <p class="text-xs mt-1" style="color:var(--t3);">从左侧列表选择或新建一个场景来开始配置</p>
-          </div>
-        </div>
-        <div id="sc-detail" class="sc-detail flex-1 flex-col hidden">
-          <!-- Tabs -->
-          <div class="sc-detail-tabs flex items-center gap-0 px-6 pt-4 pb-0 border-b" style="border-color:var(--bd);">
-            <button data-sctab="info" class="sc-tab-btn px-4 py-2 text-xs font-medium rounded-t-lg transition-colors" style="color:var(--accent);background:var(--accent-bg);">基本信息</button>
-            <button data-sctab="chunks" class="sc-tab-btn px-4 py-2 text-xs font-medium rounded-t-lg transition-colors" style="color:var(--t2);">知识库</button>
-            <button data-sctab="keys" class="sc-tab-btn px-4 py-2 text-xs font-medium rounded-t-lg transition-colors" style="color:var(--t2);">API 密钥</button>
-            <button data-sctab="agent" class="sc-tab-btn px-4 py-2 text-xs font-medium rounded-t-lg transition-colors" style="color:var(--t2);">Agent 助手</button>
-            <a id="sc-open-api-doc-tab" class="sc-tab-link px-4 py-2 text-xs font-medium rounded-t-lg transition-colors" href="#" target="_blank" rel="noreferrer">场景 API 接入</a>
-            <div class="flex-1"></div>
-            <button id="btn-sc-delete" class="text-xs px-3 py-1.5 rounded-lg transition-colors" style="color:var(--c-err);">删除场景</button>
-          </div>
+	      <!-- Main: detail area -->
+	      <main class="sc-main">
+	        <div id="sc-detail-empty" class="sc-detail-empty">
+	          <div class="sc-detail-empty-copy">
+	            <div class="sc-detail-empty-icon">&#x1F4CB;</div>
+	            <h3>还没有场景</h3>
+	            <p>创建你的第一个知识库场景，构建专属 AI 问答入口。配置知识源、LLM 模型与发布风格。</p>
+	            <button class="sc-empty-cta" onclick="document.getElementById('btn-sc-new').click()">&#x2795; 创建第一个场景</button>
+	          </div>
+	        </div>
+	        <div id="sc-detail" class="sc-detail hidden">
+	          <!-- Tab strip -->
+	          <div class="sc-detail-tabs">
+	            <button data-sctab="info" class="sc-tab-btn" style="color:var(--accent);">&#x2699;&#xFE0F; 基本信息</button>
+	            <button data-sctab="chunks" class="sc-tab-btn">&#x1F4DA; 知识库</button>
+	            <button data-sctab="keys" class="sc-tab-btn">&#x1F511; API 密钥</button>
+	            <button data-sctab="agent" class="sc-tab-btn">&#x1F916; Agent 助手</button>
+	            <a id="sc-open-api-doc-tab" class="sc-tab-link" href="#" target="_blank" rel="noreferrer">&#x1F517; 场景 API 接入</a>
+	            <button id="btn-sc-delete">删除场景</button>
+	          </div>
 
-          <!-- Tab: info -->
-          <div id="sc-panel-info" class="sc-panel-info flex-1 overflow-y-auto px-6 py-5">
-            <div class="sc-config-grid">
-              <div class="sc-config-stack">
-                <section class="sc-card">
-                  <div class="sc-card-head">
-                    <div>
-                      <div class="sc-card-title">场景定位</div>
-                      <div class="sc-card-subtitle">定义这个公开问答入口的身份、介绍和系统提示词。</div>
-                    </div>
-                  </div>
-                  <div class="sc-field-grid sc-field-grid--double">
-                    <div class="sc-field-group">
-                      <label class="form-label">场景名称</label>
-                      <input id="sc-name" type="text" class="input" placeholder="例如：客服知识库" />
-                    </div>
-                    <div class="sc-field-group">
-                      <label class="form-label">URL 标识</label>
-                      <input id="sc-slug" type="text" class="input" placeholder="小写字母+数字+连字符，最长30字符，留空则自动生成" />
-                    </div>
-                    <div class="sc-field-group">
-                      <label class="form-label">描述</label>
-                      <input id="sc-desc" type="text" class="input" placeholder="简短描述此场景用途" />
-                    </div>
-                    <div class="sc-field-group sc-field-span-2">
-                      <label class="form-label">系统提示词</label>
-                      <textarea id="sc-prompt" rows="6" class="textarea sc-textarea" placeholder="为此场景自定义 AI 回复风格…"></textarea>
-                    </div>
-                  </div>
-                </section>
+	          <!-- Tab: info -->
+	          <div id="sc-panel-info" class="sc-panel-info">
+	            <div class="sc-config-grid">
+	              <div class="sc-config-stack">
+	                <section class="sc-card">
+	                  <div class="sc-card-head">
+	                    <div>
+	                      <div class="sc-card-title">场景定位</div>
+	                      <div class="sc-card-subtitle">定义这个公开问答入口的身份、介绍和系统提示词。</div>
+	                    </div>
+	                  </div>
+	                  <div class="sc-field-grid sc-field-grid--double">
+	                    <div class="sc-field-group">
+	                      <label>场景名称</label>
+	                      <input id="sc-name" type="text" placeholder="例如：客服知识库" />
+	                    </div>
+	                    <div class="sc-field-group">
+	                      <label>URL 标识</label>
+	                      <input id="sc-slug" type="text" placeholder="小写字母+数字+连字符，最长30字符" />
+	                    </div>
+	                    <div class="sc-field-group sc-field-span-2">
+	                      <label>描述</label>
+	                      <input id="sc-desc" type="text" placeholder="简短描述此场景用途" />
+	                    </div>
+	                    <div class="sc-field-group sc-field-span-2">
+	                      <label>系统提示词</label>
+	                      <textarea id="sc-prompt" rows="6" class="sc-textarea" placeholder="为此场景自定义 AI 回复风格..."></textarea>
+	                    </div>
+	                  </div>
+	                </section>
 
-                <section class="sc-card">
-                  <div class="sc-card-head">
-                    <div>
-                      <div class="sc-card-title">LLM 配置</div>
-                      <div class="sc-card-subtitle">前端固定按 OpenAI-compatible 第三方接口发送，你只需要填写模型、Base URL 和 API Key。</div>
-                    </div>
-                  </div>
-                  <div class="sc-field-grid sc-field-grid--double">
-                    <div class="sc-field-group">
-                      <label class="form-label">接口类型</label>
-                      <input id="sc-llm-provider" type="hidden" value="custom" />
-                      <input type="text" class="input" value="OpenAI-compatible 第三方接口" disabled />
-                    </div>
-                    <div class="sc-field-group">
-                      <label class="form-label">Model</label>
-                      <input id="sc-llm-model" type="text" class="input" placeholder="例如：deepseek-chat" />
-                    </div>
-                    <div class="sc-field-group">
-                      <label class="form-label">Base URL</label>
-                      <input id="sc-llm-url" type="text" class="input" placeholder="https://api.example.com/v1" />
-                    </div>
-                    <div class="sc-field-group">
-                      <label class="form-label">API Key</label>
-                      <input id="sc-llm-key" type="password" class="input" placeholder="sk-…" />
-                    </div>
-                  </div>
-                </section>
-              </div>
+	                <section class="sc-card">
+	                  <div class="sc-card-head">
+	                    <div>
+	                      <div class="sc-card-title">LLM 配置</div>
+	                      <div class="sc-card-subtitle">支持所有 OpenAI-compatible 第三方接口，填写模型、Base URL 和 API Key 即可。</div>
+	                    </div>
+	                  </div>
+	                  <div class="sc-field-grid sc-field-grid--double">
+	                    <div class="sc-field-group">
+	                      <label>接口类型</label>
+	                      <input id="sc-llm-provider" type="hidden" value="custom" />
+	                      <input type="text" value="OpenAI-compatible 第三方接口" disabled />
+	                    </div>
+	                    <div class="sc-field-group">
+	                      <label>Model</label>
+	                      <input id="sc-llm-model" type="text" placeholder="例如：deepseek-chat" />
+	                    </div>
+	                    <div class="sc-field-group">
+	                      <label>Base URL</label>
+	                      <input id="sc-llm-url" type="text" placeholder="https://api.example.com/v1" />
+	                    </div>
+	                    <div class="sc-field-group">
+	                      <label>API Key</label>
+	                      <input id="sc-llm-key" type="password" placeholder="sk-..." />
+	                    </div>
+	                  </div>
+	                </section>
+	              </div>
 
-              <div class="sc-config-stack">
-                <section class="sc-card">
-                  <div class="sc-card-head">
-                    <div>
-                      <div class="sc-card-title">知识检索</div>
-                      <div class="sc-card-subtitle">使用 Wiki 知识图谱 + 大上下文 LLM 进行问答，无需向量嵌入。</div>
-                    </div>
-                  </div>
-                </section>
+	              <div class="sc-config-stack">
+	                <section class="sc-card">
+	                  <div class="sc-card-head">
+	                    <div>
+	                      <div class="sc-card-title">知识检索</div>
+	                      <div class="sc-card-subtitle">基于 Wiki 知识图谱与 BM25 + 语义混合检索，结合大上下文 LLM 精准回答，无需向量嵌入即可获得高质量结果。</div>
+	                    </div>
+	                  </div>
+	                </section>
 
-                <section class="sc-card">
-                  <div class="sc-card-head">
-                    <div>
-                      <div class="sc-card-title">发布模板</div>
-                      <div class="sc-card-subtitle">先选交付风格，再微调标题、欢迎语和输入提示。</div>
-                    </div>
-                  </div>
-                  <input id="sc-ui-template" type="hidden" value="assistant" />
-                  <div id="sc-template-presets" class="sc-template-grid"></div>
-                  <div class="sc-field-grid sc-field-grid--double">
-                    <div class="sc-field-group">
-                      <label class="form-label">公开标题</label>
-                      <input id="sc-ui-title" type="text" class="input" placeholder="我的知识库" />
-                    </div>
-                    <div class="sc-field-group">
-                      <label class="form-label">页眉副标题</label>
-                      <input id="sc-ui-subtitle" type="text" class="input" placeholder="例如：讲解红楼梦的故事" />
-                    </div>
-                    <div class="sc-field-group sc-field-span-2">
-                      <label class="form-label">欢迎语</label>
-                      <textarea id="sc-ui-welcome" rows="4" class="textarea sc-textarea" placeholder="你好！请问有什么可以帮助你？"></textarea>
-                    </div>
-                    <div class="sc-field-group">
-                      <label class="form-label">输入提示语</label>
-                      <input id="sc-ui-placeholder" type="text" class="input" placeholder="输入你的问题…" />
-                    </div>
-                    <div class="sc-field-group">
-                      <label class="form-label">底部提示</label>
-                      <input id="sc-ui-disclaimer" type="text" class="input" placeholder="重要信息请再次核验" />
-                    </div>
-                    <div class="sc-field-group sc-field-span-2">
-                      <label class="form-label">主题色</label>
-                      <div class="sc-color-row">
-                        <input id="sc-ui-color" type="color" class="sc-color-picker" />
-                        <input id="sc-ui-color-text" type="text" class="input input-sm" placeholder="#5B8CFF" />
-                      </div>
-                      <div class="helper-text">模板会给出一套推荐主色，你也可以在这里改成品牌色。</div>
-                    </div>
-                    <div class="sc-field-group sc-field-span-2">
-                      <details class="sc-css-details">
-                        <summary>高级 CSS 自定义</summary>
-                        <textarea id="sc-ui-css" rows="6" class="textarea sc-textarea sc-css-textarea" placeholder="/* 自定义 CSS 变量或覆盖 */"></textarea>
-                      </details>
-                    </div>
-                  </div>
-                </section>
-              </div>
-            </div>
+	                <section class="sc-card">
+	                  <div class="sc-card-head">
+	                    <div>
+	                      <div class="sc-card-title">发布模板</div>
+	                      <div class="sc-card-subtitle">为你的问答页面选择一套视觉风格，再微调标题与欢迎语。</div>
+	                    </div>
+	                  </div>
+	                  <input id="sc-ui-template" type="hidden" value="assistant" />
+	                  <div id="sc-template-presets" class="sc-template-grid"></div>
+	                  <div class="sc-field-grid sc-field-grid--double">
+	                    <div class="sc-field-group">
+	                      <label>公开标题</label>
+	                      <input id="sc-ui-title" type="text" placeholder="我的知识库" />
+	                    </div>
+	                    <div class="sc-field-group">
+	                      <label>页眉副标题</label>
+	                      <input id="sc-ui-subtitle" type="text" placeholder="例如：讲解红楼梦的故事" />
+	                    </div>
+	                    <div class="sc-field-group sc-field-span-2">
+	                      <label>欢迎语</label>
+	                      <textarea id="sc-ui-welcome" rows="4" class="sc-textarea" placeholder="你好！请问有什么可以帮助你？"></textarea>
+	                    </div>
+	                    <div class="sc-field-group">
+	                      <label>输入提示语</label>
+	                      <input id="sc-ui-placeholder" type="text" placeholder="输入你的问题..." />
+	                    </div>
+	                    <div class="sc-field-group">
+	                      <label>底部提示</label>
+	                      <input id="sc-ui-disclaimer" type="text" placeholder="重要信息请再次核验" />
+	                    </div>
+	                    <div class="sc-field-group sc-field-span-2">
+	                      <label>主题色</label>
+	                      <div class="sc-color-row">
+	                        <input id="sc-ui-color" type="color" class="sc-color-picker" />
+	                        <input id="sc-ui-color-text" type="text" placeholder="#5B8CFF" />
+	                      </div>
+	                      <div class="helper-text">模板会自动匹配推荐主色，你也可以在这里设置品牌色。</div>
+	                    </div>
+	                    <div class="sc-field-group sc-field-span-2">
+	                      <details class="sc-css-details">
+	                        <summary>高级 CSS 自定义</summary>
+	                        <textarea id="sc-ui-css" rows="6" class="sc-textarea sc-css-textarea" placeholder="/* 自定义 CSS 变量或页面样式覆盖 */"></textarea>
+	                      </details>
+	                    </div>
+	                  </div>
+	                </section>
+	              </div>
+	            </div>
 
-            <div class="sc-save-row">
-              <span id="sc-chunk-count" class="sc-save-meta"></span>
-              <span id="sc-save-status" class="sc-save-status hidden">已保存</span>
-              <button id="btn-sc-save" class="btn btn-primary" type="button">保存场景配置</button>
-            </div>
-          </div>
+	            <div class="sc-save-row">
+	              <span id="sc-chunk-count" class="sc-save-meta"></span>
+	              <span id="sc-save-status" class="sc-save-status hidden">已保存</span>
+	              <button id="btn-sc-save" type="button">保存场景配置</button>
+	            </div>
+	          </div>
 
-          <!-- Tab: chunks -->
-          <div id="sc-panel-chunks" class="flex-1 flex-col hidden overflow-hidden">
-            <div class="sc-chunks-section" style="flex:1;display:flex;flex-direction:column;">
-              <div class="sc-chunks-section-head" style="display:flex;align-items:center;justify-content:space-between;">
-                <div style="display:flex;align-items:center;gap:8px;">
-                  <span class="sc-chunks-section-title">已关联知识源</span>
-                  <span id="sc-chunk-count2" class="sc-chunks-section-badge">0</span>
-                </div>
-                <button id="btn-sc-goto-kb" class="sc-chunks-btn-primary" type="button" title="跳转到知识库页面添加来源">前往知识库管理</button>
-              </div>
-              <div id="sc-chunk-list" class="sc-chunks-list sc-chunks-list--selected" style="flex:1;overflow-y:auto;"></div>
-            </div>
-          </div>
+	          <!-- Tab: chunks -->
+	          <div id="sc-panel-chunks" class="flex-1 flex-col hidden overflow-hidden">
+	            <div class="sc-chunks-section" style="flex:1;display:flex;flex-direction:column;">
+	              <div class="sc-chunks-section-head" style="display:flex;align-items:center;justify-content:space-between;">
+	                <div style="display:flex;align-items:center;gap:8px;">
+	                  <span class="sc-chunks-section-title">已关联知识源</span>
+	                  <span id="sc-chunk-count2" class="sc-chunks-section-badge">0</span>
+	                </div>
+	                <button id="btn-sc-goto-kb" class="sc-chunks-btn-primary" type="button" title="跳转到知识库页面添加来源">前往知识库管理</button>
+	              </div>
+	              <div id="sc-chunk-list" class="sc-chunks-list sc-chunks-list--selected" style="flex:1;overflow-y:auto;"></div>
+	            </div>
+	          </div>
 
-          <!-- Tab: keys -->
-          <div id="sc-panel-keys" class="flex-1 flex-col hidden overflow-y-auto">
-            <div class="px-6 py-4 border-b flex items-center justify-between" style="border-color:var(--bd);">
-              <p class="text-xs" style="color:var(--t2);">创建 API 密钥以允许外部应用访问此场景的问答 API</p>
-              <button id="btn-sc-key-new" class="px-3 py-1.5 text-xs rounded-lg font-medium transition-colors" style="background:var(--accent-bg);color:var(--accent);">新建密钥</button>
-            </div>
-            <div id="sc-key-list" class="px-6 py-4 space-y-2"></div>
-            <!-- Key name input modal (glassmorphism AURA UI) -->
-            <div id="sc-key-name-modal" class="sc-key-modal-backdrop hidden">
-              <div class="sc-key-modal-card">
-                <div class="sc-key-modal-icon">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
-                </div>
-                <h3 class="sc-key-modal-title">新建 API 密钥</h3>
-                <p class="sc-key-modal-desc">为此场景创建一个 API 密钥，供外部应用调用问答接口。</p>
-                <div class="sc-key-modal-field">
-                  <label class="sc-key-modal-label">密钥名称</label>
-                  <input id="sc-key-name-input" type="text" class="sc-key-modal-input" placeholder="例如：前端应用、内部工具" />
-                </div>
-                <div class="sc-key-modal-actions">
-                  <button id="btn-sc-key-name-cancel" class="sc-key-modal-btn sc-key-modal-btn--ghost">取消</button>
-                  <button id="btn-sc-key-name-confirm" class="sc-key-modal-btn sc-key-modal-btn--primary">创建密钥</button>
-                </div>
-              </div>
-            </div>
-            <!-- Key reveal modal (glassmorphism AURA UI) -->
-            <div id="sc-key-modal" class="sc-key-modal-backdrop hidden">
-              <div class="sc-key-modal-card">
-                <div class="sc-key-modal-icon sc-key-modal-icon--warn">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-                </div>
-                <h3 class="sc-key-modal-title">新 API 密钥已生成</h3>
-                <p class="sc-key-modal-warn">请立即复制此密钥。关闭窗口后将无法再次查看完整密钥内容。</p>
-                <div class="sc-key-modal-key-box">
-                  <code id="sc-key-raw" class="sc-key-modal-key-value"></code>
-                </div>
-                <div class="sc-key-modal-actions">
-                  <button id="btn-sc-key-copy" class="sc-key-modal-btn sc-key-modal-btn--primary">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                    复制密钥
-                  </button>
-                  <button id="btn-sc-key-close" class="sc-key-modal-btn sc-key-modal-btn--ghost">关闭</button>
-                </div>
-              </div>
-            </div>
-          </div>
+	          <!-- Tab: keys -->
+	          <div id="sc-panel-keys" class="flex-1 flex-col hidden overflow-y-auto">
+	            <div class="flex items-center justify-between" style="padding:16px 24px;border-bottom:1px solid var(--bd-subtle);">
+	              <p style="font-size:12px;color:var(--t-secondary);margin:0;">创建 API 密钥以允许外部应用访问此场景的问答 API</p>
+	              <button id="btn-sc-key-new">新建密钥</button>
+	            </div>
+	            <div id="sc-key-list" style="padding:16px 24px;display:flex;flex-direction:column;gap:8px;"></div>
+	            <!-- Key reveal modal -->
+	            <div id="sc-key-modal" class="sc-key-modal-backdrop hidden">
+	              <div class="sc-key-modal-card">
+	                <div class="sc-key-modal-icon sc-key-modal-icon--warn">
+	                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+	                </div>
+	                <h3 class="sc-key-modal-title">新 API 密钥已生成</h3>
+	                <p class="sc-key-modal-warn">请立即复制此密钥。关闭窗口后将无法再次查看完整密钥内容。</p>
+	                <div class="sc-key-modal-key-box">
+	                  <code id="sc-key-raw" class="sc-key-modal-key-value"></code>
+	                </div>
+	                <div class="sc-key-modal-actions">
+	                  <button id="btn-sc-key-copy" class="sc-key-modal-btn sc-key-modal-btn--primary">
+	                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+	                    复制密钥
+	                  </button>
+	                  <button id="btn-sc-key-close" class="sc-key-modal-btn sc-key-modal-btn--ghost">关闭</button>
+	                </div>
+	              </div>
+	            </div>
+	          </div>
 
-          <!-- Tab: agent -->
-          <div id="sc-panel-agent" class="flex-1 flex-col hidden overflow-hidden">
-            <div id="sc-agent-messages" class="flex-1 overflow-y-auto px-6 py-4 space-y-4"></div>
-            <div class="px-6 py-3 border-t flex items-center gap-3" style="border-color:var(--bd);background:var(--bg-body);">
-              <input id="sc-agent-input" type="text" class="flex-1 text-sm" placeholder="描述你想要的修改，例如：切到客服模板并整套改成深色帮助中心…" style="background:transparent;border:none;" />
-              <button id="btn-sc-agent-send" class="px-4 py-1.5 text-xs rounded-lg font-medium transition-colors flex-shrink-0" style="background:var(--accent);color:#fff;">发送</button>
-            </div>
-          </div>
-        </div>
-      </main>
-    </div>
-  `;
+	          <!-- Tab: agent -->
+	          <div id="sc-panel-agent" class="flex-1 flex-col hidden overflow-hidden">
+	            <div id="sc-agent-messages"></div>
+	            <div class="sc-agent-input-row">
+	              <input id="sc-agent-input" type="text" placeholder="描述你想要的修改，例如：切到客服模板并整套改成深色帮助中心..." />
+	              <button id="btn-sc-agent-send" class="sc-agent-send-btn">发送</button>
+	            </div>
+	          </div>
+	        </div>
+	      </main>
+
+	      <!-- Key name input modal - outside sc-detail so always visible -->
+	      <div id="sc-key-name-modal" class="sc-key-modal-backdrop hidden">
+	        <div class="sc-key-modal-card">
+	          <div class="sc-key-modal-icon">
+	            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+	          </div>
+	          <h3 class="sc-key-modal-title">新建 API 密钥</h3>
+	          <p class="sc-key-modal-desc">为此场景创建一个 API 密钥，供外部应用调用问答接口。</p>
+	          <div class="sc-key-modal-field">
+	            <label class="sc-key-modal-label">密钥名称</label>
+	            <input id="sc-key-name-input" type="text" class="sc-key-modal-input" placeholder="例如：前端应用、内部工具" />
+	          </div>
+	          <div class="sc-key-modal-actions">
+	            <button id="btn-sc-key-name-cancel" class="sc-key-modal-btn sc-key-modal-btn--ghost">取消</button>
+	            <button id="btn-sc-key-name-confirm" class="sc-key-modal-btn sc-key-modal-btn--primary">创建密钥</button>
+	          </div>
+	        </div>
+	      </div>
+	    </div>
+	  `;
 
   // ── DOM refs ────────────────────────────────────────────────────
 

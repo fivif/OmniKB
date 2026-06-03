@@ -3,9 +3,9 @@
 function getApiBase() {
   try {
     const s = JSON.parse(localStorage.getItem('omnikb_settings') || '{}');
-    return s.api_base || 'http://localhost:6886';
+    return s.api_base || '';
   } catch {
-    return 'http://localhost:6886';
+    return '';
   }
 }
 const API_BASE = getApiBase();
@@ -57,7 +57,8 @@ function saveSettings(obj) {
 
 // ── API helper ──────────────────────────────────────────────
 async function api(path, options = {}) {
-  const base = loadSettings().api_base || 'http://localhost:6886';
+  let base = loadSettings().api_base || '';
+  if (base.includes('localhost') || base.includes('127.0.0.1')) base = '';
   const url = base + path;
   try {
     const res = await fetch(url, {
@@ -65,12 +66,16 @@ async function api(path, options = {}) {
       ...options,
     });
     if (!res.ok) {
+      if (res.status === 401 && !window.location.pathname.includes('login')) {
+        window.location.href = '/login.html';
+        throw new Error('请先登录');
+      }
       const err = await res.json().catch(() => ({ detail: res.statusText }));
       throw new Error(err.detail || res.statusText);
     }
     return res;
   } catch (e) {
-    toast(e.message, 'error');
+    if (e.message !== '请先登录') toast(e.message, 'error');
     throw e;
   }
 }
@@ -241,7 +246,7 @@ let backendStatusTimer = null;
 async function refreshBackendStatus(forceToast = false) {
   const pill = document.getElementById('topbar-status-pill');
   const label = document.getElementById('topbar-status-label');
-  const base = loadSettings().api_base || 'http://localhost:6886';
+  const base = loadSettings().api_base || '';
   if (!pill || !label) return false;
 
   pill.classList.remove('is-online', 'is-offline', 'is-warning');
@@ -287,7 +292,7 @@ window.__omnikb_protocol_v2 = false;
 
 async function detectOmnikbV2() {
   try {
-    const base = loadSettings().api_base || 'http://localhost:6886';
+    const base = loadSettings().api_base || '';
     const r = await fetch(base + '/agent/v2/events?probe=1', { method: 'HEAD' });
     window.__omnikb_protocol_v2 = r.ok;
   } catch {
