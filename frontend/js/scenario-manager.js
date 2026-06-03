@@ -235,8 +235,8 @@
 	                      <input id="sc-name" type="text" placeholder="例如：客服知识库" />
 	                    </div>
 	                    <div class="sc-field-group">
-	                      <label>URL 标识</label>
-	                      <input id="sc-slug" type="text" placeholder="小写字母+数字+连字符，最长30字符" />
+	                      <label>URL 标识 <span style="font-size:0.75em;color:var(--accent);margin-left:6px">公开链接</span></label>
+	                      <input id="sc-slug" type="text" placeholder="例如: civil-code-assistant，留空自动生成" oninput="(function(v){var p=document.getElementById('sc-slug-preview');p.textContent=v?location.origin+'/kb-chat.html?scenario='+v:'（保存后自动生成）';p.style.display=v?'':'none'})(this.value)" />
 	                    </div>
 	                    <div class="sc-field-group sc-field-span-2">
 	                      <label>描述</label>
