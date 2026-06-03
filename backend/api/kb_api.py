@@ -90,14 +90,16 @@ async def kb_chat(
     if not result:
         raise HTTPException(status_code=403, detail="Invalid API key")
     verified_scenario_id, _key_id = result
-    if verified_scenario_id != scenario_id:
-        raise HTTPException(status_code=403, detail="API key does not match scenario")
 
-    # Load scenario config and sources
+    # Load scenario (may be resolved from slug to UUID)
     sc = await get_scenario(scenario_id)
     if not sc:
         raise HTTPException(status_code=404, detail="Scenario not found")
-    scenario_sources = await list_scenario_sources(scenario_id)
+    canonical_id = sc.get("id", scenario_id)
+
+    if verified_scenario_id != canonical_id:
+        raise HTTPException(status_code=403, detail="API key does not match scenario")
+    scenario_sources = await list_scenario_sources(canonical_id)
 
     # Build scenario-scoped filter
     qdrant_filter = _build_qdrant_filter(scenario_sources)
@@ -105,7 +107,7 @@ async def kb_chat(
     # Compute wiki source_ids for scenario-scoped wiki retrieval
     wiki_source_ids: list[str] | None = None
     if getattr(settings, "wiki_retrieval_enabled", True):
-        wiki_source_ids = await list_scenario_source_ids(scenario_id)
+        wiki_source_ids = await list_scenario_source_ids(canonical_id)
         if not wiki_source_ids:
             wiki_source_ids = None
 

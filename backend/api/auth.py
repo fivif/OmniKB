@@ -21,6 +21,13 @@ router = APIRouter()
 _AUTH_EXEMPT_PREFIXES = (
     "/auth/",
     "/login.html",
+    "/kb-chat.html",
+    "/kb-api/",
+    "/scenario-api.html",
+    "/health",
+    "/mcp/",
+    "/test",
+    "/test/",
 )
 
 
