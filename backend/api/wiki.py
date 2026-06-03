@@ -376,15 +376,16 @@ async def sync_sources(req: WikiSyncRequest):
     accepted = 0
     rejected = 0
 
-    # Validate sources exist and have chunks
+    # Validate sources exist and have raw text (chunks table removed)
     valid_ids = []
     for sid in req.source_ids:
         src = await get_source(sid)
         if src is None:
             rejected += 1
             continue
-        chunks = await list_chunks_by_source(sid, limit=5000)
-        if not chunks:
+        # Read raw text from tasks table (chunks table was removed)
+        raw = await _read_source_text(sid)
+        if not raw:
             rejected += 1
             continue
         valid_ids.append(sid)
@@ -396,8 +397,27 @@ async def sync_sources(req: WikiSyncRequest):
     return WikiSyncResponse(task_id=task_id, accepted=accepted, rejected=rejected)
 
 
+async def _read_source_text(source_id: str) -> str:
+    """Read raw text from the tasks table for a given source_id."""
+    import sqlite3, json
+    try:
+        db_path = str(Path(settings.data_dir) / "omnikb.db")
+        _db = sqlite3.connect(db_path)
+        _row = _db.execute(
+            "SELECT params_json FROM tasks WHERE source_id = ? AND params_json IS NOT NULL ORDER BY rowid DESC LIMIT 1",
+            (source_id,),
+        ).fetchone()
+        _db.close()
+        if _row:
+            _params = json.loads(_row[0]) if _row[0] else {}
+            return _params.get("content", "")
+    except Exception:
+        pass
+    return ""
+
+
 async def _run_wiki_sync(task_id: str, source_ids: list[str]) -> None:
-    """Background: fetch source chunks and run wiki generator for each source."""
+    """Background: fetch source text and run wiki generator for each source."""
     from wiki.generator import WikiGenerator
     from agent_core.events import AgentEvent, get_event_stream
     from utils.agent_bus import emit
@@ -429,8 +449,8 @@ async def _run_wiki_sync(task_id: str, source_ids: list[str]) -> None:
         src = await get_source(sid)
         if src is None:
             continue
-        chunks = await list_chunks_by_source(sid, limit=5000)
-        if not chunks:
+        source_text = await _read_source_text(sid)
+        if not source_text:
             continue
 
         # Emit per-source progress to Agent Console
@@ -438,10 +458,6 @@ async def _run_wiki_sync(task_id: str, source_ids: list[str]) -> None:
             emit(f"🧠 Wiki 生成: {src.get('name', sid)[:50]}", kind="progress", agent="wiki", task_id=task_id)
         except Exception:
             pass
-
-        # Sort by chunk_index and concatenate
-        chunks_sorted = sorted(chunks, key=lambda c: c.get("chunk_index", 0))
-        source_text = "\n\n".join(c.get("content", "") for c in chunks_sorted)
         meta = {
             "title": src.get("name", sid),
             "type": src.get("type", "unknown"),
