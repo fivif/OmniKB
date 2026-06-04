@@ -307,4 +307,44 @@ def build_chat_tools(ctx: ChatContext):
         except Exception as e:
             return f"[wiki_stats error: {e}]"
 
-    return [read_wiki_page, fetch_url_preview, update_wiki_page, create_wiki_page, list_wiki_pages_tool, search_wiki_tool, get_wiki_stats_tool]
+    @_lc_tool
+    def list_sources_tool() -> str:
+        """List all knowledge base sources with their names, types, and IDs."""
+        try:
+            from storage.metadata_db import list_sources as _list_sources
+            sources = _sync_run(_list_sources(limit=200))
+            if not sources:
+                return "No sources found."
+            lines = ["Sources in knowledge base:"]
+            for s in sources:
+                lines.append(f"- {s.get('name','?')[:60]} (id: {s.get('id','?')[:12]}..., type: {s.get('type','?')})")
+            return "\n".join(lines)
+        except Exception as e:
+            return f"[list_sources error: {e}]"
+
+    @_lc_tool
+    def read_source_text(source_id: str) -> str:
+        """Read the raw text content of an ingested source by its ID. Useful for updating wiki pages from source material."""
+        try:
+            import sqlite3, json as _json
+            from config import settings
+            db = sqlite3.connect(settings.sqlite_path)
+            row = db.execute(
+                "SELECT params_json FROM tasks WHERE source_id = ? AND params_json IS NOT NULL ORDER BY rowid DESC LIMIT 1",
+                (source_id,),
+            ).fetchone()
+            db.close()
+            if not row:
+                return f"[read_source_text: no content found for source {source_id}]"
+            params = _json.loads(row[0]) if row[0] else {}
+            text = params.get("content", "")
+            if not text:
+                return f"[read_source_text: empty content for source {source_id}]"
+            # Truncate to 15000 chars to fit context budget
+            if len(text) > 15000:
+                text = text[:15000] + "\n\n[... content truncated at 15000 chars ...]"
+            return text
+        except Exception as e:
+            return f"[read_source_text error: {e}]"
+
+    return [read_wiki_page, fetch_url_preview, update_wiki_page, create_wiki_page, list_wiki_pages_tool, search_wiki_tool, get_wiki_stats_tool, list_sources_tool, read_source_text]

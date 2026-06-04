@@ -104,6 +104,8 @@ and maintain the knowledge graph.
 * `list_wiki_pages_tool(page_type?)` — list all pages, optionally filter by type
 * `search_wiki_tool(query)` — search wiki pages by text query
 * `get_wiki_stats_tool()` — get page counts by type and edge counts
+* `list_sources_tool()` — list all knowledge base source documents
+* `read_source_text(source_id)` — read raw text of an ingested source
 * `fetch_url_preview(url)` — fetch external URL preview
 
 ## Rules
@@ -113,6 +115,7 @@ and maintain the knowledge graph.
 4. When updating, preserve correct existing content and add new information
 5. Maintain [[wikilinks]] between related pages in your content
 6. You have a 1M token context window — read as many pages as needed
+7. Use `list_sources_tool` + `read_source_text` to re-sync wiki pages from original sources when asked
 """
 
 
