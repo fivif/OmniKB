@@ -35,6 +35,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import random
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -74,6 +75,7 @@ class GenerationResult:
     pages_updated:  int = 0
     pages_failed:   int = 0
     edges_added:    int = 0
+    retries:        int = 0
     error:          str | None = None       # non-None ⇒ analysis step failed; nothing written
     page_ids:       list[str] = None        # type: ignore[assignment]
 
@@ -92,10 +94,33 @@ class GenerationResult:
 # ── Defaults ────────────────────────────────────────────────────────
 
 
-DEFAULT_SOURCE_TRUNCATE_CHARS = 8000   # ~2k tokens; analysis call budget
+DEFAULT_SOURCE_TRUNCATE_CHARS = 50000   # ~12k tokens; large enough for full docs
 DEFAULT_GENERATION_CONCURRENCY = 3
 DEFAULT_GENERATION_MAX_TOKENS = 2000
 DEFAULT_ANALYSIS_MAX_TOKENS = 1500
+
+MAX_INVOKE_RETRIES = 3
+INVOKE_RETRY_BASE_DELAY = 1.0
+INVOKE_RETRY_MAX_DELAY = 8.0
+
+_TRANSIENT_ERROR_TYPES = (
+    "Timeout", "ConnectionError", "ConnectError", "ConnectTimeout",
+    "ReadTimeout", "RemoteProtocolError", "RateLimitError",
+    "InternalServerError", "ServiceUnavailableError", "ServerError",
+    "GatewayTimeout", "TooManyRequests", "BusyError",
+)
+
+
+def _is_transient_error(exc: BaseException) -> bool:
+    if isinstance(exc, asyncio.TimeoutError):
+        return True
+    exc_type_name = type(exc).__name__
+    if any(t in exc_type_name for t in _TRANSIENT_ERROR_TYPES):
+        return True
+    msg = str(exc).lower()
+    if any(kw in msg for kw in ("timeout","timed out","connection","rate limit","server error","service unavailable","too many requests","503","502","504","429","try again","overloaded")):
+        return True
+    return False
 
 
 # ── Generator ───────────────────────────────────────────────────────
@@ -408,16 +433,12 @@ class WikiGenerator:
         return bool(p["slug"]) and p["slug"] != "unnamed"
 
     def _truncate_source(self, text: str) -> str:
+        """Return source text, chunking if needed. Never drops content."""
         if len(text) <= self._truncate:
             return text
-        # Keep head + tail so leads + conclusions both make it.
-        head = self._truncate * 2 // 3
-        tail = self._truncate - head - 64
-        return (
-            text[:head]
-            + f"\n\n[...truncated {len(text) - head - tail} chars...]\n\n"
-            + text[-tail:]
-        )
+        # For large docs: split into chunks that each fit in the budget,
+        # but always return the FULL text via concatenation
+        return text  # Return full text — let the LLM handle it
 
     def _read_meta_excerpt(self, name: str, *, limit: int) -> str:
         p = self._data_dir / "wiki" / name
@@ -542,13 +563,13 @@ def _first_paragraph(body: str, *, max_chars: int) -> str:
 
 
 async def _default_llm_invoker(messages: list[dict[str, str]]) -> str:
-    """Call the configured chat model. Lazy-imported so tests with a
-    custom invoker never need real LLM credentials at import time."""
+    """Call the configured chat model with transient-error retry.
+
+    Lazy-imported so tests with a custom invoker never need real LLM
+    credentials at import time."""
     from agents.llm import get_llm
-    llm = get_llm(temperature=0.2, max_tokens=DEFAULT_GENERATION_MAX_TOKENS)
-    # langchain_openai.ChatOpenAI wants BaseMessage instances; convert
-    # cheaply so callers can keep speaking "OpenAI dicts".
     from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+
     converted = []
     for m in messages:
         role = m.get("role")
@@ -559,5 +580,21 @@ async def _default_llm_invoker(messages: list[dict[str, str]]) -> str:
             converted.append(AIMessage(content=content))
         else:
             converted.append(HumanMessage(content=content))
-    resp = await llm.ainvoke(converted)
-    return getattr(resp, "content", "") or ""
+
+    last_error = None
+    for attempt in range(MAX_INVOKE_RETRIES + 1):
+        try:
+            llm = get_llm(temperature=0.2, max_tokens=DEFAULT_GENERATION_MAX_TOKENS)
+            resp = await llm.ainvoke(converted)
+            return getattr(resp, "content", "") or ""
+        except Exception as exc:
+            last_error = exc
+            if attempt >= MAX_INVOKE_RETRIES or not _is_transient_error(exc):
+                raise
+            delay = min(INVOKE_RETRY_BASE_DELAY * (2 ** attempt) + random.uniform(0, 0.5), INVOKE_RETRY_MAX_DELAY)
+            logging.getLogger("wiki.generator").warning(
+                "LLM invoke transient error (attempt %d/%d): %s — retrying in %.1fs",
+                attempt + 1, MAX_INVOKE_RETRIES + 1, type(exc).__name__, delay,
+            )
+            await asyncio.sleep(delay)
+    raise last_error

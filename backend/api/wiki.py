@@ -427,6 +427,7 @@ async def _run_wiki_sync(task_id: str, source_ids: list[str]) -> None:
     total_created = 0
     total_updated = 0
     total_failed = 0
+    failed_sources: list[dict] = []
 
     # Publish batch start
     try:
@@ -458,8 +459,9 @@ async def _run_wiki_sync(task_id: str, source_ids: list[str]) -> None:
             emit(f"🧠 Wiki 生成: {src.get('name', sid)[:50]}", kind="progress", agent="wiki", task_id=task_id)
         except Exception:
             pass
+        source_name = src.get("name", sid)
         meta = {
-            "title": src.get("name", sid),
+            "title": source_name,
             "type": src.get("type", "unknown"),
             "source_url": src.get("url", ""),
             "tags": src.get("tags", []),
@@ -471,11 +473,22 @@ async def _run_wiki_sync(task_id: str, source_ids: list[str]) -> None:
                 source_metadata=meta,
                 task_id=task_id,
             )
-            total_created += result.pages_created
-            total_updated += result.pages_updated
-            total_failed += result.pages_failed
+            if result.error:
+                total_failed += 1
+                failed_sources.append({"source_id": sid, "name": source_name, "error": result.error})
+                logger.warning("wiki sync: source %s analysis failed: %s", sid, result.error)
+            else:
+                total_created += result.pages_created
+                total_updated += result.pages_updated
+                total_failed += result.pages_failed
+                if result.pages_failed > 0:
+                    failed_sources.append({
+                        "source_id": sid, "name": source_name,
+                        "error": f"{result.pages_failed} page(s) failed during generation",
+                    })
         except Exception as exc:
             total_failed += 1
+            failed_sources.append({"source_id": sid, "name": source_name, "error": f"{type(exc).__name__}: {exc}"})
             logger.exception("wiki sync failed for source %s: %s", sid, exc)
 
     # Publish batch complete
@@ -489,6 +502,7 @@ async def _run_wiki_sync(task_id: str, source_ids: list[str]) -> None:
                 "total_created": total_created,
                 "total_updated": total_updated,
                 "total_failed": total_failed,
+                "failed_sources": failed_sources,
             },
         ))
     except Exception:
@@ -496,6 +510,14 @@ async def _run_wiki_sync(task_id: str, source_ids: list[str]) -> None:
 
     # Emit completion to Agent Console
     try:
-        emit(f"✅ Wiki 完成: {total_created} 创建 / {total_updated} 更新", kind="success", agent="wiki", task_id=task_id)
+        if total_failed > 0:
+            failed_names = ", ".join(f["name"] for f in failed_sources[:3])
+            if len(failed_sources) > 3:
+                failed_names += f" 等 {len(failed_sources)} 个来源"
+            emit(f"⚠️ Wiki 完成: {total_created} 创建 / {total_updated} 更新 / {total_failed} 失败 — {failed_names}",
+                kind="warning", agent="wiki", task_id=task_id)
+        else:
+            emit(f"✅ Wiki 完成: {total_created} 创建 / {total_updated} 更新",
+                kind="success", agent="wiki", task_id=task_id)
     except Exception:
         pass

@@ -126,19 +126,21 @@ async def batch_delete(req: BatchDeleteRequest):
         raise HTTPException(status_code=400, detail="ids must not be empty")
 
     qdrant_failures: list[str] = []
-    safe_ids: list[str] = []
     for sid in req.ids:
         try:
             await delete_by_source_id(sid)
-            safe_ids.append(sid)
         except Exception as exc:
-            log.error("Qdrant delete failed for %s: %s", sid, exc)
+            log.warning(
+                "Qdrant delete failed for %s: %s (non-fatal, source will still be cleaned up)", sid, exc,
+            )
             qdrant_failures.append(sid)
 
-    count = await batch_delete_sources(safe_ids) if safe_ids else 0
+    # Always delete from SQLite for every ID, regardless of Qdrant outcome.
+    # This matches the single-delete behavior — Qdrant is best-effort cleanup.
+    count = await batch_delete_sources(req.ids) if req.ids else 0
 
     file_failures: list[str] = []
-    for sid in safe_ids:
+    for sid in req.ids:
         try:
             delete_file(sid)
         except Exception as exc:

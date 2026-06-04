@@ -60,6 +60,9 @@ Hard rules:
 - When uncertain, prefer FEWER, HIGHER-QUALITY pages over many
   shallow ones. A wiki of 8 deep entity pages beats one with 30
   one-line stubs.
+- Your job is to ORGANIZE content, never to discard it. Every fact,
+  provision, number, and detail from the source must appear in at
+  least one wiki page.
 
 JSON schema:
 {
@@ -95,7 +98,7 @@ Source metadata:
 - type:  {source_type}
 - url:   {source_url}
 
-Source content (truncated to budget):
+Source content (DO NOT omit any facts, provisions, or details):
 \"\"\"
 {source_text}
 \"\"\"
@@ -145,6 +148,8 @@ When updating an existing page (``EXISTING PAGE`` is non-empty):
 - If new information SUPERSEDES an old claim, append:
   > 🕒 Superseded by: <one-line summary> (<source id>)
   Don't delete the old claim — the history matters.
+
+CRITICAL: Include ALL factual content from the source. Do NOT write phrases like '此处从略' (omitted), '略' (abbreviated), or '详见原文' (see original). Every provision, number, date, and detail must be preserved in full.
 """
 
 
