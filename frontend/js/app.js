@@ -20,8 +20,8 @@ const TAB_META = {
     subtitle: '混合语义检索、重排序与结果复核都在这里完成',
   },
   chat: {
-    title: 'AI 对话',
-    subtitle: '基于 Wiki 知识图谱与大上下文 LLM 进行智能问答',
+    title: 'Wiki 管理',
+    subtitle: '用自然语言管理你的知识库 — 创建、更新、检索、分析 Wiki 页面',
   },
   kb: {
     title: '知识库管理',

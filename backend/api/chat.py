@@ -476,6 +476,16 @@ async def chat(req: ChatRequest):
     )
 
 
+@router.get("/sessions/{thread_id}")
+async def get_chat_session(thread_id: str):
+    """Retrieve a conversation session's stored message history."""
+    from storage.metadata_db import get_session as db_get
+    session = await db_get(thread_id)
+    if session is None:
+        return {"thread_id": thread_id, "messages": []}
+    return {"thread_id": session["thread_id"], "messages": session["messages"]}
+
+
 @router.delete("/sessions/{thread_id}")
 async def delete_session(thread_id: str):
     """Clear a conversation session's stored history."""

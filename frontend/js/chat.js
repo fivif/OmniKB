@@ -10,7 +10,7 @@
       <div class="glass-header" style="display:flex;align-items:center;justify-content:space-between;padding:0 24px;height:56px;flex-shrink:0;">
         <div>
           <h1 style="font-size:15px;font-weight:650;letter-spacing:-.02em;color:var(--t1);">对话</h1>
-          <p style="font-size:11.5px;color:var(--t4);">Wiki 智能问答
+          <p style="font-size:11.5px;color:var(--t4);">Wiki 管理 Agent
             <span id="thread-id-display" style="margin-left:6px;font-family:var(--mono);font-size:10.5px;color:var(--t4);"></span>
           </p>
         </div>
@@ -171,6 +171,42 @@
   // Pre-load marked.js
   _loadMarked();
 
+  async function restoreSession() {
+    if (!currentThreadId) return false;
+    // Try backend first
+    try {
+      const base = loadSettings().api_base || '';
+      const resp = await fetch(`${base}/chat/sessions/${currentThreadId}`);
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data.messages && data.messages.length > 0) {
+          chatHistory = data.messages;
+          for (const msg of data.messages) {
+            addMessage(msg.role, msg.content);
+          }
+          // Cache to localStorage as backup
+          try { localStorage.setItem('omnikb_chat_history', JSON.stringify(data.messages)); } catch {}
+          return true;
+        }
+      }
+    } catch {}
+    // Fallback to localStorage
+    try {
+      const saved = localStorage.getItem('omnikb_chat_history');
+      if (saved) {
+        const msgs = JSON.parse(saved);
+        if (Array.isArray(msgs) && msgs.length > 0) {
+          chatHistory = msgs;
+          for (const msg of msgs) {
+            addMessage(msg.role, msg.content);
+          }
+          return true;
+        }
+      }
+    } catch {}
+    return false;
+  }
+
   async function sendMessage() {
     if (isStreaming) return;
     const text = inputEl.value.trim();
@@ -283,6 +319,7 @@
 
       if (fullText) {
         chatHistory.push({ role: 'assistant', content: fullText });
+        try { localStorage.setItem('omnikb_chat_history', JSON.stringify(chatHistory)); } catch {}
       } else {
         // No content — remove the empty bubble
         if (aiMsgId) {
@@ -355,6 +392,7 @@
   document.getElementById('btn-new-session').addEventListener('click', () => {
     currentThreadId = null;
     localStorage.removeItem('omnikb_thread_id');
+    localStorage.removeItem('omnikb_chat_history');
     chatHistory = [];
     messagesEl.innerHTML = '';
     document.getElementById('citations-panel').classList.add('hidden');
@@ -367,12 +405,15 @@
     chatHistory = [];
     messagesEl.innerHTML = '';
     document.getElementById('citations-panel').classList.add('hidden');
+    try { localStorage.removeItem('omnikb_chat_history'); } catch {}
   });
 
   // Show welcome on first open
   document.addEventListener('tab:shown', e => {
     if (e.detail === 'chat' && messagesEl.childElementCount === 0) {
-      addMessage('assistant', '你好！请随时向知识库提问。');
+      restoreSession().then(loaded => {
+        if (!loaded) addMessage('assistant', '你好！我是 Wiki 管理 Agent。用自然语言管理知识库：创建页面、更新内容、检索信息、分析图谱。');
+      });
     }
   });
 })();
