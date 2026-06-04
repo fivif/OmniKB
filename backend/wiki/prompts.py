@@ -98,7 +98,7 @@ Source metadata:
 - type:  {source_type}
 - url:   {source_url}
 
-Source content (DO NOT omit any facts, provisions, or details):
+Full source content (complete, untruncated — model has 1M context):
 \"\"\"
 {source_text}
 \"\"\"

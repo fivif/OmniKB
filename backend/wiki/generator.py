@@ -94,7 +94,7 @@ class GenerationResult:
 # ── Defaults ────────────────────────────────────────────────────────
 
 
-DEFAULT_SOURCE_TRUNCATE_CHARS = 50000   # ~12k tokens; large enough for full docs
+DEFAULT_SOURCE_TRUNCATE_CHARS = 200000  # model has 1M context window, no need to truncate   # ~12k tokens; large enough for full docs
 DEFAULT_GENERATION_CONCURRENCY = 3
 DEFAULT_GENERATION_MAX_TOKENS = 2000
 DEFAULT_ANALYSIS_MAX_TOKENS = 1500
@@ -433,12 +433,8 @@ class WikiGenerator:
         return bool(p["slug"]) and p["slug"] != "unnamed"
 
     def _truncate_source(self, text: str) -> str:
-        """Return source text, chunking if needed. Never drops content."""
-        if len(text) <= self._truncate:
-            return text
-        # For large docs: split into chunks that each fit in the budget,
-        # but always return the FULL text via concatenation
-        return text  # Return full text — let the LLM handle it
+        """Return full source text. Model has 1M context — no truncation needed."""
+        return text  # 1M context window, agent auto-compacts at 80%
 
     def _read_meta_excerpt(self, name: str, *, limit: int) -> str:
         p = self._data_dir / "wiki" / name
