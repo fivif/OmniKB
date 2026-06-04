@@ -204,18 +204,30 @@ class WikiGenerator:
             "preview": analysis_text[:200],
         }, task_id)
 
-        # Build pages from source metadata (free-form analysis provides context)
-        default_slug = slugify(title)
-        pages: list[dict[str, Any]] = [{
-            "page_type": "entity",
-            "slug": default_slug,
-            "id": f"entity:{default_slug}",
-            "title": title,
-            "tags": _listify(meta.get("tags")),
-            "aliases": _listify(meta.get("aliases")),
-            "sources": [source_id],
-            "rationale": f"Ingested from source {source_id}",
-        }]
+        # Extract JSON plan from analysis text (free-form analysis + dispatch plan)
+        plan: dict[str, Any] = {}
+        dispatcher_marker = "---DISPATCH PLAN---"
+        if dispatcher_marker in analysis_text:
+            _, _, plan_text = analysis_text.partition(dispatcher_marker)
+            plan = _extract_json_object(plan_text) or {}
+        # Fallback: old JSON-only format
+        if not plan:
+            plan = _extract_json_object(analysis_text) or {}
+        pages: list[dict[str, Any]] = plan.get("pages", [])
+        # Always ensure a source page exists
+        has_source = any(p.get("page_type") == "source" for p in pages)
+        if not has_source:
+            default_slug = slugify(title)
+            pages.append({
+                "page_type": "source",
+                "slug": default_slug,
+                "id": f"source:{default_slug}",
+                "title": title,
+                "tags": _listify(meta.get("tags")),
+                "aliases": _listify(meta.get("aliases")),
+                "sources": [source_id],
+                "rationale": f"Source document: {title}",
+            })
 
         if not pages:
             return GenerationResult(error="no pages to generate")

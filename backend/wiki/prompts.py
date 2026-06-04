@@ -64,8 +64,31 @@ Any conflicts with existing wiki? Internal tensions or caveats?
 - Which existing pages to update (id, what to add)?
 - Suggested tags and wikilinks between pages
 
-Be thorough but concise. Don't create pages for trivial mentions.
-Use kebab-case ASCII for slugs."""
+After the free-form analysis, append a JSON dispatch plan so the
+system knows exactly which pages to create/update. The plan must be the
+LAST thing in your output:
+
+---DISPATCH PLAN---
+```json
+{
+  "summary": "<one sentence>",
+  "pages": [
+    {
+      "page_type": "entity|concept|source|query",
+      "slug": "kebab-case-ascii",
+      "title": "Human Title in Chinese",
+      "rationale": "Why this page should exist",
+      "tags": ["t1"],
+      "aliases": ["alt"]
+    }
+  ],
+  "wikilinks": [
+    {"src": "type:slug", "dst": "type:slug", "relation": "mentions"}
+  ]
+}
+```
+Every plan MUST include exactly one source page.
+Prefer fewer, higher-quality pages over many shallow stubs."""
 
 
 
