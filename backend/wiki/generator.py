@@ -274,7 +274,30 @@ class WikiGenerator:
                 result.pages_failed += 1
                 WikiGenerator._publish_event("wiki_page_error", {"source_id": source_id, "error": "page generation returned failed"}, task_id)
 
-        # Step 3 — wikilinks. Cross-link new pages with existing ones.
+        # Step 3 — add per-source index to source page
+        source_page_id = next((pid for pid in result.page_ids if pid.startswith("source:")), "")
+        if source_page_id:
+            try:
+                all_pages = await list_wiki_pages(limit=1000)
+                linked = [p for p in all_pages if source_id in (json.loads(p.get("source_ids", "[]")) if isinstance(p.get("source_ids"), str) else p.get("source_ids", [])) and p["id"] != source_page_id]
+                if linked:
+                    src_row = await get_wiki_page(source_page_id)
+                    if src_row:
+                        index_lines = ["", "---", "", "## Pages derived from this source", ""]
+                        for lp in linked:
+                            index_lines.append(f"- [[{lp['page_type']}:{lp['slug']}]] — {lp.get('title', lp['slug'])}")
+                        index_lines.append("")
+                        new_body = (src_row.get("body") or "") + "\\n".join(index_lines)
+                        from wiki.parser import parse_page, render_page
+                        parsed = parse_page(src_row.get("body") or "")
+                        fm = dict(parsed.frontmatter)
+                        fm["updated_at"] = datetime.now(timezone.utc).isoformat()
+                        rendered = render_page(fm, (parsed.body or "") + "\\n".join(index_lines))
+                        await atomic_write(self._data_dir / src_row["file_path"], rendered)
+            except Exception as exc:
+                logger.debug("per-source index append failed: %s", exc)
+
+        # Step 4 — wikilinks. Cross-link new pages with existing ones.
         try:
             existing_pages = await list_wiki_pages(limit=100)
             for page_id in result.page_ids:
