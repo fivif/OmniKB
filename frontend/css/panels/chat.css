@@ -456,10 +456,17 @@
 /* System / progress messages in chat */
 .chat-system-msg {
   text-align: center;
-  padding: 4px 16px;
-  font-size: 0.78em;
-  color: var(--t4, #8888aa);
-  line-height: 1.5;
+  padding: 5px 16px;
+  margin: 4px 0;
+  font-size: 0.75em;
+  font-weight: 500;
+  color: var(--t3, #64748b);
+  line-height: 1.4;
+  background: var(--bg-muted, rgba(0,0,0,0.03));
+  border-radius: 8px;
+  max-width: 320px;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 /* Thinking / reasoning card in admin chat */

@@ -226,16 +226,16 @@
     thinkMsgId = addMessage('thinking', '');
     const el = document.getElementById(thinkMsgId);
     if (el) {
-      el.innerHTML = '<div class="think-card"><div class="think-header"><span class="think-spinner"></span><span class="think-title">正在思考...</span></div><div class="think-pages"></div></div>';
+      el.innerHTML = '<div class="think-card"><div class="think-header"><span class="think-spinner"></span><span class="think-title">Thinking</span></div><div class="think-pages"></div></div>';
     }
   }
   function finishThinkingCard() {
     const el = document.getElementById(thinkMsgId);
     if (!el) return;
     const sp = el.querySelector('.think-spinner');
-    if (sp) { sp.className = 'think-check'; sp.textContent = '✅'; }
+    if (sp) { sp.className = 'think-check'; sp.textContent = ''; }
     const t = el.querySelector('.think-title');
-    if (t) t.textContent = thinkPages.length > 0 ? '已检索 ' + thinkPages.length + ' 个页面' : '思考完成';
+    if (t) t.textContent = thinkPages.length > 0 ? 'Read ' + thinkPages.length + ' pages' : 'Done';
     el.classList.add('think-done');
   }
 
@@ -346,7 +346,7 @@
                   if (pe) {
                     const t = document.createElement('span');
                     t.className = 'think-page-tag';
-                    t.textContent = '📄 ' + pn.replace(/_/g, ' ');
+                    t.textContent = '' + pn.replace(/_/g, ' ');
                     pe.appendChild(t);
                   }
                 }
@@ -488,12 +488,12 @@
         try {
           const evt = JSON.parse(e.data);
           if (evt.type === 'wiki_analysis_start' || evt.type === 'wiki_batch_start') {
-            addMessage('system', '🧠 Wiki 生成中... ' + (evt.data?.source_count ? evt.data.source_count + ' 个来源' : ''));
+            addMessage('system', 'Wiki generation started' + (evt.data?.source_count ? ' (' + evt.data.source_count + ' sources)' : ''));
           } else if (evt.type === 'wiki_sync_complete') {
             const d = evt.data || {};
             const msg = d.total_failed > 0
-              ? `⚠️ Wiki 同步完成: ${d.total_created} 创建 / ${d.total_updated} 更新 / ${d.total_failed} 失败`
-              : `✅ Wiki 同步完成: ${d.total_created} 创建 / ${d.total_updated} 更新`;
+              ? `Wiki sync done: ${d.total_created} 创建 / ${d.total_updated} 更新 / ${d.total_failed} 失败`
+              : `Wiki sync done: ${d.total_created} 创建 / ${d.total_updated} 更新`;
             addMessage('system', msg);
           } else if (evt.type === 'progress' || evt.type === 'info') {
             addMessage('system', evt.data?.message || evt.data || '');
