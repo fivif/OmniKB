@@ -461,3 +461,49 @@
   color: var(--t4, #8888aa);
   line-height: 1.5;
 }
+
+/* Thinking / reasoning card in admin chat */
+.think-card {
+  background: linear-gradient(135deg, rgba(99,102,241,0.06), rgba(139,92,246,0.04));
+  border: 1px solid rgba(99,102,241,0.15);
+  border-radius: 12px;
+  padding: 10px 14px;
+  max-width: 480px;
+  margin: 8px auto;
+  text-align: left;
+}
+.think-header {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 0.82em; color: var(--t4, #8888aa);
+}
+.think-spinner {
+  width: 14px; height: 14px;
+  border: 2px solid rgba(99,102,241,0.2);
+  border-top-color: var(--accent, #6366f1);
+  border-radius: 50%;
+  animation: think-spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+.think-check {
+  width: 14px; height: 14px; display: flex; align-items: center; justify-content: center;
+  font-size: 12px; flex-shrink: 0;
+}
+@keyframes think-spin { to { transform: rotate(360deg); } }
+.think-pages {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  margin-top: 8px; padding-top: 8px;
+  border-top: 1px solid rgba(99,102,241,0.08);
+}
+.think-page-tag {
+  display: inline-block; padding: 3px 10px;
+  background: rgba(99,102,241,0.08); border: 1px solid rgba(99,102,241,0.15);
+  border-radius: 14px; font-size: 0.75em; color: var(--accent, #6366f1); white-space: nowrap;
+}
+.think-body {
+  margin-top: 8px; padding-top: 8px;
+  border-top: 1px solid rgba(99,102,241,0.08);
+  font-size: 0.78em; line-height: 1.55;
+  color: var(--t4, #8888aa); white-space: pre-wrap;
+  max-height: 120px; overflow-y: auto; font-family: monospace;
+}
+.think-done .think-card { opacity: 0.7; }
