@@ -95,13 +95,11 @@ async def delete_source_endpoint(source_id: str):
     try:
         await delete_by_source_id(source_id)
     except Exception as exc:
-        _lg.getLogger(__name__).error(
-            "Qdrant delete failed for source %s: %s", source_id, exc,
+        _lg.getLogger(__name__).warning(
+            "Qdrant delete failed for source %s: %s (skipping, source will still be cleaned up)", source_id, exc,
         )
-        raise HTTPException(
-            status_code=502,
-            detail=f"Vector store delete failed; source not deleted: {exc}",
-        ) from exc
+        # Don't block the delete — Qdrant might not exist or be empty.
+        # The source + wiki cleanup below is what matters.
 
     await delete_source(source_id)
 
