@@ -394,29 +394,30 @@
       }),
     });
 
-    // Admin password sync is handled by its dedicated button, not auto-synced here
-    // to avoid sending the password to the network on every keystroke.
-
-    applyRuntimeValues({
-      ...values,
-      llm_provider: runtime.provider,
-      llm_model: runtime.model,
-      llm_base_url: runtime.base_url || '',
-      llm_api_key: runtime.api_key || '',
-      chat_context_window: runtime.chat_context_window !== undefined ? runtime.chat_context_window : values.chat_context_window,
-      chat_compaction_threshold: runtime.chat_compaction_threshold !== undefined ? runtime.chat_compaction_threshold : values.chat_compaction_threshold,
-      vision_enabled: visionRuntime.vision_enabled !== undefined ? visionRuntime.vision_enabled : values.vision_enabled,
-      vision_model: visionRuntime.vision_model || values.vision_model,
-      vision_base_url: visionRuntime.vision_base_url || '',
-      vision_api_key: visionRuntime.vision_api_key || '',
-      vision_frame_interval: visionRuntime.vision_frame_interval !== undefined ? visionRuntime.vision_frame_interval : values.vision_frame_interval,
-    });
-
+    // Don't call applyRuntimeValues here — it would overwrite any inputs
+    // the user is currently typing. Just persist the merged state to
+    // localStorage silently.
     if (!skipLocalSave) {
+      const current = collectRuntimeValues();
+      const merged = {
+        ...current,
+        llm_provider: runtime.provider,
+        llm_model: runtime.model,
+        llm_base_url: runtime.base_url || '',
+        llm_api_key: runtime.api_key || '',
+        chat_context_window: runtime.chat_context_window !== undefined ? runtime.chat_context_window : current.chat_context_window,
+        chat_compaction_threshold: runtime.chat_compaction_threshold !== undefined ? runtime.chat_compaction_threshold : current.chat_compaction_threshold,
+        vision_enabled: visionRuntime.vision_enabled !== undefined ? visionRuntime.vision_enabled : current.vision_enabled,
+        vision_model: visionRuntime.vision_model || current.vision_model,
+        vision_base_url: visionRuntime.vision_base_url || '',
+        vision_api_key: visionRuntime.vision_api_key || '',
+        vision_frame_interval: visionRuntime.vision_frame_interval !== undefined ? visionRuntime.vision_frame_interval : current.vision_frame_interval,
+      };
       saveSettings({
         ...loadSettings(),
-        ...collectRuntimeValues(),
+        ...merged,
       });
+      updateSummary(merged);
     }
 
     if (window.OmniKBApp?.refreshBackendStatus) {
@@ -561,17 +562,14 @@
   document.getElementById('btn-save-admin-password').addEventListener('click', saveAdminPassword);
 
   [refs.proxy, refs.model, refs.baseUrl, refs.apiKey].forEach(node => {
-    node.addEventListener('input', persistLocalDraft);
     node.addEventListener('change', persistLocalDraft);
   });
 
   [refs.visionEnabled, refs.visionModel, refs.visionBaseUrl, refs.visionApiKey, refs.visionFrameInterval].forEach(node => {
-    node.addEventListener('input', persistLocalDraft);
     node.addEventListener('change', persistLocalDraft);
   });
 
   [refs.chatContext, refs.chatCompaction].forEach(node => {
-    node.addEventListener('input', persistLocalDraft);
     node.addEventListener('change', persistLocalDraft);
   });
 
