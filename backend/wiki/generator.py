@@ -214,6 +214,10 @@ class WikiGenerator:
         if not plan:
             plan = _extract_json_object(analysis_text) or {}
         pages: list[dict[str, Any]] = plan.get("pages", [])
+        # Fill in missing "id" fields: {type}:{slug}
+        for p in pages:
+            if "id" not in p and "page_type" in p and "slug" in p:
+                p["id"] = f"{p['page_type']}:{p['slug']}"
         # Always ensure a source page exists
         has_source = any(p.get("page_type") == "source" for p in pages)
         if not has_source:
