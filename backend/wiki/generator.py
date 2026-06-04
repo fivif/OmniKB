@@ -297,27 +297,50 @@ class WikiGenerator:
             except Exception as exc:
                 logger.debug("per-source index append failed: %s", exc)
 
-        # Step 4 — wikilinks. Cross-link new pages with existing ones.
+        # Step 4 — wikilinks. Use plan-specified relations when available,
+        # fall back to source↔page links for pages from the same ingest.
         try:
-            existing_pages = await list_wiki_pages(limit=100)
-            for page_id in result.page_ids:
-                for row in existing_pages:
-                    other_id = row["id"]
-                    if other_id == page_id:
+            plan_wikilinks: list[dict[str, str]] = plan.get("wikilinks", [])
+            if plan_wikilinks:
+                # Use plan-specified wikilinks with semantic relations.
+                for wl in plan_wikilinks:
+                    src = wl.get("src", "")
+                    dst = wl.get("dst", "")
+                    relation = wl.get("relation", "mentions")
+                    if not src or not dst:
+                        continue
+                    # Only upsert if at least one end is in newly created pages.
+                    src_in_new = any(src == pid for pid in result.page_ids)
+                    dst_in_new = any(dst == pid for pid in result.page_ids)
+                    if not (src_in_new or dst_in_new):
                         continue
                     try:
-                        await upsert_wikilink(
-                            page_id, other_id,
-                            relation="mentions",
-                            weight=0.5,
-                        )
+                        await upsert_wikilink(src, dst, relation=relation, weight=0.8)
                         result.edges_added += 1
                     except Exception:
                         pass
-                    if result.edges_added >= 20:
-                        break
-                if result.edges_added >= 20:
-                    break
+            else:
+                # Fallback: link new pages to the source page and to each other.
+                new_page_ids = set(result.page_ids)
+                source_page_id_set = {pid for pid in new_page_ids if pid.startswith("source:")}
+                other_page_ids = new_page_ids - source_page_id_set
+                # Link every non-source page to each source page.
+                for src_id in source_page_id_set:
+                    for other_id in other_page_ids:
+                        try:
+                            await upsert_wikilink(src_id, other_id, relation="parent_of", weight=0.6)
+                            result.edges_added += 1
+                        except Exception:
+                            pass
+                # Link non-source pages among themselves (same-ingest siblings).
+                other_list = sorted(other_page_ids)
+                for i in range(len(other_list)):
+                    for j in range(i + 1, len(other_list)):
+                        try:
+                            await upsert_wikilink(other_list[i], other_list[j], relation="mentions", weight=0.4)
+                            result.edges_added += 1
+                        except Exception:
+                            pass
         except Exception as exc:  # noqa: BLE001
             logger.debug("wiki edge upsert failed: %s", exc)
 
@@ -403,7 +426,8 @@ class WikiGenerator:
             "created_at": "",
             "updated_at": "",
         }
-        body = source_text  # Full text, verbatim — never summarized
+        # Generate a Table of Contents for legal documents with 编/章/节 hierarchy.
+        body = self._build_legal_toc(source_text) + source_text
         rendered = render_page(frontmatter, body)
 
         dir_name = PAGE_TYPE_DIRECTORY.get("source", "sources")
@@ -418,6 +442,60 @@ class WikiGenerator:
             source_ids=[source_id],
         )
         return ("created" if is_new else "updated", page_id)
+
+    @staticmethod
+    def _build_legal_toc(source_text: str) -> str:
+        """Scan source text for Chinese legal structure markers
+        (第X编 / 第X章 / 第X节) and generate a clickable Table of Contents.
+
+        Returns an empty string when no hierarchy markers are found,
+        otherwise returns a ``## 目录`` section followed by a ``---`` separator.
+        """
+        import re
+        # Match: optional whitespace + 第 + Chinese numerals + (编|章|节) + optional whitespace + title text
+        _BIAN_RE = re.compile(r'^\s*第[一二三四五六七八九十百千]+编\s*.*$', re.MULTILINE)
+        _ZHANG_RE = re.compile(r'^\s*第[一二三四五六七八九十百千]+章\s*.*$', re.MULTILINE)
+        _JIE_RE = re.compile(r'^\s*第[一二三四五六七八九十百千]+节\s*.*$', re.MULTILINE)
+
+        bian_matches = [(m.start(), m.group().strip()) for m in _BIAN_RE.finditer(source_text)]
+        zhang_matches = [(m.start(), m.group().strip()) for m in _ZHANG_RE.finditer(source_text)]
+        jie_matches = [(m.start(), m.group().strip()) for m in _JIE_RE.finditer(source_text)]
+
+        if not bian_matches and not zhang_matches and not jie_matches:
+            return ""
+
+        # Build hierarchical TOC: 编 → 章 → 节
+        lines: list[str] = ["## 目录", ""]
+
+        # Assign each 章 and 节 to their parent 编/章 based on position.
+        for bi_idx, (bi_pos, bi_title) in enumerate(bian_matches):
+            indent = ""
+            # Find next 编 boundary (or end of text).
+            next_bi_pos = bian_matches[bi_idx + 1][0] if bi_idx + 1 < len(bian_matches) else len(source_text)
+            lines.append(f"- {bi_title}")
+
+            # 章 within this 编
+            for zh_pos, zh_title in zhang_matches:
+                if bi_pos < zh_pos < next_bi_pos:
+                    # Find next 章 boundary within this 编
+                    zh_idx_in_range = [i for i, (p, _) in enumerate(zhang_matches) if bi_pos < p < next_bi_pos]
+                    current_zh_idx = next((i for i in zh_idx_in_range if zhang_matches[i][0] == zh_pos), None)
+                    next_zh_pos = (
+                        zhang_matches[current_zh_idx + 1][0]
+                        if current_zh_idx is not None and current_zh_idx + 1 < len(zhang_matches) and zhang_matches[current_zh_idx + 1][0] < next_bi_pos
+                        else next_bi_pos
+                    )
+                    lines.append(f"  - {zh_title}")
+
+                    # 节 within this 章
+                    for jie_pos, jie_title in jie_matches:
+                        if zh_pos < jie_pos < next_zh_pos:
+                            lines.append(f"    - {jie_title}")
+
+        lines.append("")
+        lines.append("---")
+        lines.append("")
+        return "\n".join(lines) + "\n"
 
     # ── Step 2: generate one page via LLM ─────────────────────
 
@@ -539,7 +617,14 @@ class WikiGenerator:
 
     @staticmethod
     def _language_guard(body: str) -> bool:
-        """Return True if body is predominantly Chinese (matching expected wiki language)."""
+        """Return True if body is predominantly Chinese (matching expected wiki language).
+
+        Legal texts contain many Arabic numerals (article numbers like
+        "第1234条", dates, chapter numbers), which inflate the latin
+        character count and cause false negatives with the old heuristic.
+        Instead, we accept any text with substantial CJK content, and only
+        reject nearly-pure-ASCII long prose.
+        """
         import re
         body = re.sub(r'```[\s\S]*?```', '', body)
         body = re.sub(r'\$\$[\s\S]*?\$\$', '', body)
@@ -547,8 +632,14 @@ class WikiGenerator:
         if len(sample) < 20:
             return True
         cjk = sum(1 for c in sample if '一' <= c <= '鿿')
-        latin = sum(1 for c in sample if c.isascii() and c.isalpha())
-        return cjk > latin * 0.5
+        # Accept if there's any substantial Chinese (CJK) content.
+        # Legal texts have many Arabic numerals for article numbers.
+        if cjk > len(sample) * 0.05:
+            return True
+        # Pure ASCII text with very few CJK chars — likely wrong language.
+        if len(sample) >= 100 and cjk < 10:
+            return False
+        return True
 
     @staticmethod
     def _validate_merge(new_body: str, existing_body: str) -> bool:

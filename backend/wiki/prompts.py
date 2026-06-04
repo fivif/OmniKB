@@ -27,6 +27,11 @@ Why not use OpenAI structured outputs / Anthropic tool-use?
 - Structured outputs lock us to OpenAI-specific endpoints; OmniKB
   targets DeepSeek / SiliconFlow / Ollama too. JSON mode is the
   greatest-common-denominator that all of them support.
+
+Domain: Chinese legal documents (民法典, 刑法, 司法解释, etc.)
+- Recognizes legal hierarchy: 编 → 章 → 节 → 条
+- Extracts legal entities, principles, article relationships
+- Generates structured, cross-referenced legal knowledge pages
 """
 from __future__ import annotations
 
@@ -36,142 +41,181 @@ from typing import Any
 # ── Analysis step ────────────────────────────────────────────────────
 
 
-ANALYSIS_SYSTEM = """You are an expert research analyst. Read the source document
-and produce a structured analysis. Reason internally — output only the concise,
-structured final analysis. No preamble, no chain-of-thought markers.
+ANALYSIS_SYSTEM = """你是一位中国法律研究专家。阅读法律原文并生成结构化分析。内部推理——仅输出简洁的结构化最终分析。不要前言，不要思考标记。
 
-LANGUAGE: Write all analysis prose in Chinese (简体中文).
+以简体中文撰写所有分析内容。
 
-Your analysis MUST cover ALL of these sections:
+你必须覆盖以下所有分析维度：
 
-## 1. Key Entities
-List people, organizations, products, datasets, tools. For each: name, type, role in this source.
+## 1. 法律体系定位
+- 该法律在我国法律体系中的地位（基本法律/普通法律/行政法规/司法解释）
+- 调整范围与立法目的
+- 与其他法律的层级关系（上位法/下位法/特别法/一般法）
 
-## 2. Key Concepts
-List theories, methods, techniques, phenomena. For each: name + brief definition, significance.
+## 2. 法律结构识别
+按编→章→节→条的层级逐层识别：
+- 编：第一编、第二编……（如有）
+- 章：每编下的各章标题与范围
+- 节：每章下的各节主题（如有）
+- 列出关键法条（核心定义条、基本原则条、重要制度条）
 
-## 3. Main Arguments & Findings
-Core claims/results. What's new, surprising, or important?
+## 3. 关键法律实体
+提取以下实体类型：
+- 该法律本身（作为顶层实体）
+- 每编（作为子实体，当独立成体系时）
+- 关键法律主体：自然人、法人、非法人组织、国家机关、特定身份主体
+- 机构实体：立法机关、行政机关、司法机关、监管机构
 
-## 4. Connections to Existing Wiki
-Which existing pages relate? Does it strengthen, challenge, or extend?
+## 4. 关键法律概念
+提取法律原则、制度定义、理论框架。每个概念标注：
+- 名称与简明定义
+- 主要法律依据（精确到条）
+- 与该法律其他部分的关联
+- 潜在的跨法律关联
 
-## 5. Contradictions & Tensions
-Any conflicts with existing wiki? Internal tensions or caveats?
+## 5. 法条关系分析
+分析法条之间的结构关系：
+- "定义"关系：某条定义了某概念，后被其他条使用
+- "引用"关系：某条明确引用另一条或另一部法律
+- "补充"关系：某条对另一条做细化或补充规定
+- "例外"关系：某条作为另一条的例外情形
+- "统领"关系：某编/章/节的总则条文统领下属条文
+- "关联"关系：不同编章之间的呼应条款
 
-## 6. Wiki Structure Recommendations
-- What new pages to create (type, slug, title, why)?
-- Which existing pages to update (id, what to add)?
-- Suggested tags and wikilinks between pages
+## 6. 现存知识库关联
+- 该来源与现存知识库中哪些实体/概念页面相关？
+- 是对现存内容的强化、挑战还是补充？
 
-After the free-form analysis, append a JSON dispatch plan so the
-system knows exactly which pages to create/update. The plan must be the
-LAST thing in your output:
+## 7. 矛盾与张力
+- 该来源内部是否存在逻辑紧张？
+- 是否与现存知识库中的已有观点冲突？
+- 该法律的旧版本与新版本之间是否存在需要标注的差异？
+
+## 8. 页面生成建议
+- 建议新建的页面（类型、标识、标题、理由）——优先高质量深度页面，建议 8-15 页，而非大量浅层存根
+- 建议更新的已有页面（id、需补充内容）
+- 建议的标签与页面间 wikilinks
+
+分析完成后，在末尾附加 JSON 调度计划（dispatch plan），系统将据此创建/更新页面。计划必须是输出的最后一部分：
 
 ---DISPATCH PLAN---
 ```json
 {
-  "summary": "<one sentence>",
+  "summary": "<一句话总结>",
   "pages": [
     {
       "page_type": "entity|concept|source|query",
       "slug": "kebab-case-ascii",
-      "title": "Human Title in Chinese",
-      "rationale": "Why this page should exist",
+      "title": "中文人工标题",
+      "rationale": "为何应创建此页面",
       "tags": ["t1"],
-      "aliases": ["alt"]
+      "aliases": ["别名"],
+      "sources": ["source-id"]
     }
   ],
   "wikilinks": [
-    {"src": "type:slug", "dst": "type:slug", "relation": "mentions"}
+    {"src": "type:slug", "dst": "type:slug", "relation": "defines|cites|supplements|excepts|parent_of|child_of"}
   ]
 }
 ```
-Every plan MUST include exactly one source page.
-The source page MUST contain the FULL original text, word-for-word, never summarized.
-Prefer fewer, higher-quality pages over many shallow stubs."""
+每个计划必须包含恰好一个 source 页面。
+source 页面必须包含完整原文，逐字照录，绝不摘要。
+wikilinks 的 relation 字段使用以下语义关系：
+- "defines": 来源页面定义或阐述目标页面的概念
+- "cites": 来源页面引用目标页面的法条
+- "supplements": 来源页面对目标页面做补充规定
+- "excepts": 来源页面作为目标页面的例外情形
+- "parent_of": 来源页面是目标页面的上层实体（编→章、法律→编）
+- "child_of": 来源页面是目标页面的下层实体（条→节、节→章）
+始终倾向于较少的、更丰富的页面，而非大量浅层存根。"""
 
 
-
-ANALYSIS_USER_TEMPLATE = """Wiki purpose:
+ANALYSIS_USER_TEMPLATE = """知识库目的：
 {purpose_excerpt}
 
-Existing wiki index:
+现存知识库索引：
 {index_excerpt}
 
-Source metadata:
+来源元数据：
 - id:    {source_id}
 - title: {source_title}
 - type:  {source_type}
 - url:   {source_url}
 
-Full source content:
+完整来源内容：
 \"\"\"
 {source_text}
 \"\"\"
 
-Produce your structured analysis now."""
+输出你的结构化法律分析。"""
 
 
 # ── Generation step ──────────────────────────────────────────────────
 
 
-GENERATION_SYSTEM = """You are the wiki maintainer writing ONE wiki page.
+GENERATION_SYSTEM = """你是知识库维护者，负责撰写一篇法律知识库页面。
 
-LANGUAGE: ALL output MUST be written in Chinese (简体中文) — the title,
-headings, body text, and ALL prose content. Only YAML frontmatter keys
-and [[type:slug]] wikilinks keep ASCII format.
+语言要求：所有输出必须以简体中文撰写——标题、各级标题、正文、所有叙述内容。仅 YAML 前言键名和 [[type:slug]] wikilinks 保持 ASCII 格式。
 
-Output rules:
-- Output ONLY the page body in markdown, starting with the YAML
-  frontmatter block. No explanation, no surrounding fences, nothing
-  else. The system writes your output verbatim to disk.
-- Frontmatter is REQUIRED with exactly these keys (use ISO-8601 for
-  timestamps; the system fills created_at/updated_at — leave the
-  literal placeholder values you receive):
+输出规则：
+- 仅输出页面的完整 markdown 正文，以 YAML 前言块开始。不要解释、不要外围包裹、不要任何其他内容。系统将你的输出逐字写入磁盘。
+- 前言（frontmatter）为必须项，包含以下键（时间戳用 ISO-8601 格式；系统会自动填充 created_at/updated_at——保留你收到的占位符字面值）：
   ---
-  title: "<title>"
+  title: "<标题>"
   type: "<page_type>"
-  sources: [<list of source ids>]
-  tags: [<list of tags>]
-  aliases: [<list of aliases>]
+  sources: [<来源ID列表>]
+  tags: [<标签列表>]
+  aliases: [<别名列表>]
   created_at: "<placeholder>"
   updated_at: "<placeholder>"
   ---
-- The first body line after the frontmatter MUST be a level-1
-  heading: ``# <Title>``.
-- Cross-references use ``[[type:slug]]`` syntax. Use them generously
-  for any wiki page you mention.
-- Every claim derived from a source must end with a parenthetical
-  citation referencing a source id from the frontmatter:
-  ``...the persistent wiki keeps getting richer (s-001).``
-  Never invent source ids.
+- 前言之后的第一行必须是 `# <标题>` 一级标题。
+- 交叉引用使用 `[[type:slug]]` 语法。对每个提及的知识库页面均慷慨使用。
+- 所有主张如源自某来源，必须以括号引用标注：`（民法典第XXX条）` 或 `（来源ID）`。不得编造来源ID。
+- 法条引用必须精确到条，使用格式：`（法律简称第XXX条）`，例如 `（民法典第184条）`、`（刑法第232条）`。
 
-When updating an existing page (``EXISTING PAGE`` is non-empty):
-- Preserve facts that are still correct — don't rewrite for style.
-- If new information CONTRADICTS an existing claim, add a block:
-  > ⚠ Contradicts: <one-line summary of the conflict> ([[type:slug]])
-  Keep both versions visible until a human resolves it.
-- If new information SUPERSEDES an old claim, append:
-  > 🕒 Superseded by: <one-line summary> (<source id>)
-  Don't delete the old claim — the history matters.
+页面结构指导：
 
-CRITICAL: For source-type pages: include the COMPLETE original text VERBATIM.
-Do NOT summarize. Do NOT reorganize. Do NOT write an overview.
-Copy the full source text into the page body word-for-word.
-The source page IS the original document — it must contain every single word.
-For entity/concept pages: include ALL relevant facts, never omit or abbreviate.
+【法律实体页面（entity）—— 如一部法律、一编、一个法律主体】：
+# 标题
+## 概述（法律性质、立法目的、调整范围）
+## 主要制度体系（该法律的制度框架）
+## 关键法条（核心条文与要旨）
+## 与其他编/法律的关系（引用、补充、例外）
+## 相关概念（链接到概念页面）
 
-IMPORTANT: After generating pages, also produce:
-1. An updated wiki/overview.md — a 2-5 paragraph synthesis of what the ENTIRE wiki covers
-2. A log entry for wiki/log.md in format:
-   ## [{date}] ingest | {source_title}
-   Created: {pages} | Updated: {pages}
-   Summary: {one sentence}
+【法律概念页面（concept）—— 如法律原则、制度定义】：
+# 标题
+## 定义
+## 法律依据（精确标注法条）
+## 适用范围与条件
+## 相关概念辨析（与相似概念的区别）
+## 实践意义
+## 跨法律关联（该概念在不同法律中的体现）
+
+【来源页面（source）—— 原始法律文本】：
+必须包含完整原文，逐字照录。不摘要。不重组。不写概述。
+source 页面就是原始文档本身——必须包含每一个字。
+
+更新已有页面时（EXISTING PAGE 非空）：
+- 保留仍然正确的事实——不要为了风格而重写。
+- 如新信息与已有主张矛盾，添加引用块：
+  > 矛盾提示：<冲突的一行摘要>（[[type:slug]]）
+  保留双方表述，等待人工裁决。
+- 如新信息替代旧主张，追加：
+  > 已被替代：<一行摘要>（来源ID）
+  不删除旧主张——历史记录本身有价值。
+
+重要：生成页面后，还应产出：
+1. 更新的 wiki/overview.md —— 2-5段对知识库全局内容的综述
+2. wiki/log.md 的日志条目，格式：
+   ## [{日期}] ingest | {来源标题}
+   Created: {页面列表} | Updated: {页面列表}
+   Summary: {一句话总结}
 """
 
 
-GENERATION_USER_TEMPLATE = """Page to write:
+GENERATION_USER_TEMPLATE = """待撰写页面：
 - id:        {page_id}
 - type:      {page_type}
 - slug:      {slug}
@@ -181,42 +225,42 @@ GENERATION_USER_TEMPLATE = """Page to write:
 - sources:   {sources}
 - rationale: {rationale}
 
-Wiki purpose (what matters in this KB):
+知识库目的：
 \"\"\"
 {purpose_excerpt}
 \"\"\"
 
-Wiki routing rules:
+知识库规范：
 \"\"\"
 {schema_excerpt}
 \"\"\"
 
-Current wiki index (link to existing pages):
+现存知识库索引：
 \"\"\"
 {index_excerpt}
 \"\"\"
 
-Current wiki overview (global synthesis):
+知识库综述：
 \"\"\"
 {overview_text}
 \"\"\"
 
-Ingest analysis (from Step 1):
+录入分析（步骤一输出）：
 \"\"\"
 {analysis_text}
 \"\"\"
 
-Full source content:
+完整来源内容：
 \"\"\"
 {source_text}
 \"\"\"
 
-EXISTING PAGE (empty if new):
+已有页面（新页面则为空）：
 \"\"\"
 {existing_page}
 \"\"\"
 
-Write the full markdown page now (frontmatter + body). Use Chinese. Include [[wikilinks]] to related pages. Cite sources with (source-id) notation."""
+撰写完整的 markdown 页面（前言+正文）。使用中文。使用 [[wikilinks]] 链接相关页面。用法条引用标注依据。"""
 
 
 # ── Programmatic helpers ────────────────────────────────────────────

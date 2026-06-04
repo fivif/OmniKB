@@ -40,6 +40,7 @@
   let _allPages = [];   // last loaded page list, used to resolve wikilinks
   let _d3Graph = null;   // { svg, simulation, zoom, nodes }
   let _graphResizeTimer = null;  // debounce timer for graph re-render on resize
+  let _wikiTabVisible = false;    // whether wiki tab is currently visible
 
   /* ── API helpers (use the global one if available) ───────── */
   function apiBase() {
@@ -124,6 +125,15 @@
               <i data-lucide="refresh-cw"></i>
             </button>
           </div>
+        </div>
+        <div class="wiki-tree-search-wrap" id="wiki-tree-search-wrap">
+          <input type="text" class="wiki-search" id="wiki-search" placeholder="搜索页面…" autocomplete="off">
+          <button class="wiki-search-clear" id="wiki-search-clear" title="清除搜索" style="display:none;">×</button>
+        </div>
+        <div class="wiki-progress" id="wiki-progress">
+          <i data-lucide="loader-2" class="wiki-progress-spinner"></i>
+          <span id="wiki-progress-text">Wiki 生成中…</span>
+          <div class="wiki-progress-bar"><div class="wiki-progress-fill"></div></div>
         </div>
         <div class="wiki-pane-body" id="wiki-tree-body">
           <div class="wiki-tree-empty">加载中…</div>
@@ -216,6 +226,29 @@
       .addEventListener('click', closeSyncPanel);
     document.getElementById('wiki-research-btn')
       .addEventListener('click', () => toggleResearchPanel(_currentPageId));
+
+    /* ── Wire search ─────────────────────────────────────────── */
+    var searchInput = document.getElementById('wiki-search');
+    var searchClear = document.getElementById('wiki-search-clear');
+    var searchTimer = null;
+    if (searchInput) {
+      searchInput.addEventListener('input', function() {
+        var val = this.value.trim();
+        if (searchClear) searchClear.style.display = val ? 'inline-flex' : 'none';
+        if (searchTimer) clearTimeout(searchTimer);
+        searchTimer = setTimeout(function() { filterTree(val); }, 250);
+      });
+      searchInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') { this.value = ''; this.blur(); filterTree(''); if (searchClear) searchClear.style.display = 'none'; }
+      });
+    }
+    if (searchClear) {
+      searchClear.addEventListener('click', function() {
+        if (searchInput) { searchInput.value = ''; searchInput.focus(); }
+        filterTree('');
+        this.style.display = 'none';
+      });
+    }
 
     /* ── Graph toolbar ──────────────────────────────────────── */
     document.getElementById('wiki-graph-zoom-in')
@@ -569,7 +602,95 @@
     }
   }
 
-  /* ── Tree pane ────────────────────────────────────────────── */
+  /* ── Tree search / filter ──────────────────────────────────── */
+  function filterTree(query) {
+    var body = document.getElementById('wiki-tree-body');
+    if (!body) return;
+    var q = (query || '').trim().toLowerCase();
+
+    // Unwrap rendered sections back to _allPages
+    if (!q) {
+      // Re-render full tree from cached _allPages
+      rebuildTreeFromCache();
+      return;
+    }
+
+    // Filter _allPages by title / slug / tags
+    var matched = _allPages.filter(function(p) {
+      var title = (p.title || '').toLowerCase();
+      var slug = (p.slug || '').toLowerCase();
+      var tags = '';
+      try { var fm = p.frontmatter || {}; tags = (fm.tags || []).join(' ').toLowerCase(); } catch(_) {}
+      return title.indexOf(q) >= 0 || slug.indexOf(q) >= 0 || tags.indexOf(q) >= 0;
+    });
+
+    // Group by page_type
+    var groups = {};
+    SECTIONS.forEach(function(s) { groups[s.type] = []; });
+    matched.forEach(function(p) { if (groups[p.page_type]) groups[p.page_type].push(p); });
+
+    // Render filtered tree
+    var html = '';
+    for (var i = 0; i < SECTIONS.length; i++) {
+      var sec = SECTIONS[i];
+      var pages = groups[sec.type] || [];
+      if (pages.length === 0) continue;
+      var items = pages.map(function(p) {
+        var title = escape(p.title || p.slug);
+        if (q) {
+          var re = new RegExp('(' + q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
+          title = title.replace(re, '<mark class="wiki-search-hl">$1</mark>');
+        }
+        return '<li class="wiki-tree-item' + (p.id === _currentPageId ? ' is-active' : '') +
+          '" data-page-id="' + escape(p.id) + '" title="' + escape(p.summary || p.title) + '">' +
+          title + '</li>';
+      }).join('');
+      html += '<details class="wiki-tree-section" open><summary><span>' + sec.label +
+        '</span><span class="wiki-badge">' + pages.length + '</span></summary>' +
+        '<ul class="wiki-tree-list">' + items + '</ul></details>';
+    }
+    if (!html) html = '<div class="wiki-tree-empty">没有匹配的页面</div>';
+
+    body.innerHTML = html;
+    body.querySelectorAll('.wiki-tree-item[data-page-id]').forEach(function(el) {
+      el.addEventListener('click', function() { loadPage(el.dataset.pageId); });
+    });
+  }
+
+  function rebuildTreeFromCache() {
+    // Group _allPages by page_type
+    var groups = {};
+    SECTIONS.forEach(function(s) { groups[s.type] = []; });
+    _allPages.forEach(function(p) { if (groups[p.page_type]) groups[p.page_type].push(p); });
+
+    var body = document.getElementById('wiki-tree-body');
+    if (!body) return;
+
+    if (_allPages.length === 0) {
+      body.innerHTML = '<div class="wiki-tree-empty">知识库还没有 wiki 页面。<br><small>到「上传」摄入资料后 wiki worker 会自动生成。</small></div>';
+      return;
+    }
+
+    var html = SECTIONS.map(function(sec) {
+      var pages = groups[sec.type] || [];
+      var items = pages.map(function(p) {
+        return '<li class="wiki-tree-item' + (p.id === _currentPageId ? ' is-active' : '') +
+          '" data-page-id="' + escape(p.id) + '" title="' + escape(p.summary || p.title) + '">' +
+          escape(p.title || p.slug) + '</li>';
+      }).join('') || '<li class="wiki-tree-empty">（暂无）</li>';
+      var open = pages.length > 0 ? 'open' : '';
+      return '<details class="wiki-tree-section" ' + open + '>' +
+        '<summary><span>' + sec.label + '</span><span class="wiki-badge">' + pages.length + '</span></summary>' +
+        '<ul class="wiki-tree-list">' + items + '</ul></details>';
+    }).join('');
+
+    body.innerHTML = html;
+    body.querySelectorAll('.wiki-tree-item[data-page-id]').forEach(function(el) {
+      el.addEventListener('click', function() { loadPage(el.dataset.pageId); });
+    });
+  }
+
+  /* ── Tree pane data loading ───────────────────────────────── */
   async function loadTree() {
     const body = document.getElementById('wiki-tree-body');
     if (!body) return;
@@ -582,7 +703,13 @@
       }));
       const sections = await Promise.all(sectionPromises);
       _allPages = sections.flatMap(s => s.pages);
-      renderTree(sections);
+      // Check if there's an active search query — if so re-apply the filter
+      var searchInput = document.getElementById('wiki-search');
+      if (searchInput && searchInput.value.trim()) {
+        filterTree(searchInput.value.trim());
+      } else {
+        renderTree(sections);
+      }
     } catch (err) {
       body.innerHTML = `<div class="wiki-tree-empty">加载失败：${escape(err.message)}</div>`;
     }
@@ -651,8 +778,16 @@
       if (researchBtn) researchBtn.hidden = false;
 
       const meta = renderMeta(page);
+      const tocHtml = renderTOC(page.body || '');
       const html = renderMarkdown(page.body || '*(此页面没有内容——可能 wiki worker 仍在生成中)*');
-      bodyEl.innerHTML = meta + `<div class="wiki-md">${html}</div>`;
+      bodyEl.innerHTML = meta + tocHtml + `<div class="wiki-md">${html}</div>`;
+
+      // Post-process: highlight article numbers in legal text
+      var mdEl = bodyEl.querySelector('.wiki-md');
+      if (mdEl) highlightArticleRefs(mdEl);
+
+      // Wire TOC scroll tracking
+      if (tocHtml) initTOCScrollSpy(bodyEl);
 
       bodyEl.querySelectorAll('a.wikilink').forEach(a => {
         a.addEventListener('click', (e) => {
@@ -1130,10 +1265,200 @@
 
   /* ── Show-on-tab-event hook ─────────────────────────────── */
   document.addEventListener('tab:shown', async (ev) => {
-    if (ev.detail !== 'wiki') return;
+    if (ev.detail !== 'wiki') {
+      _wikiTabVisible = false;
+      stopProgressPoll();
+      disconnectAgentEvents();
+      return;
+    }
+    _wikiTabVisible = true;
     mount();
     if (_allPages.length === 0) await refreshAll();
+    startProgressPoll();
+    connectAgentEvents();
   });
+
+  /* ── TOC rendering ──────────────────────────────────────────── */
+  function renderTOC(body) {
+    if (!body) return '';
+    // Extract h1, h2, h3 headings
+    var headingRe = /^(#{1,3})\s+(.+)$/gm;
+    var headings = [];
+    var m;
+    while ((m = headingRe.exec(body)) !== null) {
+      headings.push({ level: m[1].length, text: m[2].trim().replace(/[#*_`~\[\]]/g, '') });
+    }
+    if (headings.length < 3) return ''; // too few headings for a useful TOC
+
+    var items = '';
+    headings.forEach(function(h, i) {
+      var cls = 'toc-h' + h.level;
+      var indent = '  '.repeat(Math.max(0, h.level - 1));
+      items += '<li class="' + cls + '"><a href="#toc-h-' + i + '" data-toc-i="' + i + '">' + indent + escape(h.text) + '</a></li>';
+    });
+
+    return '<details class="wiki-toc" open>' +
+      '<summary>目录</summary>' +
+      '<ol>' + items + '</ol>' +
+      '</details>';
+  }
+
+  /* ── TOC scroll spy ──────────────────────────────────────────── */
+  function initTOCScrollSpy(bodyEl) {
+    // Add anchor IDs to headings in the rendered markdown
+    var headingEls = bodyEl.querySelectorAll('.wiki-md h1, .wiki-md h2, .wiki-md h3');
+    headingEls.forEach(function(el, i) {
+      el.id = 'toc-h-' + i;
+    });
+
+    // IntersectionObserver to highlight active TOC item
+    var tocLinks = bodyEl.querySelectorAll('.wiki-toc a[data-toc-i]');
+    if (tocLinks.length === 0) return;
+
+    var observer = new IntersectionObserver(function(entries) {
+      entries.forEach(function(entry) {
+        if (entry.isIntersecting) {
+          var idx = Array.prototype.indexOf.call(headingEls, entry.target);
+          tocLinks.forEach(function(a) { a.classList.remove('is-active'); });
+          var active = bodyEl.querySelector('.wiki-toc a[data-toc-i="' + idx + '"]');
+          if (active) active.classList.add('is-active');
+        }
+      });
+    }, { rootMargin: '-20% 0px -70% 0px' });
+
+    headingEls.forEach(function(el) { observer.observe(el); });
+
+    // Click → smooth scroll
+    tocLinks.forEach(function(a) {
+      a.addEventListener('click', function(e) {
+        e.preventDefault();
+        var idx = parseInt(this.dataset.tocI);
+        var target = headingEls[idx];
+        if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    });
+  }
+
+  /* ── Article reference highlighting ───────────────────────────── */
+  function highlightArticleRefs(mdEl) {
+    // Highlight legal article references: 第X条, 第XXX条
+    var walker = document.createTreeWalker(mdEl, NodeFilter.SHOW_TEXT, null, false);
+    var nodes = [];
+    while (walker.nextNode()) nodes.push(walker.currentNode);
+
+    var re = /第[一二三四五六七八九十百千0-9]+条(?:之[一二三四五六七八九十百千0-9]+)?/g;
+    nodes.forEach(function(textNode) {
+      var text = textNode.textContent;
+      if (!re.test(text)) { re.lastIndex = 0; return; }
+      re.lastIndex = 0;
+      var frag = document.createDocumentFragment();
+      var lastIdx = 0;
+      var m;
+      while ((m = re.exec(text)) !== null) {
+        if (m.index > lastIdx) {
+          frag.appendChild(document.createTextNode(text.slice(lastIdx, m.index)));
+        }
+        var span = document.createElement('strong');
+        span.className = 'article-ref';
+        span.textContent = m[0];
+        frag.appendChild(span);
+        lastIdx = m.index + m[0].length;
+      }
+      if (lastIdx < text.length) {
+        frag.appendChild(document.createTextNode(text.slice(lastIdx)));
+      }
+      textNode.parentNode.replaceChild(frag, textNode);
+    });
+
+    // Add .has-article class to paragraphs that start with article numbers
+    mdEl.querySelectorAll('p').forEach(function(p) {
+      var t = p.textContent.trim();
+      if (/^第[一二三四五六七八九十百千\d]+条/.test(t)) {
+        p.classList.add('has-article');
+      }
+    });
+  }
+
+  /* ── Wiki progress polling ────────────────────────────────────── */
+  var _progressPollTimer = null;
+  var _lastEventCount = 0;
+
+  function startProgressPoll() {
+    if (_progressPollTimer) return;
+    _progressPollTimer = setInterval(checkProgress, 3000);
+  }
+
+  function stopProgressPoll() {
+    if (_progressPollTimer) { clearInterval(_progressPollTimer); _progressPollTimer = null; }
+  }
+
+  async function checkProgress() {
+    var progEl = document.getElementById('wiki-progress');
+    if (!progEl) return;
+    try {
+      var events = await apiGet('/wiki/events?limit=5');
+      if (!events || events.length === 0) return;
+      var latestCount = events.length;
+      if (latestCount > _lastEventCount) {
+        _lastEventCount = latestCount;
+        progEl.classList.add('is-active');
+        // Auto-refresh tree if new events detected
+        if (_allPages.length >= 0) {
+          var counts = await apiGet('/wiki/stats').then(function(s) { return s.page_counts || {}; });
+          var total = Object.values(counts).reduce(function(a, b) { return a + b; }, 0);
+          if (total > _allPages.length) {
+            await loadTree();
+            await loadGraph();
+            progEl.classList.remove('is-active');
+          }
+        }
+      } else {
+        // No new events — check if there are pending tasks
+        var stats = await apiGet('/wiki/stats');
+        if (stats && stats.worker && stats.worker.queued > 0) {
+          progEl.classList.add('is-active');
+        } else {
+          progEl.classList.remove('is-active');
+        }
+      }
+    } catch (_) {
+      progEl.classList.remove('is-active');
+    }
+  }
+
+  /* ── Agent EventSource — real-time wiki progress ────────────── */
+  var _agentEventSource = null;
+
+  function connectAgentEvents() {
+    try {
+      var base = apiBase();
+      if (!base) return;
+      var es = new EventSource(base + '/agent/v2/events');
+      es.onmessage = function(e) {
+        try {
+          var evt = JSON.parse(e.data);
+          var progEl = document.getElementById('wiki-progress');
+          var progText = document.getElementById('wiki-progress-text');
+          if (evt.type === 'wiki_analysis_start' || evt.type === 'wiki_batch_start') {
+            if (progEl) progEl.classList.add('is-active');
+            if (progText) progText.textContent = 'Wiki 生成中' + (evt.data && evt.data.source_count ? '（' + evt.data.source_count + ' 个来源）' : '') + '…';
+          } else if (evt.type === 'wiki_sync_complete') {
+            if (progEl) progEl.classList.remove('is-active');
+            refreshAll();
+          } else if (evt.type === 'progress' || evt.type === 'info') {
+            if (progEl) progEl.classList.add('is-active');
+            if (progText && evt.data && evt.data.message) progText.textContent = evt.data.message;
+          }
+        } catch (_) {}
+      };
+      es.onerror = function() { es.close(); _agentEventSource = null; setTimeout(connectAgentEvents, 5000); };
+      _agentEventSource = es;
+    } catch (_) {}
+  }
+
+  function disconnectAgentEvents() {
+    if (_agentEventSource) { _agentEventSource.close(); _agentEventSource = null; }
+  }
 
   /* ── Tiny utilities ─────────────────────────────────────── */
   function escape(s) {
@@ -1153,5 +1478,5 @@
   }
 
   // Expose for debugging
-  window.OmniWiki = { mount, refreshAll, loadPage, togglePane, toggleMaximizeGraph, toggleResearchPanel };
+  window.OmniWiki = { mount, refreshAll, loadPage, togglePane, toggleMaximizeGraph, toggleResearchPanel, filterTree, startProgressPoll, stopProgressPoll, connectAgentEvents, disconnectAgentEvents };
 })();

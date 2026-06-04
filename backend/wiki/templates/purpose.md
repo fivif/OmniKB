@@ -4,51 +4,57 @@ kind: meta
 updated_at: ""
 ---
 
-# Purpose
+# 目的
 
-> **The wiki's soul.** Read this file before every ingest and every query.
-> If a source doesn't move us closer to one of the goals below, treat it as
-> low-priority. If a question doesn't fit any of the listed scope items,
-> answer it but don't deeply integrate it into the wiki.
+> **本知识库的灵魂。** 每次录入与每次查询之前，LLM 都应先阅读此文件。
+> 如果某个来源无助于推进下述目标，则降低优先级处理。如果某问题不在知识库覆盖范围内，可作答但不深度整合。
 
-## Why this wiki exists
+## 为什么建立这个知识库
 
-_Edit this section to describe why **you** are building this knowledge
-base. The LLM uses this as context for every ingest and query._
+构建一个结构化、可交叉引用的中国法律知识体系，用于：
 
-This is the universal-purpose default. Replace with your own:
+- 系统化梳理中国现行法律文本，建立法律之间的参照网络
+- 提取法律实体（法律本身、编章结构、法律主体、国家机关）并建立关联
+- 归纳法律概念与原则（如物权法定、合同自由、罪刑法定），追踪其在不同法律中的具体体现
+- 建立法条之间的引用、补充、例外关系图谱
+- 支持以法条原文为依据的精准知识检索与推理
 
-- Accumulate a long-running, cross-referenced understanding of the
-  topics that matter to me, rather than re-asking the same questions
-  every time I open a chat.
+## 目标
 
-## Goals
+1. 建立完整的法律实体知识网络：每部法律作为一个顶层实体，每编作为子实体，关联法律主体（自然人、法人、非法人组织）、国家机关（全国人大、国务院、最高人民法院等）
+2. 提炼法律概念体系：法律原则、制度定义、法学理论，每条概念均标注其法律依据（精确到条）
+3. 构建法条引用图：法条之间的"定义""引用""补充""例外"关系，形成可追溯的推理链
+4. 汇总司法解释与学术评论，将其与对应的法条实体关联，形成多层次解读体系
+5. 追踪法律修订历史，记录新旧法条对比与过渡安排
 
-1. _e.g._ Build a personal map of LLM training and inference techniques.
-2. _e.g._ Track open questions in distributed systems with one page per question.
-3. _e.g._ Keep a running log of book chapters with links between recurring characters/themes.
+## 我长期关注的关键问题
 
-## Key questions I want answered over time
+- 某一法律概念在不同部门法中的定义与适用是否一致？
+- 某法律条文被哪些其他法律引用、补充或作为例外排除？
+- 同一法律制度（如诉讼时效、担保制度）在民法典、民事诉讼法、相关司法解释中如何协同运作？
+- 新法修订后，旧法相关条文如何处理？过渡期如何安排？
+- 法律原则（如诚实信用、公序良俗）在具体裁判中如何被援引和解释？
 
-- _Replace with your own. Phrase them as questions, not topics._
+## 收录范围
 
-## Scope (in)
+- 中国现行有效的法律文本（全国人大及其常委会制定）
+- 行政法规、部门规章
+- 最高人民法院、最高人民检察院的司法解释
+- 指导性案例与典型案例
+- 权威法学教科书、学术论文中的核心论述
+- 法律修订说明、立法理由书
 
-- _What kinds of sources belong in this wiki?_
-- _Papers? Blog posts? Internal docs? Personal journal entries?_
+## 排除范围
 
-## Scope (out)
+- 已明令废止的法律文本（仅保留修订历史对照，不做深度展开）
+- 宣传性、普法性软文内容
+- 与法律无关的通用百科知识
+- 未经正式发布的草案（除非有研究价值且注明状态）
 
-- _What should the LLM refuse to ingest deeply?_
-- _Promotional content, content older than X, off-topic forwards, etc._
+## 演进中的核心论点
 
-## Evolving thesis
-
-- _A short statement of what I currently believe about the topic. The
-  LLM updates this when new sources contradict or extend the current
-  position, with citations._
+中国民法体系以《中华人民共和国民法典》为核心枢纽，法典化的趋势正在从民法向行政法、刑法等更多部门法扩展。法律概念的统一与协调是法典化的最大挑战——同一术语（如"法人""住所""不可抗力"）在不同部门法中的界定差异，是知识库最需要关注和标注的重点。
 
 ---
 
-*This file is yours to edit. The LLM will read it but never overwrite it
-unless explicitly asked.*
+*此文件由你自行编辑。LLM 会阅读它但不会自行覆盖，除非你明确要求。*

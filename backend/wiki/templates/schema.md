@@ -4,72 +4,63 @@ kind: meta
 updated_at: ""
 ---
 
-# Schema
+# 知识库规范
 
-> **The rules of this wiki.** Read this file before writing or editing
-> any wiki page. Co-evolves with `purpose.md` — if something below
-> isn't working for the domain, propose an edit and discuss with the
-> human before changing it.
+> **本知识库的编写规范。** 撰写或编辑任何页面之前，LLM 应先阅读此文件。
+> 此文件与 `purpose.md` 协同演进——如果下面的某条规则不适用于当前领域，应先提出修改建议，与使用者讨论后再变更。
 
-## Page types
+## 页面类型
 
-Every page lives in exactly one of:
+每个页面归属于以下类型之一：
 
-| Type       | Folder            | What it captures                                  |
-|------------|-------------------|---------------------------------------------------|
-| `entity`   | `entities/`       | A person, organisation, product, or named system. |
-| `concept`  | `concepts/`       | An abstract idea, technique, theory, principle.   |
-| `source`   | `sources/`        | One page per ingested source — summary + sources back-ref. |
-| `query`    | `queries/`        | A user-saved good answer worth keeping.           |
-| `overview` | (root)            | The single global synthesis. Regenerated.         |
+| 类型       | 目录              | 说明                                                |
+|------------|-------------------|-----------------------------------------------------|
+| `entity`   | `entities/`       | 法律本身（如民法典）、法律结构（编/章）、法律主体（自然人/法人/非法人组织）、国家机关。 |
+| `concept`  | `concepts/`       | 抽象的法律原则、制度定义、法学理论（如合同自由、物权法定、罪刑法定原则）。 |
+| `source`   | `sources/`        | 每份录入的原始法律文本，完整存放原文。              |
+| `query`    | `queries/`        | 使用者保存的优质问答。                              |
+| `overview` | (根目录)          | 全局综述，每次录入后自动更新。                      |
 
-## Required frontmatter
+## 必要的前言元数据
 
 ```yaml
 ---
-title: <human-readable title>
+title: <人类可读的标题，使用简体中文>
 type: <entity | concept | source | query | overview>
-sources: [<source.id>, ...]   # raw sources that contributed to this page
-tags: [<freeform tag>, ...]
+sources: [<source.id>, ...]   # 支撑本页面的原始来源
+tags: [<自由标签>, ...]
 created_at: <ISO 8601>
 updated_at: <ISO 8601>
 ---
 ```
 
-## Body conventions
+## 正文编写规范
 
-- **Headings**: a top-level `# Title` matches the frontmatter title.
-- **Cross-references**: use `[[entity:karpathy]]` / `[[concept:llm-wiki]]`
-  syntax (type prefix optional inside the same folder).
-  When the LLM mentions any other wiki entity for the first time in a
-  page, it MUST link to it.
-- **Citations**: every claim that came from a source must end with a
-  parenthetical citation `(s-001)` referring to a value in the page's
-  `sources:` frontmatter list. The LLM never invents sources.
-- **Contradictions**: when a new source contradicts an existing claim,
-  add a `> ⚠ Contradicts:` block with both versions and a
-  `[[wikilink]]` to the page that disagrees. Do not silently overwrite.
-- **Stale claims**: if a claim is superseded, append a `> 🕒 Superseded
-  by …` block instead of deleting — the history is part of the value.
+- **标题**：一级标题 `# 标题` 与前言中的 `title` 字段一致。
+- **交叉引用**：使用 `[[entity:min-fa-dian]]` / `[[concept:wu-quan-fa-ding]]` 格式（在同一目录内可省略类型前缀）。页面中首次提及任何其他知识库实体或概念时，必须添加 `[[wikilink]]`。
+- **法条引用**：所有对法条的引用必须精确到条，格式为：（民法典第XXX条）或（刑法第XXX条）。不得使用模糊引用或仅标注来源ID。
+- **编章节引用**：引用法律结构时使用中文数字格式：第一编、第二章、第三节。
+- **交叉引用规则**：
+  - 实体页面必须链接到其所定义或使用的概念页面。
+  - 概念页面必须链接到定义该概念的法律实体页面。
+  - 来源页面应列出所有由其派生的实体和概念页面。
+- **矛盾标注**：当新来源与现有主张矛盾时，添加 `> 矛盾提示：` 引用块，保留双方表述并添加指向分歧页面的 `[[wikilink]]`。不可静默覆盖。
+- **过期标注**：如某主张已被替代，追加 `> 已被替代：` 引用块，不删除旧主张——历史记录本身就是知识库价值的一部分。
 
-## Workflow rules
+## 工作流
 
-| Operation | Owner | What happens |
-|-----------|-------|--------------|
-| Ingest    | LLM   | Two-step: (1) analyse source → JSON plan, (2) write/update wiki pages, append to `log.md`, refresh `index.md`. |
-| Query     | LLM   | Read `purpose.md` + `index.md` first; pull only the wiki pages required; answer with citations. |
-| Lint      | LLM   | Walk the wiki: find orphans, contradictions, stale claims, missing back-references; produce a report — do NOT auto-edit pages, propose changes for human review. |
-| Save-to-wiki | User | Mark a chat answer as worth keeping; LLM then files it under `queries/<slug>.md` and updates `index.md`. |
+| 操作       | 执行者 | 流程说明 |
+|------------|--------|----------|
+| 录入       | LLM    | 两步：①分析来源→JSON计划，②撰写/更新页面，追加 `log.md`，刷新 `index.md`。 |
+| 查询       | LLM    | 先阅读 `purpose.md` + `index.md`，按需拉取相关页面，作答时附法条引用。 |
+| 审查       | LLM    | 遍历知识库：发现孤立页面、矛盾、过期声明、缺失反向链接；生成报告——不自动编辑页面，提出修改建议供人工审核。 |
+| 保存到知识库 | 使用者 | 标记某次聊天答案为值得保存；LLM 将其归档到 `queries/<slug>.md` 并更新 `index.md`。 |
 
-## Index & log
+## 索引与日志
 
-- `index.md` is the **content catalog**. Every page MUST appear in it
-  with a one-line summary. The LLM regenerates it after every ingest.
-- `log.md` is the **chronological event stream**. Format:
-  `## [<ISO date>] <kind> | <one-line summary>`. Append-only; never
-  rewrite history.
+- `index.md` 是**内容目录**。每个页面必须以一行摘要出现在其中。每次录入后 LLM 自动重新生成。
+- `log.md` 是**按时间顺序的事件流**。格式：`## [<ISO日期>] <类型> | <一行摘要>`。仅追加，不覆盖历史。
 
 ---
 
-*Edit this file as the wiki grows. The LLM will follow whatever this
-document says.*
+*此文件随知识库成长而修订。LLM 会严格遵循本文档的规定。*
