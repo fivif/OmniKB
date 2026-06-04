@@ -452,3 +452,12 @@
     padding: 12px 16px;
   }
 }
+
+/* System / progress messages in chat */
+.chat-system-msg {
+  text-align: center;
+  padding: 4px 16px;
+  font-size: 0.78em;
+  color: var(--t4, #8888aa);
+  line-height: 1.5;
+}

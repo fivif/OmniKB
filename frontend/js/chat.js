@@ -104,7 +104,18 @@
 
   function addMessage(role, content = '', id = null) {
     const isUser = role === 'user';
+    const isSystem = role === 'system' || role === 'thinking';
     const msgId = id || makeMessageId(role);
+
+    if (isSystem) {
+      const el = document.createElement('div');
+      el.className = 'chat-system-msg';
+      el.id = msgId;
+      el.textContent = content;
+      messagesEl.appendChild(el);
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+      return msgId;
+    }
 
     const row = document.createElement('div');
     row.className = isUser ? 'chat-msg-row chat-msg-row--user' : 'chat-msg-row chat-msg-row--ai';
@@ -416,4 +427,29 @@
       });
     }
   });
+
+  // Subscribe to agent events — show ingest/wiki progress as system messages
+  (function connectAgentEvents() {
+    try {
+      const base = loadSettings().api_base || '';
+      const es = new EventSource(base + '/agent/v2/events');
+      es.onmessage = function(e) {
+        try {
+          const evt = JSON.parse(e.data);
+          if (evt.type === 'wiki_analysis_start' || evt.type === 'wiki_batch_start') {
+            addMessage('system', '🧠 Wiki 生成中... ' + (evt.data?.source_count ? evt.data.source_count + ' 个来源' : ''));
+          } else if (evt.type === 'wiki_sync_complete') {
+            const d = evt.data || {};
+            const msg = d.total_failed > 0
+              ? `⚠️ Wiki 同步完成: ${d.total_created} 创建 / ${d.total_updated} 更新 / ${d.total_failed} 失败`
+              : `✅ Wiki 同步完成: ${d.total_created} 创建 / ${d.total_updated} 更新`;
+            addMessage('system', msg);
+          } else if (evt.type === 'progress' || evt.type === 'info') {
+            addMessage('system', evt.data?.message || evt.data || '');
+          }
+        } catch {}
+      };
+      es.onerror = function() { es.close(); setTimeout(connectAgentEvents, 5000); };
+    } catch {}
+  })();
 })();
