@@ -563,7 +563,8 @@ class WikiGenerator:
         return p.read_text(encoding="utf-8")
 
     async def _refresh_index(self) -> None:
-        """Rebuild ``data/wiki/index.md`` from the current DB state."""
+        """Rebuild ``data/wiki/index.md`` from the current DB state, then
+        optionally enhance it with LLM-written summaries."""
         sections: list[tuple[str, str]] = [
             ("Overview",      "overview"),
             ("Entities",      "entity"),
@@ -578,11 +579,14 @@ class WikiGenerator:
         lines.append("")
         lines.append("# Index")
         lines.append("")
-        lines.append("> Regenerated automatically by the wiki worker after every ingest.")
-        lines.append("> Do not edit by hand — your changes will be overwritten.")
         lines.append("")
+        all_pages = []
         for heading, ptype in sections:
             pages = await list_wiki_pages(page_type=ptype, limit=500)
+            all_pages.extend([
+                {"type": ptype, "slug": p["slug"], "title": p["title"], "summary": (p.get("summary") or "")[:200]}
+                for p in pages
+            ])
             lines.append(f"## {heading}")
             if not pages:
                 lines.append("_(none yet)_")
