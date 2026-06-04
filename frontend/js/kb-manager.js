@@ -623,6 +623,11 @@
 
   // ── Delete modal ───────────────────────────────────────────
   function openDeleteModal(sourceId) {
+    // Re-enable buttons in case they were left disabled by a prior operation
+    const confirmBtn = document.getElementById('btn-confirm-delete');
+    const cancelBtn = document.getElementById('btn-cancel-delete');
+    if (confirmBtn) confirmBtn.disabled = false;
+    if (cancelBtn) cancelBtn.disabled = false;
     deleteBatchMode = false;
     deleteTargetId = sourceId;
     document.getElementById('delete-modal-title').textContent = '删除来源';
@@ -655,6 +660,9 @@
       document.getElementById('delete-modal').classList.add('hidden');
       deleteTargetId = null;
       deleteBatchMode = false;
+      // Re-enable buttons for the next use
+      if (confirmBtn) confirmBtn.disabled = false;
+      if (cancelBtn) cancelBtn.disabled = false;
       await refreshAll({ silent: true });
       if (window.OmniKBApp?.refreshStats) window.OmniKBApp.refreshStats();
       else if (typeof refreshStats === 'function') refreshStats();
@@ -766,6 +774,11 @@
 
   document.getElementById('btn-batch-delete').addEventListener('click', () => {
     if (!selectedIds.size) return;
+    // Re-enable buttons in case they were left disabled by a prior operation
+    const confirmBtn = document.getElementById('btn-confirm-delete');
+    const cancelBtn = document.getElementById('btn-cancel-delete');
+    if (confirmBtn) confirmBtn.disabled = false;
+    if (cancelBtn) cancelBtn.disabled = false;
     deleteBatchMode = true;
     document.getElementById('delete-modal-title').textContent = `批量删除 ${selectedIds.size} 个来源`;
     document.getElementById('delete-modal-desc').textContent = '此操作将永久删除所选来源及其全部片段，无法撤销。';

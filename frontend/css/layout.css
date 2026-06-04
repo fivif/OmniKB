@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════
-   Layout — topbar / sidebar / main / agent-console
+   Layout — topbar / sidebar / main
    ═══════════════════════════════════════════════════════════════ */
 
 .omni-layout {
@@ -46,8 +46,6 @@
   position: relative;
   z-index: 1;
   box-sizing: border-box;
-  padding-bottom: var(--agc-reserve-space, 0px);
-  transition: padding-bottom var(--dur-slow) var(--ease-spring);
 }
 
 .omni-sidebar {
@@ -69,7 +67,6 @@
   overflow-y: auto;
   background: var(--bg-canvas);
   position: relative;
-  scroll-padding-bottom: calc(var(--agc-reserve-space, 0px) + 16px);
 }
 
 .omni-main::before {
@@ -90,16 +87,6 @@
 }
 .tab-panel.hidden { display: none; }
 .tab-panel-flex { display: flex; flex-direction: column; height: 100%; padding: 0; }
-
-.omni-agent-console {
-  flex-shrink: 0;
-  background: var(--bg-elevated);
-  border-top: 1px solid var(--bd-default);
-  transition: height var(--dur-slow) var(--ease-spring);
-  overflow: hidden;
-}
-.omni-agent-console.collapsed { height: 44px; }
-.omni-agent-console.expanded { height: 320px; }
 
 /* ── Burger button (mobile-only nav trigger) ─────────────────────────
    Hidden on desktop; the layout query below brings it back at <= 760px. */
@@ -212,10 +199,6 @@
   }
 
   .tab-panel { padding: 18px 14px 24px; }
-
-  /* Agent console becomes a half-height bottom sheet when expanded. */
-  .omni-agent-console.expanded { height: 55vh; }
-  .omni-agent-console.collapsed { height: 40px; }
 }
 
 /* ── Pointer + motion preferences (apply at any width) ──────────── */
@@ -226,6 +209,5 @@
 
 @media (prefers-reduced-motion: reduce) {
   .omni-sidebar,
-  .sidebar-backdrop,
-  .omni-agent-console { transition: none !important; }
+  .sidebar-backdrop { transition: none !important; }
 }

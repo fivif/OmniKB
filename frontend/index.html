@@ -71,9 +71,6 @@
       <button class="topbar-icon-btn" id="topbar-theme-btn" data-tooltip="切换主题" data-tooltip-pos="bottom" aria-label="切换主题">
         <i data-lucide="sun-moon"></i>
       </button>
-      <button class="topbar-icon-btn" id="topbar-console-btn" data-tooltip="Agent 控制台" data-tooltip-pos="bottom" aria-label="Agent 控制台">
-        <i data-lucide="terminal"></i>
-      </button>
     </div>
   </header>
 
@@ -131,7 +128,6 @@
     </main>
   </div>
 
-  <!-- Agent Console mounts itself at body end via js/agent-console.js -->
 </div>
 
 <!-- Toast container — outside .omni-layout to escape its stacking context so toasts render above the topbar -->
@@ -152,7 +148,6 @@
 <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
 <script src="js/wiki.js?v=7"></script>
 
-<script src="js/agent-console.js"></script>
 <script>
   document.addEventListener('DOMContentLoaded', function () {
     if (window.lucide) window.lucide.createIcons();
@@ -162,12 +157,6 @@
     if (themeBtn && window.OmniTheme) {
       themeBtn.addEventListener('click', function () { window.OmniTheme.cycle(); });
     }
-    var consoleBtn = document.getElementById('topbar-console-btn');
-    function toggleConsole() {
-      var bar = document.getElementById('agc-bar');
-      if (bar) bar.click();
-    }
-    if (consoleBtn) consoleBtn.addEventListener('click', toggleConsole);
 
     var statusBtn = document.getElementById('topbar-status-pill');
     if (statusBtn && window.OmniKBApp && typeof window.OmniKBApp.refreshBackendStatus === 'function') {

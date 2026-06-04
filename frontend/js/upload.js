@@ -368,15 +368,6 @@
       if (trimmed.startsWith('✅') || trimmed.startsWith('🏁')) kind = 'success';
       else if (trimmed.startsWith('❌') || trimmed.startsWith('⚠️')) kind = 'error';
       else if (trimmed.startsWith('⛔')) kind = 'warning';
-      if (window.agentConsole && typeof window.agentConsole.emit === 'function') {
-        window.agentConsole.emit({
-          t: Date.now(),
-          kind,
-          agent: 'ingest',
-          label,
-          msg: trimmed,
-        });
-      }
     });
   }
 
