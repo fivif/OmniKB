@@ -12,7 +12,7 @@ const API_BASE = getApiBase();
 
 const TAB_META = {
   upload: {
-    title: '上传 & 摄入',
+    title: '上传与摄入',
     subtitle: '向知识库添加文件、网页和文本内容',
   },
   search: {

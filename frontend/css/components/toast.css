@@ -4,7 +4,7 @@
   position: fixed;
   top: var(--sp-4);
   right: var(--sp-4);
-  z-index: var(--z-toast);
+  z-index: 9999;
   display: flex;
   flex-direction: column;
   gap: var(--sp-2);

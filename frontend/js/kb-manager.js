@@ -631,7 +631,11 @@
   }
 
   async function confirmDelete() {
-    document.getElementById('delete-modal').classList.add('hidden');
+    const confirmBtn = document.getElementById('btn-confirm-delete');
+    const cancelBtn = document.getElementById('btn-cancel-delete');
+    // Disable buttons during deletion to prevent double-clicks / races
+    if (confirmBtn) confirmBtn.disabled = true;
+    if (cancelBtn) cancelBtn.disabled = true;
     try {
       if (deleteBatchMode) {
         const ids = [...selectedIds];
@@ -642,16 +646,22 @@
         toast(`已删除 ${ids.length} 个来源`, 'success');
         clearSelection();
       } else {
-        await apiJson(`/kb/sources/${deleteTargetId}`, { method: 'DELETE' });
+        // Use api() directly — we don't need the JSON body on success,
+        // and this avoids a potential .json() parse failure on empty
+        // responses from proxies or middleware.
+        await api(`/kb/sources/${deleteTargetId}`, { method: 'DELETE' });
         toast('来源已删除', 'success');
       }
+      document.getElementById('delete-modal').classList.add('hidden');
       deleteTargetId = null;
       deleteBatchMode = false;
       await refreshAll({ silent: true });
       if (window.OmniKBApp?.refreshStats) window.OmniKBApp.refreshStats();
       else if (typeof refreshStats === 'function') refreshStats();
     } catch {
-      toast('删除失败', 'error');
+      // api() already toasted the specific error; restore UI so user can retry
+      if (confirmBtn) confirmBtn.disabled = false;
+      if (cancelBtn) cancelBtn.disabled = false;
     }
   }
 
