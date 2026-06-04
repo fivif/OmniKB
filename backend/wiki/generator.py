@@ -283,13 +283,17 @@ class WikiGenerator:
                 if linked:
                     src_row = await get_wiki_page(source_page_id)
                     if src_row:
+                        # Read existing body from disk (body is NOT in the DB row).
+                        existing_body = ""
+                        try:
+                            existing_body = self._read_existing_page(src_row["file_path"])
+                        except Exception:
+                            pass
                         index_lines = ["", "---", "", "## Pages derived from this source", ""]
                         for lp in linked:
                             index_lines.append(f"- [[{lp['page_type']}:{lp['slug']}]] — {lp.get('title', lp['slug'])}")
                         index_lines.append("")
-                        new_body = (src_row.get("body") or "") + "\n".join(index_lines)
-                        from wiki.parser import parse_page, render_page
-                        parsed = parse_page(src_row.get("body") or "")
+                        parsed = parse_page(existing_body)
                         fm = dict(parsed.frontmatter)
                         fm["updated_at"] = datetime.now(timezone.utc).isoformat()
                         rendered = render_page(fm, (parsed.body or "") + "\n".join(index_lines))
