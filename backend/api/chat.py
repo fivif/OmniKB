@@ -20,6 +20,10 @@ router = APIRouter()
 # Runtime-overridable RAG system prompt. Initialised from config on first import;
 # callers can update ``_rag_system_prompt`` directly (e.g. from the settings API).
 _rag_system_prompt: str | None = None
+_wiki_index_cache: str | None = None
+_wiki_stats_cache: str = ""
+_wiki_page_count_cache: int = 0
+_llm_client_cache: dict = {}
 
 
 def get_rag_system_prompt() -> str:
@@ -32,6 +36,44 @@ def get_rag_system_prompt() -> str:
 def set_rag_system_prompt(prompt: str) -> None:
     global _rag_system_prompt
     _rag_system_prompt = prompt
+
+
+async def _get_wiki_context() -> tuple[str, str]:
+    """Return cached (wiki_index, wiki_stats). Refreshes every 60s."""
+    global _wiki_index_cache, _wiki_stats_cache, _wiki_page_count_cache
+    import time as _time
+    now = _time.time()
+    if not hasattr(_get_wiki_context, "_last_refresh"):
+        _get_wiki_context._last_refresh = 0  # type: ignore[attr-defined]
+    if now - _get_wiki_context._last_refresh < 60:  # type: ignore[attr-defined]
+        return _wiki_index_cache or "", _wiki_stats_cache
+    try:
+        from wiki.retriever import load_wiki_index
+        _wiki_index_cache = await load_wiki_index() or ""
+        from storage.metadata_db import count_wiki_pages_by_type, count_wikilinks
+        stats = await count_wiki_pages_by_type()
+        total = sum(stats.values())
+        edges = await count_wikilinks()
+        _wiki_page_count_cache = total
+        _wiki_stats_cache = f"\n\n## Wiki Stats\nTotal pages: {total} ({', '.join(f'{k}: {v}' for k,v in sorted(stats.items()))})\nTotal edges: {edges}\n"
+        _get_wiki_context._last_refresh = now  # type: ignore[attr-defined]
+    except Exception:
+        pass
+    return _wiki_index_cache or "", _wiki_stats_cache
+
+
+def _get_cached_llm(provider: str, model: str, *, base_url: str | None = None, api_key: str | None = None):
+    """Get or create a cached LLM client. Invalidation on param change."""
+    global _llm_client_cache
+    key = f"{provider}|{model}|{base_url}|{api_key}"
+    if key not in _llm_client_cache:
+        _llm_client_cache = {}  # clear old entries when params change
+        from agents.llm import build_chat_model, normalize_provider
+        _base_url = base_url or settings.llm_base_url
+        _api_key = api_key or settings.llm_api_key
+        normalized = normalize_provider(provider, model=model, base_url=_base_url)
+        _llm_client_cache[key] = build_chat_model(normalized, model, api_key=_api_key, base_url=_base_url, streaming=True)
+    return _llm_client_cache[key]
 
 _CTX_TEMPLATE = """\
 The following excerpts from the user's personal knowledge base may be relevant. \
@@ -172,31 +214,15 @@ async def _stream_agentic(
     sys_prompt = system_prompt or get_rag_system_prompt()
 
     # ── Wiki index disclosure (Karpathy progressive disclosure pattern) ──
-    if getattr(settings, "wiki_retrieval_enabled", False):  # wiki always on, RAG removed
-        try:
-            from wiki.retriever import load_wiki_index
-            wiki_index = await load_wiki_index(
-                source_ids=wiki_source_ids,
-            )
-            if wiki_index:
-                sys_prompt = (
-                    f"<wiki_index>\n{wiki_index}\n</wiki_index>\n\n"
-                    f"Use read_wiki_page(id) to fetch any page's full content.\n\n"
-                    + sys_prompt
-                )
-        except Exception:
-            pass  # wiki is best-effort, never break chat
-
-    # Inject wiki stats
-    try:
-        from storage.metadata_db import count_wiki_pages_by_type, count_wikilinks
-        stats = await count_wiki_pages_by_type()
-        total = sum(stats.values())
-        edges = await count_wikilinks()
-        stats_text = f"\n\n## Wiki Stats\nTotal pages: {total} ({', '.join(f'{k}: {v}' for k,v in sorted(stats.items()))})\nTotal edges: {edges}\n"
-        sys_prompt += stats_text
-    except Exception:
-        pass
+    # ── Wiki context (cached, 60s TTL) ──────────────────────
+    wiki_index, wiki_stats = await _get_wiki_context()
+    if wiki_index:
+        sys_prompt = (
+            f"<wiki_index>\n{wiki_index}\n</wiki_index>\n\n"
+            f"Use read_wiki_page(id) to fetch any page's full content.\n\n"
+            + sys_prompt
+        )
+    sys_prompt += wiki_stats
 
     sys_prompt += _AGENTIC_SYSTEM_SUFFIX
     lc_msgs: list = [SystemMessage(content=sys_prompt)]
@@ -400,24 +426,16 @@ async def _stream(
     from utils.agent_bus import emit
     task_id = thread_id
 
-    # ── Wiki index disclosure (Karpathy progressive disclosure pattern) ──
+    # ── Wiki context (cached) ──────────────────────────────────
     wiki_context = ""
-    if getattr(settings, "wiki_retrieval_enabled", False):  # wiki always on, RAG removed
-        try:
-            from wiki.retriever import load_wiki_index
-            wiki_index = await load_wiki_index(
-                source_ids=wiki_source_ids,
-            )
-            if wiki_index:
-                wiki_context = (
-                    f"<wiki_index>\n{wiki_index}\n</wiki_index>\n\n"
-                    f"Use read_wiki_page(id) to fetch any page's full content."
-                )
-                emit(f"📝 Wiki 索引: 已公开", kind="success", agent="rag", task_id=task_id)
-        except Exception:
-            pass  # wiki is best-effort, never break chat
+    wiki_index, _wiki_stats = await _get_wiki_context()
+    if wiki_index:
+        wiki_context = (
+            f"<wiki_index>\n{wiki_index}\n</wiki_index>\n\n"
+            f"Use read_wiki_page(id) to fetch any page's full content."
+        )
 
-    llm = _get_llm(_provider, _model, base_url=_base_url, api_key=_api_key)
+    llm = _get_cached_llm(_provider, _model, base_url=_base_url, api_key=_api_key)
 
     from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 

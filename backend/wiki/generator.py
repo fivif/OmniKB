@@ -180,12 +180,14 @@ class WikiGenerator:
             return GenerationResult(error="empty source text")
 
         truncated = self._truncate_source(source_text)
-        purpose_excerpt = self._read_meta_excerpt("purpose.md", limit=600)
-        index_excerpt = self._read_meta_excerpt("index.md", limit=400)
+        purpose_excerpt = self._read_meta_excerpt("purpose.md", limit=3000)
+        index_excerpt = self._read_meta_excerpt("index.md", limit=8000)
+        schema_excerpt = self._read_meta_excerpt("schema.md", limit=3000)
+        overview_text = self._read_meta_excerpt("overview.md", limit=4000)
 
         # Step 1 — analysis
         try:
-            plan = await self._run_analysis(
+            analysis_text = await self._run_analysis(
                 source_id=source_id,
                 source_metadata=meta,
                 source_text=truncated,
@@ -197,12 +199,26 @@ class WikiGenerator:
             return GenerationResult(error=f"analysis: {type(exc).__name__}: {exc}")
 
         WikiGenerator._publish_event("wiki_analysis_complete", {
-            "source_id": source_id, "plan_pages": len(plan.get("pages", [])),
-            "summary": (plan.get("summary") or "")[:200],
+            "source_id": source_id,
+            "analysis_len": len(analysis_text),
+            "preview": analysis_text[:200],
         }, task_id)
 
-        if not plan.get("pages"):
-            return GenerationResult(error="analysis returned no pages")
+        # Build pages from source metadata (free-form analysis provides context)
+        default_slug = slugify(title)
+        pages: list[dict[str, Any]] = [{
+            "page_type": "entity",
+            "slug": default_slug,
+            "id": f"entity:{default_slug}",
+            "title": title,
+            "tags": _listify(meta.get("tags")),
+            "aliases": _listify(meta.get("aliases")),
+            "sources": [source_id],
+            "rationale": f"Ingested from source {source_id}",
+        }]
+
+        if not pages:
+            return GenerationResult(error="no pages to generate")
 
         # Step 2 — generate every page concurrently (bounded)
         result = GenerationResult()
@@ -212,10 +228,14 @@ class WikiGenerator:
                     plan_page=p,
                     source_id=source_id,
                     source_text=truncated,
+                    purpose_excerpt=purpose_excerpt,
+                    schema_excerpt=schema_excerpt,
+                    index_excerpt=index_excerpt,
+                    overview_text=overview_text,
+                    analysis_text=analysis_text,
                 )
             )
-            for p in plan["pages"]
-            if self._validate_plan_page(p)
+            for p in pages
         ]
         outcomes = await asyncio.gather(*page_tasks, return_exceptions=True)
         for outcome in outcomes:
@@ -236,25 +256,29 @@ class WikiGenerator:
                 result.pages_failed += 1
                 WikiGenerator._publish_event("wiki_page_error", {"source_id": source_id, "error": "page generation returned failed"}, task_id)
 
-        # Step 3 — wikilinks. Done after all pages so cascade FK is satisfied.
-        for edge in plan.get("wikilinks") or []:
-            try:
-                src = edge.get("src")
-                dst = edge.get("dst")
-                if not src or not dst or src == dst:
-                    continue
-                # Only create edges between pages we actually wrote in this run
-                # OR pages that already existed. Otherwise FK insert fails.
-                if not (await get_wiki_page(src)) or not (await get_wiki_page(dst)):
-                    continue
-                await upsert_wikilink(
-                    src, dst,
-                    relation=edge.get("relation") or "mentions",
-                    weight=1.0,
-                )
-                result.edges_added += 1
-            except Exception as exc:  # noqa: BLE001
-                logger.debug("wiki edge upsert failed: %s", exc)
+        # Step 3 — wikilinks. Cross-link new pages with existing ones.
+        try:
+            existing_pages = await list_wiki_pages(limit=100)
+            for page_id in result.page_ids:
+                for row in existing_pages:
+                    other_id = row["id"]
+                    if other_id == page_id:
+                        continue
+                    try:
+                        await upsert_wikilink(
+                            page_id, other_id,
+                            relation="mentions",
+                            weight=0.5,
+                        )
+                        result.edges_added += 1
+                    except Exception:
+                        pass
+                    if result.edges_added >= 20:
+                        break
+                if result.edges_added >= 20:
+                    break
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("wiki edge upsert failed: %s", exc)
 
         # Step 4 — refresh index.md / log.md from authoritative DB state.
         try:
@@ -270,8 +294,7 @@ class WikiGenerator:
                 kind="ingest_generated",
                 source_id=source_id,
                 page_ids=result.page_ids,
-                summary=plan.get("summary") or
-                        f"created {result.pages_created} / updated {result.pages_updated}",
+                summary=f"created {result.pages_created} / updated {result.pages_updated}",
             )
         except Exception:  # noqa: BLE001
             pass
@@ -297,7 +320,7 @@ class WikiGenerator:
         source_text: str,
         purpose_excerpt: str,
         index_excerpt: str,
-    ) -> dict[str, Any]:
+    ) -> str:
         messages = build_analysis_messages(
             source_id=source_id,
             source_title=source_metadata.get("title") or source_id,
@@ -311,14 +334,7 @@ class WikiGenerator:
         WikiGenerator._publish_event("message_start", {"source_id": source_id, "step": "analysis", "summary": "LLM 分析中…"}, None)
         raw = await self._invoke(messages)
         WikiGenerator._publish_event("message_end", {"source_id": source_id, "step": "analysis", "content": raw[:200]}, None)
-        plan = _extract_json_object(raw)
-        if not isinstance(plan, dict):
-            raise ValueError(f"analysis output is not a JSON object: {raw[:120]}")
-        # Normalise: ensure required keys exist.
-        plan.setdefault("pages", [])
-        plan.setdefault("wikilinks", [])
-        plan.setdefault("summary", "")
-        return plan
+        return raw
 
     # ── Step 2: generate one page ────────────────────────────
 
@@ -328,6 +344,11 @@ class WikiGenerator:
         plan_page: dict[str, Any],
         source_id: str,
         source_text: str,
+        purpose_excerpt: str = "",
+        schema_excerpt: str = "",
+        index_excerpt: str = "",
+        overview_text: str = "",
+        analysis_text: str = "",
     ) -> tuple[str, str]:
         """Returns ``("created"|"updated"|"failed", page_id)``."""
         page_type = plan_page["page_type"]
@@ -353,6 +374,11 @@ class WikiGenerator:
             plan_page=plan_page,
             source_text=source_text,
             existing_page=existing_text,
+            purpose_excerpt=purpose_excerpt,
+            schema_excerpt=schema_excerpt,
+            index_excerpt=index_excerpt,
+            overview_text=overview_text,
+            analysis_text=analysis_text,
         )
 
         WikiGenerator._publish_event("message_start", {"source_id": source_id, "step": "generation", "page_id": page_id}, None)
@@ -372,6 +398,11 @@ class WikiGenerator:
             logger.warning("wiki page parse failed for %s: %s", page_id, exc)
             return ("failed", page_id)
 
+        # Language guard — reject pages not predominantly Chinese
+        if not self._language_guard(parsed.body):
+            logger.warning("wiki page %s language guard failed (not Chinese), skipping", page_id)
+            return ("failed", page_id)
+
         # Backfill the frontmatter with the canonical metadata so the
         # LLM can't drift the type / slug. Title is allowed to come
         # from the LLM since it's the human-readable form.
@@ -383,6 +414,12 @@ class WikiGenerator:
         fm.setdefault("aliases", _listify(plan_page.get("aliases")))
 
         rendered = render_page(fm, parsed.body)
+
+        # Post-merge body length validation for existing pages
+        is_new = existing_row is None
+        if not is_new and not self._validate_merge(parsed.body, existing_text):
+            logger.warning("wiki page %s merge rejected (body shrank too much)", page_id)
+            return ("failed", page_id)
 
         # Disk + DB upsert. If disk fails we DON'T touch the DB so the
         # row never points at a non-existent file.
@@ -418,19 +455,28 @@ class WikiGenerator:
     # ── Validation + helpers ─────────────────────────────────
 
     @staticmethod
-    def _validate_plan_page(p: Any) -> bool:
-        if not isinstance(p, dict):
+    def _language_guard(body: str) -> bool:
+        """Return True if body is predominantly Chinese (matching expected wiki language)."""
+        import re
+        body = re.sub(r'```[\s\S]*?```', '', body)
+        body = re.sub(r'\$\$[\s\S]*?\$\$', '', body)
+        sample = body.strip()[:800]
+        if len(sample) < 20:
+            return True
+        cjk = sum(1 for c in sample if '一' <= c <= '鿿')
+        latin = sum(1 for c in sample if c.isascii() and c.isalpha())
+        return cjk > latin * 0.5
+
+    @staticmethod
+    def _validate_merge(new_body: str, existing_body: str) -> bool:
+        """Reject merge if body shrank > 30%."""
+        if not existing_body.strip() or not new_body.strip():
+            return True
+        ratio = len(new_body) / len(existing_body)
+        if ratio < 0.7:
+            logger.warning("merge rejected: body shrank %.0f%%", (1-ratio)*100)
             return False
-        if p.get("page_type") not in WIKI_PAGE_TYPES:
-            logger.debug("dropping plan page with bad type: %s", p)
-            return False
-        slug = p.get("slug")
-        if not isinstance(slug, str) or not slug:
-            return False
-        # Re-slugify to be safe; the LLM occasionally writes "Andrej Karpathy"
-        # in the slug field.
-        p["slug"] = slugify(slug)
-        return bool(p["slug"]) and p["slug"] != "unnamed"
+        return True
 
     def _truncate_source(self, text: str) -> str:
         """Return full source text. Model has 1M context — no truncation needed."""
@@ -492,6 +538,35 @@ class WikiGenerator:
 
         path = self._data_dir / "wiki" / "index.md"
         await asyncio.to_thread(atomic_write, path, "\n".join(lines) + "\n")
+
+        # Auto-update overview.md if we have enough pages
+        total_pages = sum(1 for _, _pgs in [(h, await list_wiki_pages(page_type=pt, limit=500)) for h, pt in sections] for _ in _pgs)
+        if total_pages >= 5:
+            try:
+                index_text = "\n".join(lines)
+                overview_prompt = (
+                    "Write a 2-4 paragraph synthesis of the ENTIRE wiki based on the index below. "
+                    "Use Chinese (简体中文). Write in a cohesive narrative style. Do NOT use markdown headings, "
+                    "just plain paragraphs. The overview should serve as a TL;DR for new readers.\n\n"
+                    f"{index_text}"
+                )
+                overview_raw = await self._invoke([
+                    {"role": "system", "content": "You are a wiki curator. Write a concise overview. Use Chinese."},
+                    {"role": "user", "content": overview_prompt},
+                ])
+                overview_md = (
+                    "---\n"
+                    f'title: "Overview"\n'
+                    f'kind: "meta"\n'
+                    f'updated_at: "{now}"\n'
+                    "---\n\n"
+                    "# Overview\n\n"
+                    f"{overview_raw.strip()}\n"
+                )
+                overview_path = self._data_dir / "wiki" / "overview.md"
+                await asyncio.to_thread(atomic_write, overview_path, overview_md)
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("wiki overview auto-update failed: %s", exc)
 
 
 # ── Helpers (module-private) ─────────────────────────────────────────

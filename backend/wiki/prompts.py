@@ -36,60 +36,43 @@ from typing import Any
 # ── Analysis step ────────────────────────────────────────────────────
 
 
-ANALYSIS_SYSTEM = """You are the wiki maintainer for a personal knowledge base.
+ANALYSIS_SYSTEM = """You are an expert research analyst. Read the source document
+and produce a structured analysis. Reason internally — output only the concise,
+structured final analysis. No preamble, no chain-of-thought markers.
 
-You read raw sources (articles, papers, notes) and decide how they should
-be integrated into an evolving wiki. Your output is a STRUCTURED PLAN —
-not the wiki content itself; the next step writes that.
+LANGUAGE: Write all analysis prose in Chinese (简体中文).
 
-LANGUAGE: All fields in your JSON output (summary, title, rationale, tags,
-aliases) MUST be written in Chinese (简体中文). Slugs stay URL-safe ASCII.
+Your analysis MUST cover ALL of these sections:
 
-Hard rules:
-- Output ONLY a single JSON object that matches the schema below. No
-  prose, no markdown fence, no explanation. The system parses your
-  output programmatically.
-- Slugs are URL-safe ASCII: lowercase letters, digits, hyphens. No
-  spaces, no underscores, no unicode. e.g. "deep-learning-intro", "rag-vs-kg".
-- Page IDs follow ``{type}:{slug}``. Types are exactly:
-  entity | concept | source | query | overview.
-- Every plan MUST include exactly one page of type ``source`` for the
-  raw text you just read.
-- Cross-references go in ``wikilinks`` as ``{src, dst, relation}``
-  triples. Relations: mentions | contradicts | extends | source-of.
-- When uncertain, prefer FEWER, HIGHER-QUALITY pages over many
-  shallow ones. A wiki of 8 deep entity pages beats one with 30
-  one-line stubs.
-- Your job is to ORGANIZE content, never to discard it. Every fact,
-  provision, number, and detail from the source must appear in at
-  least one wiki page.
+## 1. Key Entities
+List people, organizations, products, datasets, tools. For each: name, type, role in this source.
 
-JSON schema:
-{
-  "summary": "<one sentence describing what this source contributed>",
-  "pages": [
-    {
-      "id":      "<type>:<slug>",
-      "page_type": "<entity|concept|source|query|overview>",
-      "slug":      "<slug>",
-      "title":     "<human-readable title>",
-      "is_new":    true | false,
-      "rationale": "<one sentence: why this page should exist or change>",
-      "tags":      ["..."],
-      "aliases":   ["..."]
-    }
-  ],
-  "wikilinks": [
-    {"src": "<page id>", "dst": "<page id>", "relation": "mentions|contradicts|extends|source-of"}
-  ]
-}
-"""
+## 2. Key Concepts
+List theories, methods, techniques, phenomena. For each: name + brief definition, significance.
+
+## 3. Main Arguments & Findings
+Core claims/results. What's new, surprising, or important?
+
+## 4. Connections to Existing Wiki
+Which existing pages relate? Does it strengthen, challenge, or extend?
+
+## 5. Contradictions & Tensions
+Any conflicts with existing wiki? Internal tensions or caveats?
+
+## 6. Wiki Structure Recommendations
+- What new pages to create (type, slug, title, why)?
+- Which existing pages to update (id, what to add)?
+- Suggested tags and wikilinks between pages
+
+Be thorough but concise. Don't create pages for trivial mentions.
+Use kebab-case ASCII for slugs."""
 
 
-ANALYSIS_USER_TEMPLATE = """Wiki purpose (excerpt):
+
+ANALYSIS_USER_TEMPLATE = """Wiki purpose:
 {purpose_excerpt}
 
-Existing index (for context — link to existing pages when they fit):
+Existing wiki index:
 {index_excerpt}
 
 Source metadata:
@@ -98,12 +81,12 @@ Source metadata:
 - type:  {source_type}
 - url:   {source_url}
 
-Full source content (complete, untruncated — model has 1M context):
+Full source content:
 \"\"\"
 {source_text}
 \"\"\"
 
-Produce the JSON plan now."""
+Produce your structured analysis now."""
 
 
 # ── Generation step ──────────────────────────────────────────────────
@@ -150,6 +133,13 @@ When updating an existing page (``EXISTING PAGE`` is non-empty):
   Don't delete the old claim — the history matters.
 
 CRITICAL: Include ALL factual content from the source. Do NOT write phrases like '此处从略' (omitted), '略' (abbreviated), or '详见原文' (see original). Every provision, number, date, and detail must be preserved in full.
+
+IMPORTANT: After generating pages, also produce:
+1. An updated wiki/overview.md — a 2-5 paragraph synthesis of what the ENTIRE wiki covers
+2. A log entry for wiki/log.md in format:
+   ## [{date}] ingest | {source_title}
+   Created: {pages} | Updated: {pages}
+   Summary: {one sentence}
 """
 
 
@@ -163,7 +153,32 @@ GENERATION_USER_TEMPLATE = """Page to write:
 - sources:   {sources}
 - rationale: {rationale}
 
-Full source content (the raw text this page should reflect):
+Wiki purpose (what matters in this KB):
+\"\"\"
+{purpose_excerpt}
+\"\"\"
+
+Wiki routing rules:
+\"\"\"
+{schema_excerpt}
+\"\"\"
+
+Current wiki index (link to existing pages):
+\"\"\"
+{index_excerpt}
+\"\"\"
+
+Current wiki overview (global synthesis):
+\"\"\"
+{overview_text}
+\"\"\"
+
+Ingest analysis (from Step 1):
+\"\"\"
+{analysis_text}
+\"\"\"
+
+Full source content:
 \"\"\"
 {source_text}
 \"\"\"
@@ -173,7 +188,7 @@ EXISTING PAGE (empty if new):
 {existing_page}
 \"\"\"
 
-Write the full markdown page now (frontmatter + body)."""
+Write the full markdown page now (frontmatter + body). Use Chinese. Include [[wikilinks]] to related pages. Cite sources with (source-id) notation."""
 
 
 # ── Programmatic helpers ────────────────────────────────────────────
@@ -216,6 +231,11 @@ def build_generation_messages(
     plan_page: dict[str, Any],
     source_text: str,
     existing_page: str = "",
+    purpose_excerpt: str = "",
+    schema_excerpt: str = "",
+    index_excerpt: str = "",
+    overview_text: str = "",
+    analysis_text: str = "",
 ) -> list[dict[str, str]]:
     """Build the chat-completion-shaped message list for one page-write."""
     return [
@@ -231,6 +251,11 @@ def build_generation_messages(
                 aliases=plan_page.get("aliases") or [],
                 sources=plan_page.get("sources") or [],
                 rationale=plan_page.get("rationale") or "",
+                purpose_excerpt=purpose_excerpt or "(default — accumulate cross-referenced knowledge)",
+                schema_excerpt=schema_excerpt or "(default — entity|concept|source|query|overview)",
+                index_excerpt=index_excerpt or "(empty — first source)",
+                overview_text=overview_text or "(no overview yet)",
+                analysis_text=analysis_text or "(no analysis available)",
                 source_text=source_text,
                 existing_page=existing_page,
             ),
