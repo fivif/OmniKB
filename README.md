@@ -8,7 +8,6 @@
   <a href="#"><img src="https://img.shields.io/badge/python-3.13+-blue?logo=python" alt="Python 3.13+"></a>
   <a href="#"><img src="https://img.shields.io/badge/LLM-DeepSeek_V4-536DFE" alt="DeepSeek"></a>
   <a href="#"><img src="https://img.shields.io/badge/storage-SQLite-orange?logo=sqlite" alt="SQLite"></a>
-  <a href="#"><img src="https://img.shields.io/badge/context-1M_tokens-black" alt="1M Context"></a>
 </p>
 
 <p align="center">
@@ -68,7 +67,7 @@
                                     └─────────────────┘
 ```
 
-**零嵌入 · 零分块 · 零向量库** — Wiki 页面即知识库，1M 上下文直接容纳全部索引。
+**零嵌入 · 零分块 · 零向量库** — Wiki 页面即知识库。
 
 ---
 
