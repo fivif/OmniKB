@@ -218,6 +218,28 @@
     return false;
   }
 
+  let thinkMsgId = null;
+  let thinkPages = [];
+
+  function ensureThinkingCard() {
+    if (thinkMsgId) return;
+    thinkMsgId = addMessage('thinking', '');
+    const el = document.getElementById(thinkMsgId);
+    if (el) {
+      el.innerHTML = '<div class="think-card"><div class="think-header"><span class="think-spinner"></span><span class="think-title">正在思考...</span></div><div class="think-pages"></div></div>';
+    }
+  }
+  function finishThinkingCard() {
+    const el = document.getElementById(thinkMsgId);
+    if (!el) return;
+    const sp = el.querySelector('.think-spinner');
+    if (sp) { sp.className = 'think-check'; sp.textContent = '✅'; }
+    const t = el.querySelector('.think-title');
+    if (t) t.textContent = thinkPages.length > 0 ? '已检索 ' + thinkPages.length + ' 个页面' : '思考完成';
+    el.classList.add('think-done');
+  }
+
+
   async function sendMessage() {
     if (isStreaming) return;
     const text = inputEl.value.trim();
@@ -300,16 +322,45 @@
           if (raw === '[DONE]') break;
           try {
             const evt = JSON.parse(raw);
-            if (evt.type === 'token') {
+            if (evt.type === 'reasoning') {
+              ensureThinkingCard();
+              const el = document.getElementById(thinkMsgId);
+              if (el) {
+                let b = el.querySelector('.think-body');
+                if (!b) {
+                  b = document.createElement('div');
+                  b.className = 'think-body';
+                  el.querySelector('.think-card').appendChild(b);
+                }
+                b.textContent += evt.content;
+                messagesEl.scrollTop = messagesEl.scrollHeight;
+              }
+            } else if (evt.type === 'tool_call') {
+              ensureThinkingCard();
+              const pn = evt.args?.page_id || evt.name || '';
+              if (pn) {
+                if (!thinkPages.includes(pn)) thinkPages.push(pn);
+                const el = document.getElementById(thinkMsgId);
+                if (el) {
+                  const pe = el.querySelector('.think-pages');
+                  if (pe) {
+                    const t = document.createElement('span');
+                    t.className = 'think-page-tag';
+                    t.textContent = '📄 ' + pn.replace(/_/g, ' ');
+                    pe.appendChild(t);
+                  }
+                }
+              }
+            } else if (evt.type === 'token') {
               if (firstToken) {
                 firstToken = false;
+                if (thinkMsgId) finishThinkingCard();
                 ensureAiBubble();
               }
               fullText += evt.content;
-              scheduleRender();
+              scheduleStreamRender();
             } else if (evt.type === 'citations') {
-              ensureAiBubble();
-              showCitations(evt.citations, contentEl);
+
             } else if (evt.type === 'session') {
               currentThreadId = evt.thread_id;
               localStorage.setItem('omnikb_thread_id', currentThreadId);
