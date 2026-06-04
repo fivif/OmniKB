@@ -426,21 +426,25 @@ class WikiGenerator:
             "created_at": "",
             "updated_at": "",
         }
-        # Generate a Table of Contents for legal documents with 编/章/节 hierarchy.
+        # Generate a Table of Contents for structured documents.
         body = self._build_legal_toc(source_text) + source_text
         rendered = render_page(frontmatter, body)
 
         dir_name = PAGE_TYPE_DIRECTORY.get("source", "sources")
         file_path = f"wiki/{dir_name}/{slug}.md"
-        await atomic_write(self._data_dir / file_path, rendered)
+        await asyncio.to_thread(atomic_write, self._data_dir / file_path, rendered)
 
         existing = await get_wiki_page(page_id)
         is_new = existing is None
-        await upsert_wiki_page(
-            page_id=page_id, page_type="source", slug=slug, title=title,
-            file_path=file_path, summary=body[:200], frontmatter=frontmatter,
-            source_ids=[source_id],
-        )
+        try:
+            await upsert_wiki_page({
+                "id": page_id, "page_type": "source", "slug": slug,
+                "title": title, "file_path": file_path, "summary": body[:200],
+                "frontmatter": frontmatter, "source_ids": [source_id],
+            })
+        except Exception as exc:
+            logger.error("wiki source page DB upsert failed for %s: %s", page_id, exc)
+            return ("failed", page_id)
         return ("created" if is_new else "updated", page_id)
 
     @staticmethod
