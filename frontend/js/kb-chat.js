@@ -602,6 +602,7 @@
         }
       }
       chatHistory.push({ role: 'assistant', content: fullText });
+      addSaveToWikiButton(aiMsgId, fullText);
 
     } catch (e) {
       if (!contentEl) ensureAiBubble();
@@ -621,6 +622,40 @@
       OmnikbCitations.clear(targetEl);
       OmnikbCitations.render(targetEl, citations);
     }
+  }
+
+  function addSaveToWikiButton(msgId, fullText) {
+    const msgEl = document.getElementById(msgId);
+    if (!msgEl) return;
+    const bubble = msgEl.querySelector('.bubble-ai, .kbchat-message-bubble');
+    if (!bubble) return;
+    // Avoid duplicate buttons
+    if (bubble.querySelector('.save-to-wiki-btn')) return;
+    const btn = document.createElement('button');
+    btn.className = 'save-to-wiki-btn';
+    btn.innerHTML = '💾';
+    btn.title = '保存到 Wiki';
+    btn.onclick = async () => {
+      const title = prompt('Wiki 页面标题:', '');
+      if (!title) return;
+      try {
+        const r = await fetch((typeof getApiBase === 'function' ? getApiBase() : '') + '/wiki/save-chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title, content: fullText }),
+        });
+        if (r.ok) {
+          const data = await r.json();
+          if (typeof toast === 'function') toast('已保存到 Wiki: ' + data.id, 'success');
+        } else {
+          const err = await r.json().catch(() => ({}));
+          if (typeof toast === 'function') toast('保存失败: ' + (err.detail || r.statusText), 'error');
+        }
+      } catch (e) {
+        if (typeof toast === 'function') toast('保存失败: ' + e.message, 'error');
+      }
+    };
+    bubble.appendChild(btn);
   }
 
   function runPreviewAnswer(text, contentEl) {

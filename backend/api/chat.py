@@ -91,25 +91,29 @@ def _get_last_user_message(messages: list[Message]) -> str:
     return ""
 
 
-_AGENTIC_SYSTEM_SUFFIX = """\
+_AGENTIC_SYSTEM_SUFFIX = """
+## Your Role
+You are the OmniKB Wiki Maintainer. You read, write, and organize the knowledge base wiki.
+Your job is to help the user manage their wiki — create pages, update content, find gaps,
+and maintain the knowledge graph.
 
-## Agent tools
+## Wiki Tools
+* `read_wiki_page(page_id)` — fetch the full content of any wiki page
+* `update_wiki_page(page_id, content)` — update an existing page's body
+* `create_wiki_page(page_type, slug, title, content)` — create a new page
+* `list_wiki_pages_tool(page_type?)` — list all pages, optionally filter by type
+* `search_wiki_tool(query)` — search wiki pages by text query
+* `get_wiki_stats_tool()` — get page counts by type and edge counts
+* `fetch_url_preview(url)` — fetch external URL preview
 
-* `read_wiki_page(page_id)` — read the full markdown body of a wiki page.
-  page_id format: ``<type>:<slug>`` (e.g. ``entity:minimind-model``).
-  The complete wiki index is provided above in ``<wiki_index>``.
-  Only read pages listed there — do not guess page IDs.
-* `fetch_url_preview(url)` — fetch a fresh URL (≤ 30 s, no auth).
-
-Workflow:
-1. Read the ``<wiki_index>`` to understand what knowledge is available.
-2. If a page seems relevant, call ``read_wiki_page`` to get its full content.
-3. Answer based on the wiki pages you read. The wiki index is the complete
-   and authoritative listing — do not claim to have knowledge beyond it.
-4. Only use ``fetch_url_preview`` for URLs the user explicitly asks about.
-
-Be terse. Do not narrate your tool plan in the final answer.
-If the wiki index contains no relevant pages, honestly say so."""
+## Rules
+1. The wiki is your authoritative source — answer based on it, never fabricate
+2. If the wiki lacks information, honestly say so
+3. When creating pages, use appropriate page types (entity/concept/source/query)
+4. When updating, preserve correct existing content and add new information
+5. Maintain [[wikilinks]] between related pages in your content
+6. You have a 1M token context window — read as many pages as needed
+"""
 
 
 def _build_agentic_llm(provider: str, model: str, *, base_url: str | None = None, api_key: str | None = None):
@@ -179,6 +183,17 @@ async def _stream_agentic(
                 )
         except Exception:
             pass  # wiki is best-effort, never break chat
+
+    # Inject wiki stats
+    try:
+        from storage.metadata_db import count_wiki_pages_by_type, count_wikilinks
+        stats = await count_wiki_pages_by_type()
+        total = sum(stats.values())
+        edges = await count_wikilinks()
+        stats_text = f"\n\n## Wiki Stats\nTotal pages: {total} ({', '.join(f'{k}: {v}' for k,v in sorted(stats.items()))})\nTotal edges: {edges}\n"
+        sys_prompt += stats_text
+    except Exception:
+        pass
 
     sys_prompt += _AGENTIC_SYSTEM_SUFFIX
     lc_msgs: list = [SystemMessage(content=sys_prompt)]

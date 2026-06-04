@@ -17,8 +17,12 @@ Routes
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
+import time
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -36,7 +40,9 @@ from storage.metadata_db import (
     list_wiki_events,
     list_wiki_pages,
     list_wikilinks,
+    upsert_wiki_page,
 )
+from wiki.parser import slugify
 
 router = APIRouter(prefix="/wiki", tags=["wiki"])
 logger = logging.getLogger(__name__)
@@ -263,6 +269,47 @@ async def insights(
         }
 
     return response
+
+
+# ── Save Chat to Wiki ────────────────────────────────────────────────
+
+
+class SaveToWikiRequest(BaseModel):
+    title: str
+    content: str
+
+
+@router.post("/save-chat", response_model=WikiPageOut, status_code=201)
+async def save_chat_to_wiki(req: SaveToWikiRequest):
+    """Save a chat response as a new query-type wiki page."""
+    slug = slugify(req.title)
+    if slug == "unnamed":
+        slug = f"query-{hashlib.md5(str(time.time()).encode()).hexdigest()[:8]}"
+    page_id = f"query:{slug}"
+    now = datetime.now(timezone.utc).isoformat()
+
+    # Check if page already exists
+    existing = await get_wiki_page(page_id)
+    if existing:
+        # Append as new section
+        new_body = existing.get("body", "") + "\n\n---\n\n## Saved Answer\n\n" + req.content
+        await upsert_wiki_page({
+            "id": page_id, "page_type": "query", "slug": slug, "title": req.title,
+            "file_path": f"wiki/queries/{slug}.md", "summary": req.content[:200],
+            "frontmatter": json.dumps({"tags": ["saved-chat"], "aliases": []}),
+            "source_ids": json.dumps([]), "body": new_body,
+            "created_at": existing.get("created_at", now), "updated_at": now,
+            "revision": existing.get("revision", 1) + 1,
+        })
+    else:
+        await upsert_wiki_page({
+            "id": page_id, "page_type": "query", "slug": slug, "title": req.title,
+            "file_path": f"wiki/queries/{slug}.md", "summary": req.content[:200],
+            "frontmatter": json.dumps({"tags": ["saved-chat"], "aliases": []}),
+            "source_ids": json.dumps([]), "body": req.content,
+            "created_at": now, "updated_at": now, "revision": 1,
+        })
+    return await get_wiki_page(page_id)
 
 
 # ── Deep Research ────────────────────────────────────────────────────

@@ -171,6 +171,8 @@ class Settings(BaseSettings):
     chat_agent_enabled: bool = True
     chat_agent_max_turns: int = 6
     chat_agent_max_tool_calls: int = 10
+    chat_context_window: int = 1_000_000  # 1M tokens
+    chat_compaction_threshold: float = 0.80  # compact at 80%
 
 
 settings = Settings()

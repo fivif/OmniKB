@@ -37,6 +37,16 @@
                   <label class="form-label">API Key</label>
                   <input id="s-llm-key" class="input settings-key-input" type="password" placeholder="sk-..." />
                 </div>
+                <div class="stack-sm settings-field">
+                  <label class="form-label">对话上下文窗口 (tokens)</label>
+                  <input id="s-chat-context" class="input" type="number" placeholder="1000000" />
+                  <span class="hint">默认为 1M tokens。超过此值将触发自动压缩</span>
+                </div>
+                <div class="stack-sm settings-field">
+                  <label class="form-label">压缩阈值</label>
+                  <input id="s-chat-compaction" class="input" type="number" step="0.05" min="0.5" max="0.95" placeholder="0.80" />
+                  <span class="hint">上下文使用率达到此比例时自动压缩（0.5-0.95），默认 0.80</span>
+                </div>
               </div>
 
               <div id="settings-provider-note" class="surface-note settings-provider-note"></div>
@@ -177,6 +187,8 @@
     model: document.getElementById('s-llm-model'),
     baseUrl: document.getElementById('s-llm-base'),
     apiKey: document.getElementById('s-llm-key'),
+    chatContext: document.getElementById('s-chat-context'),
+    chatCompaction: document.getElementById('s-chat-compaction'),
     providerNote: document.getElementById('settings-provider-note'),
     saveFlash: document.getElementById('settings-saved'),
     systemPrompt: document.getElementById('s-system-prompt'),
@@ -211,6 +223,8 @@
     vision_frame_interval: 60,
 
     admin_password: '',
+    chat_context_window: 1000000,
+    chat_compaction_threshold: 0.80,
   };
 
   function normalizeProvider(value) {
@@ -259,6 +273,8 @@
       vision_api_key: saved.vision_api_key || '',
       vision_frame_interval: saved.vision_frame_interval !== undefined ? saved.vision_frame_interval : defaults.vision_frame_interval,
       admin_password: saved.admin_password || defaults.admin_password,
+      chat_context_window: saved.chat_context_window !== undefined ? saved.chat_context_window : defaults.chat_context_window,
+      chat_compaction_threshold: saved.chat_compaction_threshold !== undefined ? saved.chat_compaction_threshold : defaults.chat_compaction_threshold,
     };
   }
 
@@ -278,6 +294,8 @@
       vision_api_key: refs.visionApiKey.value.trim(),
       vision_frame_interval: parseInt(refs.visionFrameInterval.value, 10) || defaults.vision_frame_interval,
       admin_password: refs.adminPassword.value.trim(),
+      chat_context_window: parseInt(refs.chatContext.value, 10) || defaults.chat_context_window,
+      chat_compaction_threshold: parseFloat(refs.chatCompaction.value) || defaults.chat_compaction_threshold,
     };
   }
 
@@ -334,6 +352,8 @@
     refs.visionApiKey.value = values.vision_api_key || '';
     refs.visionFrameInterval.value = values.vision_frame_interval !== undefined ? values.vision_frame_interval : defaults.vision_frame_interval;
     refs.adminPassword.value = values.admin_password || '';
+    refs.chatContext.value = values.chat_context_window !== undefined ? values.chat_context_window : defaults.chat_context_window;
+    refs.chatCompaction.value = values.chat_compaction_threshold !== undefined ? values.chat_compaction_threshold : defaults.chat_compaction_threshold;
 
     updateProviderMeta();
     updateSummary(collectRuntimeValues());
@@ -357,6 +377,8 @@
         model: values.llm_model,
         base_url: values.llm_base_url,
         api_key: values.llm_api_key,
+        context_window: values.chat_context_window,
+        compaction_threshold: values.chat_compaction_threshold,
       }),
     });
 
@@ -381,6 +403,8 @@
       llm_model: runtime.model,
       llm_base_url: runtime.base_url || '',
       llm_api_key: runtime.api_key || '',
+      chat_context_window: runtime.chat_context_window !== undefined ? runtime.chat_context_window : values.chat_context_window,
+      chat_compaction_threshold: runtime.chat_compaction_threshold !== undefined ? runtime.chat_compaction_threshold : values.chat_compaction_threshold,
       vision_enabled: visionRuntime.vision_enabled !== undefined ? visionRuntime.vision_enabled : values.vision_enabled,
       vision_model: visionRuntime.vision_model || values.vision_model,
       vision_base_url: visionRuntime.vision_base_url || '',
@@ -413,6 +437,8 @@
       llm_model: local.llm_model || defaults.llm_model,
       llm_base_url: local.llm_base_url,
       llm_api_key: local.llm_api_key,
+      chat_context_window: local.chat_context_window,
+      chat_compaction_threshold: local.chat_compaction_threshold,
     });
 
     try {
@@ -439,6 +465,8 @@
         llm_model: local.llm_model || llm.model || defaults.llm_model,
         llm_base_url: local.llm_base_url || llm.base_url || '',
         llm_api_key: local.llm_api_key || llm.api_key || '',
+        chat_context_window: local.chat_context_window !== undefined ? local.chat_context_window : (llm.chat_context_window !== undefined ? llm.chat_context_window : defaults.chat_context_window),
+        chat_compaction_threshold: local.chat_compaction_threshold !== undefined ? local.chat_compaction_threshold : (llm.chat_compaction_threshold !== undefined ? llm.chat_compaction_threshold : defaults.chat_compaction_threshold),
         vision_enabled: local.vision_enabled !== undefined ? local.vision_enabled : (vision.vision_enabled !== undefined ? vision.vision_enabled : defaults.vision_enabled),
         vision_model: local.vision_model || vision.vision_model || defaults.vision_model,
         vision_base_url: local.vision_base_url || vision.vision_base_url || '',
@@ -456,7 +484,9 @@
         local.vision_model ||
         local.vision_base_url ||
         local.vision_api_key ||
-        local.vision_frame_interval !== undefined
+        local.vision_frame_interval !== undefined ||
+        local.chat_context_window !== undefined ||
+        local.chat_compaction_threshold !== undefined
       );
       if (shouldReplay) {
         await syncRuntimeSettings({ silent: true, skipLocalSave: true });
@@ -536,6 +566,11 @@
   });
 
   [refs.visionEnabled, refs.visionModel, refs.visionBaseUrl, refs.visionApiKey, refs.visionFrameInterval].forEach(node => {
+    node.addEventListener('input', persistLocalDraft);
+    node.addEventListener('change', persistLocalDraft);
+  });
+
+  [refs.chatContext, refs.chatCompaction].forEach(node => {
     node.addEventListener('input', persistLocalDraft);
     node.addEventListener('change', persistLocalDraft);
   });

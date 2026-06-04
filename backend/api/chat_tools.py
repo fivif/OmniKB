@@ -13,8 +13,11 @@ from chunks the LLM actually retrieved.
 from __future__ import annotations
 
 import asyncio
+import copy
+import hashlib
 import json
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -221,6 +224,87 @@ def build_chat_tools(ctx: ChatContext):
             )
         return body
 
-    # Wiki-only mode: only wiki reading + URL fetching.
-    # The wiki index is already in the system prompt — no need for search/listing tools.
-    return [read_wiki_page, fetch_url_preview]
+    @_lc_tool
+    async def update_wiki_page(page_id: str, content: str) -> str:
+        """Update the body content of an existing wiki page. Returns confirmation or error."""
+        try:
+            from storage.metadata_db import get_wiki_page, upsert_wiki_page
+            existing = await get_wiki_page(page_id)
+            if not existing:
+                return f"[update_wiki_page: page not found: {page_id}]"
+            updated = copy.deepcopy(existing)
+            updated["body"] = content
+            await upsert_wiki_page(updated)
+            return f"[update_wiki_page: '{page_id}' updated successfully]"
+        except Exception as e:
+            return f"[update_wiki_page error: {e}]"
+
+    @_lc_tool
+    async def create_wiki_page(page_type: str, slug: str, title: str, content: str) -> str:
+        """Create a new wiki page. page_type: entity|concept|source|query. Returns confirmation."""
+        try:
+            from storage.metadata_db import upsert_wiki_page, WIKI_PAGE_TYPES
+            from wiki.parser import slugify
+            if page_type not in WIKI_PAGE_TYPES:
+                return f"[create_wiki_page: invalid type '{page_type}'. Must be one of: {WIKI_PAGE_TYPES}]"
+            slug = slugify(slug)
+            if slug == "unnamed":
+                slug = f"page-{hashlib.md5(str(time.time()).encode()).hexdigest()[:8]}"
+            page_id = f"{page_type}:{slug}"
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc).isoformat()
+            await upsert_wiki_page({
+                "id": page_id, "page_type": page_type, "slug": slug, "title": title,
+                "file_path": f"wiki/{page_type}s/{slug}.md", "summary": content[:200],
+                "frontmatter": json.dumps({"tags": [], "aliases": []}),
+                "source_ids": json.dumps([]), "body": content,
+                "created_at": now, "updated_at": now, "revision": 1,
+            })
+            return f"[create_wiki_page: '{page_id}' created]"
+        except Exception as e:
+            return f"[create_wiki_page error: {e}]"
+
+    @_lc_tool
+    async def list_wiki_pages_tool(page_type: str = "") -> str:
+        """List all wiki pages, optionally filtered by type. Returns page IDs and titles."""
+        try:
+            from storage.metadata_db import list_wiki_pages
+            pages = await list_wiki_pages(page_type=page_type or None, limit=200)
+            if not pages:
+                return "[list_wiki_pages: no pages found]"
+            lines = [f"- {p['id']}: {p['title']} ({p['page_type']})" for p in pages[:50]]
+            if len(pages) > 50:
+                lines.append(f"... and {len(pages)-50} more")
+            return "\n".join(lines)
+        except Exception as e:
+            return f"[list_wiki_pages error: {e}]"
+
+    @_lc_tool
+    async def search_wiki_tool(query: str) -> str:
+        """Search wiki pages by query. Returns matching page IDs and summaries."""
+        try:
+            from wiki.retriever import search_wiki_pages
+            results = await search_wiki_pages(query, limit=10)
+            if not results:
+                return f"[search_wiki: no results for '{query}']"
+            lines = [f"- {r['id']}: {r['title']} (score: {r.get('score',0):.1f})" for r in results]
+            return "\n".join(lines)
+        except Exception as e:
+            return f"[search_wiki error: {e}]"
+
+    @_lc_tool
+    async def get_wiki_stats_tool() -> str:
+        """Get wiki statistics: total pages by type, total edges, worker status."""
+        try:
+            from storage.metadata_db import count_wiki_pages_by_type, count_wikilinks
+            counts = await count_wiki_pages_by_type()
+            edges = await count_wikilinks()
+            parts = [f"Total pages: {sum(counts.values())}"]
+            for t, c in sorted(counts.items()):
+                parts.append(f"  {t}: {c}")
+            parts.append(f"Total edges: {edges}")
+            return "\n".join(parts)
+        except Exception as e:
+            return f"[wiki_stats error: {e}]"
+
+    return [read_wiki_page, fetch_url_preview, update_wiki_page, create_wiki_page, list_wiki_pages_tool, search_wiki_tool, get_wiki_stats_tool]
