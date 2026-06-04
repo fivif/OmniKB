@@ -24,6 +24,7 @@ _AUTH_EXEMPT_PREFIXES = (
     "/kb-chat.html",
     "/kb-api/",
     "/scenario-api.html",
+    "/s/",
     "/health",
     "/mcp/",
     "/test",
