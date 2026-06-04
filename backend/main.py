@@ -346,6 +346,11 @@ if os.path.isdir(_frontend):
         """Serve the management SPA at /admin."""
         return FileResponse(os.path.join(_frontend, "index.html"))
 
+    @app.get("/s/{slug}", tags=["system"])
+    async def scenario_page(slug: str):
+        """Serve the scenario Q&A page at /s/{slug}."""
+        return FileResponse(os.path.join(_frontend, "kb-chat.html"))
+
     app.mount("/", StaticFiles(directory=_frontend, html=True), name="frontend")
 
 if __name__ == "__main__":
