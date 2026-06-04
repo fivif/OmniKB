@@ -88,6 +88,7 @@ LAST thing in your output:
 }
 ```
 Every plan MUST include exactly one source page.
+The source page MUST contain the FULL original text, word-for-word, never summarized.
 Prefer fewer, higher-quality pages over many shallow stubs."""
 
 
@@ -155,7 +156,11 @@ When updating an existing page (``EXISTING PAGE`` is non-empty):
   > 🕒 Superseded by: <one-line summary> (<source id>)
   Don't delete the old claim — the history matters.
 
-CRITICAL: Include ALL factual content from the source. Do NOT write phrases like '此处从略' (omitted), '略' (abbreviated), or '详见原文' (see original). Every provision, number, date, and detail must be preserved in full.
+CRITICAL: For source-type pages: include the COMPLETE original text VERBATIM.
+Do NOT summarize. Do NOT reorganize. Do NOT write an overview.
+Copy the full source text into the page body word-for-word.
+The source page IS the original document — it must contain every single word.
+For entity/concept pages: include ALL relevant facts, never omit or abbreviate.
 
 IMPORTANT: After generating pages, also produce:
 1. An updated wiki/overview.md — a 2-5 paragraph synthesis of what the ENTIRE wiki covers
