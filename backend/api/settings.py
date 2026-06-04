@@ -171,6 +171,14 @@ async def update_llm_settings(body: LLMSettingsUpdate):
     # Persist key to .env for crash/restart survival
     _persist_env("LLM_API_KEY", api_key)
 
+    # Invalidate cached LLM clients + wiki index so next request picks up new config
+    try:
+        from api.chat import _llm_client_cache, _wiki_index_cache
+        _llm_client_cache.clear()
+        _wiki_index_cache = None
+    except Exception:
+        pass
+
     return {**_read_runtime_llm_settings(), "updated": True}
 
 
