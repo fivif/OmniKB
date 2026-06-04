@@ -287,13 +287,13 @@ class WikiGenerator:
                         for lp in linked:
                             index_lines.append(f"- [[{lp['page_type']}:{lp['slug']}]] — {lp.get('title', lp['slug'])}")
                         index_lines.append("")
-                        new_body = (src_row.get("body") or "") + "\\n".join(index_lines)
+                        new_body = (src_row.get("body") or "") + "\n".join(index_lines)
                         from wiki.parser import parse_page, render_page
                         parsed = parse_page(src_row.get("body") or "")
                         fm = dict(parsed.frontmatter)
                         fm["updated_at"] = datetime.now(timezone.utc).isoformat()
-                        rendered = render_page(fm, (parsed.body or "") + "\\n".join(index_lines))
-                        await atomic_write(self._data_dir / src_row["file_path"], rendered)
+                        rendered = render_page(fm, (parsed.body or "") + "\n".join(index_lines))
+                        await asyncio.to_thread(atomic_write, self._data_dir / src_row["file_path"], rendered)
             except Exception as exc:
                 logger.debug("per-source index append failed: %s", exc)
 
