@@ -241,6 +241,10 @@ async def _stream_agentic(
                 # Always stream the final answer token-by-token
                 stream_llm = _get_llm(_provider, _model, base_url=_base_url, api_key=_api_key)
                 async for chunk in stream_llm.astream(lc_msgs[:-1]):
+                    # Stream reasoning/thinking content if available (DeepSeek R1, etc.)
+                    reasoning = getattr(chunk, "reasoning_content", None) or ""
+                    if reasoning:
+                        yield f"data: {json.dumps({'type': 'reasoning', 'content': reasoning})}\n\n"
                     tok = getattr(chunk, "content", "") or ""
                     if tok:
                         final_text += tok
@@ -430,6 +434,9 @@ async def _stream(
     emit(f"💬 LLM 生成中...", kind="progress", agent="rag", task_id=task_id)
     full_text = ""
     async for chunk in llm.astream(lc_msgs):
+        reasoning = getattr(chunk, "reasoning_content", None) or ""
+        if reasoning:
+            yield f"data: {json.dumps({'type': 'reasoning', 'content': reasoning})}\n\n"
         token = chunk.content
         if token:
             full_text += token

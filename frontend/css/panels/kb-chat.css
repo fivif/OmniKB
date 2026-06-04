@@ -1106,3 +1106,16 @@
 .think-done .think-card:hover {
   opacity: 1;
 }
+
+.think-body {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(99,102,241,0.08);
+  font-size: 0.78em;
+  line-height: 1.55;
+  color: var(--muted, #8888aa);
+  white-space: pre-wrap;
+  max-height: 120px;
+  overflow-y: auto;
+  font-family: monospace;
+}

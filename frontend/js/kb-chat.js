@@ -572,7 +572,21 @@
           if (raw === '[DONE]') break;
           try {
             const evt = JSON.parse(raw);
-            if (evt.type === 'tool_call') {
+            if (evt.type === 'reasoning') {
+              ensureThinkingCard();
+              const thinkDiv = document.getElementById(thinkMsgId);
+              if (thinkDiv) {
+                let body = thinkDiv.querySelector('.think-body');
+                if (!body) {
+                  body = document.createElement('div');
+                  body.className = 'think-body';
+                  thinkDiv.querySelector('.think-card').appendChild(body);
+                }
+                body.textContent += evt.content;
+                thinkDiv.querySelector('.think-title').textContent = '正在思考...';
+                messagesEl.scrollTop = messagesEl.scrollHeight;
+              }
+            } else if (evt.type === 'tool_call') {
               ensureThinkingCard();
               const pageName = evt.args?.page_id || evt.name || '';
               if (pageName) addThinkingPage([pageName.replace(/_/g, ' ')]);
