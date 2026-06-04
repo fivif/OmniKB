@@ -236,11 +236,13 @@ class WikiGenerator:
         if not pages:
             return GenerationResult(error="no pages to generate")
 
-        # Step 2 — generate every page concurrently (bounded)
+        # Step 2 — generate every page (source pages bypass LLM, write full text directly)
         result = GenerationResult()
         page_tasks = [
             asyncio.create_task(
-                self._run_generation_one(
+                self._write_source_page_directly(p, source_id=source_id, source_text=truncated)
+                if p.get("page_type") == "source"
+                else self._run_generation_one(
                     plan_page=p,
                     source_id=source_id,
                     source_text=truncated,
@@ -352,7 +354,49 @@ class WikiGenerator:
         WikiGenerator._publish_event("message_end", {"source_id": source_id, "step": "analysis", "content": raw[:200]}, None)
         return raw
 
-    # ── Step 2: generate one page ────────────────────────────
+    # ── Step 2a: write source page directly (no LLM, full text) ──
+
+    async def _write_source_page_directly(
+        self, plan_page: dict[str, Any], *, source_id: str, source_text: str
+    ) -> tuple[str, str]:
+        """Write the source text verbatim to a wiki page. No LLM involved.
+        Karpathy pattern: the source page IS the original document."""
+        from wiki.parser import slugify, render_page
+        from wiki.bootstrap import PAGE_TYPE_DIRECTORY
+        from storage.metadata_db import upsert_wiki_page, get_wiki_page
+
+        slug = plan_page.get("slug") or slugify(plan_page.get("title", source_id))
+        page_id = plan_page.get("id") or f"source:{slug}"
+        title = plan_page.get("title", slug)
+        tags = plan_page.get("tags", [])
+        aliases = plan_page.get("aliases", [])
+
+        frontmatter = {
+            "title": title,
+            "type": "source",
+            "sources": [source_id],
+            "tags": tags,
+            "aliases": aliases,
+            "created_at": "",
+            "updated_at": "",
+        }
+        body = source_text  # Full text, verbatim — never summarized
+        rendered = render_page(frontmatter, body)
+
+        dir_name = PAGE_TYPE_DIRECTORY.get("source", "sources")
+        file_path = f"wiki/{dir_name}/{slug}.md"
+        await atomic_write(self._data_dir / file_path, rendered)
+
+        existing = await get_wiki_page(page_id)
+        is_new = existing is None
+        await upsert_wiki_page(
+            page_id=page_id, page_type="source", slug=slug, title=title,
+            file_path=file_path, summary=body[:200], frontmatter=frontmatter,
+            source_ids=[source_id],
+        )
+        return ("created" if is_new else "updated", page_id)
+
+    # ── Step 2: generate one page via LLM ─────────────────────
 
     async def _run_generation_one(
         self,
