@@ -552,10 +552,6 @@
       if (atBottom) messagesEl.scrollTop = messagesEl.scrollHeight;
     }
 
-    // Show thinking card while waiting for the first response
-    ensureThinkingCard();
-    messagesEl.scrollTop = messagesEl.scrollHeight;
-
     try {
       const res = await fetch(`${getApiBase()}/kb-api/${scenarioId}/chat`, {
         method: 'POST',
