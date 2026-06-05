@@ -280,13 +280,19 @@ async def _stream_agentic(
         _lg.getLogger(__name__).warning(
             "agentic chat init failed (%s); falling back to legacy RAG", exc,
         )
-        async for evt in _stream(req, system_prompt=system_prompt,
-                                  provider=provider, model=model,
-                                  base_url=base_url, api_key=api_key,
-                                  qdrant_filter=qdrant_filter,
-                                  
-                                  wiki_source_ids=wiki_source_ids):
-            yield evt
+        # Emit error so the user sees it immediately
+        error_msg = f"AI 服务初始化失败：{exc}"
+        yield f"data: {json.dumps({'type': 'error', 'content': error_msg})}\n\n"
+        yield f"data: {json.dumps({'type': 'token', 'content': error_msg})}\n\n"
+        try:
+            async for evt in _stream(req, system_prompt=system_prompt,
+                                      provider=provider, model=model,
+                                      base_url=base_url, api_key=api_key,
+                                      qdrant_filter=qdrant_filter,
+                                      wiki_source_ids=wiki_source_ids):
+                yield evt
+        except Exception:
+            pass
         return
 
     max_turns = max(1, getattr(settings, "chat_agent_max_turns", 6))
@@ -306,41 +312,44 @@ async def _stream_agentic(
             tool_calls_detected = False
             leak_buf = ""
 
-            async for chunk in llm_with_tools.astream(lc_msgs):
-                collected_chunks.append(chunk)
+            try:
+                async for chunk in llm_with_tools.astream(lc_msgs):
+                    collected_chunks.append(chunk)
 
-                # Reasoning / thinking content — always emit
-                reasoning = getattr(chunk, "reasoning_content", None) or ""
-                if reasoning:
-                    yield f"data: {json.dumps({'type': 'reasoning', 'content': reasoning})}\n\n"
+                    # Reasoning / thinking content — always emit
+                    reasoning = getattr(chunk, "reasoning_content", None) or ""
+                    if reasoning:
+                        yield f"data: {json.dumps({'type': 'reasoning', 'content': reasoning})}\n\n"
 
-                # Detect tool calls mid-stream (appear before or alongside content)
-                tc_chunks = getattr(chunk, "tool_call_chunks", None) or []
-                if tc_chunks:
-                    tool_calls_detected = True
+                    # Detect tool calls mid-stream (appear before or alongside content)
+                    tc_chunks = getattr(chunk, "tool_call_chunks", None) or []
+                    if tc_chunks:
+                        tool_calls_detected = True
 
-                tok = getattr(chunk, "content", "") or ""
-                if not tok:
-                    continue
+                    tok = getattr(chunk, "content", "") or ""
+                    if not tok:
+                        continue
 
-                if not tool_calls_detected and len(buffered_content) < BUFFER_THRESHOLD:
-                    # Still buffering — accumulate until we're confident there are no tool calls
-                    buffered_content += tok
-                elif not tool_calls_detected:
-                    # Past threshold with no tool calls → flush buffer + stream freely
-                    if buffered_content:
-                        clean, _ = _filter_tool_leak(buffered_content)
+                    if not tool_calls_detected and len(buffered_content) < BUFFER_THRESHOLD:
+                        buffered_content += tok
+                    elif not tool_calls_detected:
+                        if buffered_content:
+                            clean, _ = _filter_tool_leak(buffered_content)
+                            if clean:
+                                final_text += clean
+                                yield f"data: {json.dumps({'type': 'token', 'content': clean})}\n\n"
+                            buffered_content = ""
+                        leak_buf += tok
+                        clean, leak_buf = _filter_tool_leak(leak_buf)
                         if clean:
                             final_text += clean
                             yield f"data: {json.dumps({'type': 'token', 'content': clean})}\n\n"
-                        buffered_content = ""
-                    leak_buf += tok
-                    clean, leak_buf = _filter_tool_leak(leak_buf)
-                    if clean:
-                        final_text += clean
-                        yield f"data: {json.dumps({'type': 'token', 'content': clean})}\n\n"
-                # else: tool_calls_detected — suppress content; it'll be fed back
-                #        as part of the AIMessage for the next turn
+            except Exception as stream_exc:
+                _lg.getLogger(__name__).warning("LLM stream error: %s", stream_exc)
+                error_msg = f"AI 响应中断：{stream_exc}"
+                yield f"data: {json.dumps({'type': 'error', 'content': error_msg})}\n\n"
+                yield f"data: {json.dumps({'type': 'token', 'content': error_msg})}\n\n"
+                break  # exit the turn loop gracefully
 
             # ── Flush buffered content (short responses that never hit threshold) ──
             if buffered_content and not tool_calls_detected:
@@ -429,13 +438,20 @@ async def _stream_agentic(
         _lg.getLogger(__name__).warning(
             "agentic chat loop failed (%s); falling back to legacy RAG", exc,
         )
-        async for evt in _stream(req, system_prompt=system_prompt,
-                                  provider=provider, model=model,
-                                  base_url=base_url, api_key=api_key,
-                                  qdrant_filter=qdrant_filter,
-                                  
-                                  wiki_source_ids=wiki_source_ids):
-            yield evt
+        # Emit the error to the frontend so the user sees it immediately
+        error_msg = f"AI 服务异常：{exc}"
+        yield f"data: {json.dumps({'type': 'error', 'content': error_msg})}\n\n"
+        yield f"data: {json.dumps({'type': 'token', 'content': error_msg})}\n\n"
+        # Fallback: try legacy RAG
+        try:
+            async for evt in _stream(req, system_prompt=system_prompt,
+                                      provider=provider, model=model,
+                                      base_url=base_url, api_key=api_key,
+                                      qdrant_filter=qdrant_filter,
+                                      wiki_source_ids=wiki_source_ids):
+                yield evt
+        except Exception:
+            pass  # already sent the error above; nothing more to do
         return
 
     # ── Citations ───────────────────────────────────────────────────

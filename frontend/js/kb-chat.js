@@ -610,6 +610,15 @@
               if (pageName) addThinkingPage([pageName.replace(/_/g, ' ')]);
             } else if (evt.type === 'tool_result') {
               // tool completed
+            } else if (evt.type === 'error') {
+              ensureAiBubble();
+              if (contentEl) {
+                contentEl.classList.remove('typing-cursor');
+                contentEl.innerHTML = `<span style="color:var(--c-err-t, #ef4444);">${esc(evt.content || '未知错误')}</span>`;
+              }
+              isStreaming = false;
+              sendBtn.disabled = false;
+              return;
             } else if (evt.type === 'token') {
               if (firstToken) {
                 firstToken = false;
