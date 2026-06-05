@@ -257,7 +257,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="OmniKB",
     description="Universal AI Knowledge Base Agent",
-    version="0.3.1",
+    version="0.3.3",
     lifespan=lifespan,
 )
 
