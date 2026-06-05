@@ -293,7 +293,7 @@ async def _stream_agentic(
     max_total_tool_calls = max(1, getattr(settings, "chat_agent_max_tool_calls", 10))
     total_tool_calls = 0
     final_text = ""
-    BUFFER_THRESHOLD = 200  # chars: buffer window for tool-call detection
+    BUFFER_THRESHOLD = 30  # chars: tiny buffer for tool-call detection (models decide early)
 
     try:
         for turn in range(max_turns):
@@ -342,7 +342,15 @@ async def _stream_agentic(
                 # else: tool_calls_detected — suppress content; it'll be fed back
                 #        as part of the AIMessage for the next turn
 
-            # ── Flush remaining filter buffer ──
+            # ── Flush buffered content (short responses that never hit threshold) ──
+            if buffered_content and not tool_calls_detected:
+                clean, _ = _filter_tool_leak(buffered_content)
+                if clean:
+                    final_text += clean
+                    yield f"data: {json.dumps({'type': 'token', 'content': clean})}\n\n"
+                buffered_content = ""
+
+            # ── Flush remaining leak-buf filter buffer ──
             if leak_buf.strip():
                 clean, _ = _filter_tool_leak(leak_buf + '\n')
                 if clean:
