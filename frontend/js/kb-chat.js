@@ -472,12 +472,14 @@
     let thinkMsgId = null;
     let thinkPages = [];
 
+    let thinkHadReasoning = false;
+
     function ensureThinkingCard() {
       if (thinkMsgId) return;
       thinkMsgId = addMessage('thinking', '');
       const thinkDiv = document.getElementById(thinkMsgId);
       if (thinkDiv) {
-        thinkDiv.innerHTML = '<div class="think-card"><div class="think-header"><span class="think-spinner"></span><span class="think-title">正在检索知识库...</span></div><div class="think-pages"></div></div>';
+        thinkDiv.innerHTML = '<div class="think-card"><div class="think-header"><span class="think-spinner"></span><span class="think-title">正在思考...</span></div><div class="think-pages"></div></div>';
       }
     }
 
@@ -495,19 +497,32 @@
         tag.innerHTML = icon.document({size:14}) + ' ' + p;
         pagesEl.appendChild(tag);
       }
-      thinkDiv.querySelector('.think-title').textContent = `已检索 ${thinkPages.length} 个页面`;
+      const title = thinkDiv.querySelector('.think-title');
+      if (title) title.textContent = `已检索 ${thinkPages.length} 个页面`;
     }
 
     function finishThinking() {
       const thinkDiv = document.getElementById(thinkMsgId);
       if (!thinkDiv) return;
-      thinkDiv.querySelector('.think-spinner').classList.replace('think-spinner', 'think-check');
-      thinkDiv.querySelector('.think-check').innerHTML = icon.check({size:14});
-      thinkDiv.querySelector('.think-title').textContent = `已检索 ${thinkPages.length} 个页面`;
-      // 折叠思考卡片
+      const spinner = thinkDiv.querySelector('.think-spinner');
+      const titleEl = thinkDiv.querySelector('.think-title');
+      if (spinner) {
+        spinner.classList.replace('think-spinner', 'think-check');
+        spinner.innerHTML = icon.check({size:14});
+      }
+      if (titleEl) {
+        if (thinkPages.length > 0) {
+          titleEl.textContent = `已检索 ${thinkPages.length} 个页面`;
+        } else if (thinkHadReasoning) {
+          titleEl.textContent = '思考完毕';
+        } else {
+          titleEl.textContent = '回答中...';
+        }
+      }
       thinkDiv.classList.add('think-done');
       setTimeout(() => {
-        thinkDiv.querySelector('.think-card').style.maxHeight = '40px';
+        const card = thinkDiv.querySelector('.think-card');
+        if (card) card.style.maxHeight = '40px';
       }, 1500);
     }
 
@@ -578,6 +593,7 @@
             const evt = JSON.parse(raw);
             if (evt.type === 'reasoning') {
               ensureThinkingCard();
+              thinkHadReasoning = true;
               const thinkDiv = document.getElementById(thinkMsgId);
               if (thinkDiv) {
                 let body = thinkDiv.querySelector('.think-body');
@@ -587,7 +603,9 @@
                   thinkDiv.querySelector('.think-card').appendChild(body);
                 }
                 body.textContent += evt.content;
-                thinkDiv.querySelector('.think-title').textContent = '正在思考...';
+                body.scrollTop = body.scrollHeight;
+                const title = thinkDiv.querySelector('.think-title');
+                if (title) title.textContent = '正在思考...';
                 messagesEl.scrollTop = messagesEl.scrollHeight;
               }
             } else if (evt.type === 'tool_call') {
