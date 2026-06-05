@@ -8,6 +8,44 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+# ── Streaming output filter: suppress raw tool-call syntax leaks ────
+# Some models (DeepSeek) occasionally output tool-call format as text
+# instead of invoking the actual function. This stateful buffer catches
+# and suppresses those patterns before they reach the user.
+
+_TOOL_SYNTAX_OPEN = re.compile(
+    r'</?function_calls>|</?invoke\b[^>]*>|</?parameter\b[^>]*>'
+    r'|^\s*`?\s*(read_wiki_page|search_wiki_tool|list_wiki_pages_tool'
+    r'|get_wiki_stats_tool|list_sources_tool|read_source_text'
+    r'|update_wiki_page|create_wiki_page|fetch_url_preview)\s*\(',
+    re.MULTILINE,
+)
+# Heuristic: if a chunk contains a substantial tool-call marker,
+# it's probably a leak — suppress the whole chunk.
+_TOOL_LEAK_BLOCK = re.compile(
+    r'<function_calls>.*?</function_calls>',
+    re.DOTALL,
+)
+
+
+def _filter_tool_leak(buffer: str) -> tuple[str, str]:
+    """Return (clean_output, remaining_buffer).
+
+    If the buffer is inside a tool-call syntax block, suppress
+    everything until the block closes. Otherwise return clean text.
+    """
+    cleaned = _TOOL_LEAK_BLOCK.sub('', buffer)
+    # If we have an unclosed opening tag, buffer it
+    open_pos = cleaned.find('<function_calls>')
+    if open_pos >= 0:
+        cleaned, remaining = cleaned[:open_pos], cleaned[open_pos:]
+        return cleaned.strip(), remaining
+    # Check for other partial patterns (incomplete at end)
+    if cleaned.rstrip().endswith(('<invoke', '<param', '<function')):
+        # Very unlikely with typical chunk sizes, but safe to buffer
+        return '', cleaned
+    return cleaned, ''
+
 from config import settings
 
 # Pattern for inline citation markers like ``[1]`` or ``[1, 3]`` that the LLM
@@ -270,6 +308,7 @@ async def _stream_agentic(
             # same context, so the user sees progressive output.
             if not tool_calls:
                 # Always stream the final answer token-by-token
+                leak_buf = ""
                 stream_llm = _get_llm(_provider, _model, base_url=_base_url, api_key=_api_key)
                 async for chunk in stream_llm.astream(lc_msgs[:-1]):
                     # Stream reasoning/thinking content if available (DeepSeek R1, etc.)
@@ -278,12 +317,22 @@ async def _stream_agentic(
                         yield f"data: {json.dumps({'type': 'reasoning', 'content': reasoning})}\n\n"
                     tok = getattr(chunk, "content", "") or ""
                     if tok:
-                        final_text += tok
-                        yield f"data: {json.dumps({'type': 'token', 'content': tok})}\n\n"
+                        leak_buf += tok
+                        clean, leak_buf = _filter_tool_leak(leak_buf)
+                        if clean:
+                            final_text += clean
+                            yield f"data: {json.dumps({'type': 'token', 'content': clean})}\n\n"
+                # Flush any remaining buffer (should be empty, but belt and suspenders)
+                if leak_buf.strip():
+                    clean, _ = _filter_tool_leak(leak_buf + '\n')
+                    if clean:
+                        final_text += clean
+                        yield f"data: {json.dumps({'type': 'token', 'content': clean})}\n\n"
                 # Fallback: if streaming produced nothing (empty response),
                 # use the non-stream content as a single chunk
                 if not final_text and resp.content:
-                    final_text = str(resp.content)
+                    clean, _ = _filter_tool_leak(str(resp.content))
+                    final_text = clean or str(resp.content)
                     yield f"data: {json.dumps({'type': 'token', 'content': final_text})}\n\n"
                 break
 
@@ -456,14 +505,24 @@ async def _stream(
 
     emit(f"[LLM] LLM 生成中...", kind="progress", agent="rag", task_id=task_id)
     full_text = ""
+    leak_buf = ""
     async for chunk in llm.astream(lc_msgs):
         reasoning = getattr(chunk, "reasoning_content", None) or ""
         if reasoning:
             yield f"data: {json.dumps({'type': 'reasoning', 'content': reasoning})}\n\n"
         token = chunk.content
         if token:
-            full_text += token
-            yield f"data: {json.dumps({'type': 'token', 'content': token})}\n\n"
+            leak_buf += token
+            clean, leak_buf = _filter_tool_leak(leak_buf)
+            if clean:
+                full_text += clean
+                yield f"data: {json.dumps({'type': 'token', 'content': clean})}\n\n"
+    # Flush remaining buffer
+    if leak_buf.strip():
+        clean, _ = _filter_tool_leak(leak_buf + '\n')
+        if clean:
+            full_text += clean
+            yield f"data: {json.dumps({'type': 'token', 'content': clean})}\n\n"
     emit(f"[OK] 回答完成 ({len(full_text)} 字)", kind="success", agent="rag", task_id=task_id)
 
     # RAG removed — no chunk retrieval, citations always empty
