@@ -241,6 +241,12 @@ python backend/main.py
 
 ---
 
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=fivif/OmniKB&type=Date)](https://star-history.com/#fivif/OmniKB&Date)
+
+---
+
 ## License
 
 [MIT](https://github.com/fivif/OmniKB/blob/master/LICENSE)
