@@ -36,7 +36,7 @@ class ScenarioCreate(BaseModel):
     name: str = "未命名场景"
     description: str = ""
     system_prompt: str = ""
-    llm_provider: str = "deepseek"
+    llm_provider: str = "custom"
     llm_model: str = ""
     llm_base_url: str = ""
     llm_api_key: str = ""
@@ -412,7 +412,7 @@ Available actions:
 - remove_chunks: {{"action":"remove_chunks","chunk_ids":["..."],"source_ids":["..."]}}
 - update_ui: {{"action":"update_ui","changes":{{"template":"assistant|guide|support","title":"...","subtitle":"...","welcome":"...","placeholder":"...","disclaimer":"...","color":"#hex","css":"..."}}}}
 - update_config: {{"action":"update_config","changes":{{"name":"...","description":"...","system_prompt":"..."}}}}
-- update_llm: {{"action":"update_llm","changes":{{"llm_provider":"deepseek|custom","llm_model":"...","llm_base_url":"...","llm_api_key":"..."}}}}
+- update_llm: {{"action":"update_llm","changes":{{"llm_provider":"custom","llm_model":"...","llm_base_url":"...","llm_api_key":"..."}}}}
 - inject_html: {{"action":"inject_html","selector":"#css-selector","mode":"replace|append|prepend","html":"<div>Safe HTML content</div>"}} — inject DOM into the current page. Use replace to overwrite an element, append to add at the end, prepend to add at the beginning. HTML is sanitized so scripts and event handlers are stripped. Great for adding banners, restructuring sections, or injecting informational blocks.
 - execute_script: {{"action":"execute_script","script":"document.title = 'New Title'; console.log('done');"}} — run arbitrary JavaScript on the page (max 2000 chars). Use for programmatic DOM changes, triggering events, or calling frontend APIs. Be conservative and safe.
 - rewrite_full_page: Rewrite the ENTIRE standalone Q&A page HTML/CSS/JS. Use this for complete redesigns.

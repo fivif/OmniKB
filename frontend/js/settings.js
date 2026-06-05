@@ -27,7 +27,7 @@
                 </div>
                 <div class="stack-sm settings-field">
                   <label class="form-label">默认模型</label>
-                  <input id="s-llm-model" class="input" type="text" placeholder="例如：deepseek-chat" />
+                  <input id="s-llm-model" class="input" type="text" placeholder="例如：gpt-4o / claude-3-opus / deepseek-chat" />
                 </div>
                 <div class="stack-sm settings-field" id="field-llm-base">
                   <label class="form-label">Base URL</label>

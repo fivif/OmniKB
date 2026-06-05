@@ -588,8 +588,8 @@ async def list_models():
         base_url=settings.llm_base_url,
     )
     try:
-        if provider in {"deepseek", "custom"}:
-            base = (resolve_base_url(provider, settings.llm_base_url) or "").rstrip("/")
+        if base_url := (resolve_base_url(provider, settings.llm_base_url) or "").rstrip("/"):
+            base = base_url
             key = settings.llm_api_key
         else:
             return {"models": [], "default": settings.llm_model}

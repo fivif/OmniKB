@@ -25,8 +25,8 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-DEEPSEEK_API_BASE = "https://api.deepseek.com/v1"
-SUPPORTED_LLM_PROVIDERS = {"deepseek", "custom"}
+DEFAULT_API_BASE = ""  # user must configure; there is no provider-specific fallback
+SUPPORTED_LLM_PROVIDERS = {"custom"}  # OpenAI-compatible — the only protocol we implement
 
 # Provider values we silently coerce to "custom". The first time a user hits
 # one of these we emit a one-shot warning so the env-file drift is visible.
@@ -40,9 +40,8 @@ def _warn_legacy_provider_once(value: str) -> None:
     _warned_legacy_providers.add(value)
     logger.warning(
         "LLM_PROVIDER=%r is treated as 'custom' (OpenAI-compatible). "
-        "Native Anthropic / Ollama protocols are NOT implemented; only the "
-        "OpenAI wire format is supported. Update LLM_PROVIDER to 'deepseek' "
-        "or 'custom' to silence this warning.",
+        "All providers use the OpenAI wire format. Set provider to 'custom' "
+        "to silence this warning.",
         value,
     )
 
@@ -61,23 +60,15 @@ def normalize_provider(
         _warn_legacy_provider_once(value)
         return "custom"
 
-    model_hint = (model or "").strip().lower()
-    base_hint = (base_url or "").strip().lower()
-    if "deepseek" in model_hint or "deepseek" in base_hint:
-        return "deepseek"
-    if value or base_hint:
-        return "custom"
-    return "deepseek"
+    # Any unrecognized value simply becomes "custom" (OpenAI-compatible).
+    # There is no provider-specific auto-detection.
+    return "custom"
 
 
 def resolve_base_url(provider: str, base_url: str = "") -> str | None:
-    normalized = normalize_provider(provider, base_url=base_url)
+    """Return the effective base URL.  Always user-supplied — no provider default."""
     raw = (base_url or "").strip()
-    if normalized == "deepseek":
-        return raw or DEEPSEEK_API_BASE
-    if normalized == "custom":
-        return raw or None
-    return None
+    return raw or None
 
 
 # ── Reasoning round-trip via subclass override ──────────────────

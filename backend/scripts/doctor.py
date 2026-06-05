@@ -184,7 +184,7 @@ async def check_llm_endpoint(rep: Reporter) -> None:
         rep.add("net.llm", "error", "openai SDK unavailable", str(exc))
         return
 
-    base = settings.llm_base_url or "https://api.deepseek.com/v1"
+    base = settings.llm_base_url
     key = settings.llm_api_key
     if not key:
         rep.add("net.llm", "warn", "skipped (no llm_api_key)")

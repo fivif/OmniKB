@@ -31,18 +31,15 @@ class Settings(BaseSettings):
     # Legacy Ollama base URL kept only so older .env files still parse.
     ollama_base_url: str = "http://localhost:11434"
 
-    # DeepSeek or third-party OpenAI-compatible LLM
-    llm_base_url: str = ""   # e.g. https://api.deepseek.com/v1 or a third-party gateway
-    llm_api_key: str = ""    # API key for DeepSeek or the custom provider
-    # JSON object passed as extra_body to OpenAI-compatible chat clients. Useful for
-    # provider-specific flags such as {"enable_thinking": false} on hybrid
-    # thinking models. Empty string = no extra body.
+    # OpenAI-compatible LLM endpoint. Base URL, API key, and model name must be
+    # configured explicitly — there is no provider-specific default. Works with
+    # any OpenAI-compatible API: DeepSeek, OpenAI, Groq, SiliconFlow, Ollama, etc.
+    llm_base_url: str = ""
+    llm_api_key: str = ""
     llm_extra_body_json: str = ""
 
-    # Normalized runtime providers: deepseek | custom.
-    # Older values like openai / anthropic / ollama are accepted and normalized later.
-    llm_provider: str = "deepseek"
-    llm_model: str = "deepseek-v4-pro"
+    llm_provider: str = "custom"
+    llm_model: str = ""
 
     siliconflow_api_key: str = ""
 
@@ -239,11 +236,7 @@ def verify_settings() -> list[str]:
             "LLM_API_KEY is empty — all LLM calls will fail. Set it in .env"
         )
     provider = (settings.llm_provider or "").strip().lower()
-    if provider not in {"deepseek", "custom", "openai", "anthropic", "claude", "ollama"}:
-        issues.append(
-            f"LLM_PROVIDER={provider!r} is unrecognised; expected "
-            "'deepseek' or 'custom'"
-        )
+    # All providers use OpenAI-compatible protocol — no strict validation needed
     if provider == "custom" and not settings.llm_base_url:
         issues.append(
             "LLM_PROVIDER=custom but LLM_BASE_URL is empty — custom providers "

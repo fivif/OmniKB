@@ -457,6 +457,12 @@
     isStreaming = true;
     sendBtn.disabled = true;
 
+    // Show thinking card immediately — provides visual feedback while waiting
+    ensureThinkingCard();
+    if (thinkMsgId) {
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+
     if (previewMode) {
       // Still need a bubble for preview mode too
       aiMsgId = addMessage('assistant');

@@ -112,7 +112,7 @@ class VisionSettingsUpdate(BaseModel):
 
 
 class LLMSettingsUpdate(BaseModel):
-    provider: str = "deepseek"
+    provider: str = "custom"
     model: str = Field(default="", description="Default model id.")
     base_url: str = Field(default="", description="Provider base URL when applicable.")
     api_key: str = Field(default="", description="Provider API key. Empty string clears it.")
