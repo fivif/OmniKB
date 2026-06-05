@@ -457,11 +457,6 @@
     isStreaming = true;
     sendBtn.disabled = true;
 
-    // Show thinking card immediately — provides visual feedback while waiting
-    ensureThinkingCard();
-    if (thinkMsgId) {
-      messagesEl.scrollTop = messagesEl.scrollHeight;
-    }
 
     if (previewMode) {
       // Still need a bubble for preview mode too
@@ -541,6 +536,10 @@
       const atBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 80;
       if (atBottom) messagesEl.scrollTop = messagesEl.scrollHeight;
     }
+
+    // Show thinking card while waiting for the first response
+    ensureThinkingCard();
+    messagesEl.scrollTop = messagesEl.scrollHeight;
 
     try {
       const res = await fetch(`${getApiBase()}/kb-api/${scenarioId}/chat`, {
