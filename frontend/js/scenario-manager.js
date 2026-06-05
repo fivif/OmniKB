@@ -11,12 +11,12 @@
   let selectedScenarioSources = [];
 
   const SOURCE_TYPE_GROUPS = {
-    web: { label: '网页', icon: '🌐', raw: ['url', 'html', 'htm'] },
-    text: { label: '文本', icon: '✍️', raw: ['text', 'txt', 'md', 'markdown'] },
-    document: { label: '文档', icon: '📚', raw: ['pdf', 'doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx', 'csv', 'json'] },
-    media: { label: '媒体', icon: '🎞️', raw: ['mp3', 'wav', 'm4a', 'ogg', 'flac', 'mp4', 'mov', 'mkv', 'avi', 'webm'] },
-    image: { label: '图片', icon: '🖼️', raw: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tiff', 'tif'] },
-    other: { label: '其他', icon: '📁', raw: [] },
+    web: { label: '网页', icon: icon.globe({size:18}), raw: ['url', 'html', 'htm'] },
+    text: { label: '文本', icon: icon.edit({size:18}), raw: ['text', 'txt', 'md', 'markdown'] },
+    document: { label: '文档', icon: icon.books({size:18}), raw: ['pdf', 'doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx', 'csv', 'json'] },
+    media: { label: '媒体', icon: icon.film({size:18}), raw: ['mp3', 'wav', 'm4a', 'ogg', 'flac', 'mp4', 'mov', 'mkv', 'avi', 'webm'] },
+    image: { label: '图片', icon: icon.image({size:18}), raw: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tiff', 'tif'] },
+    other: { label: '其他', icon: icon.folder({size:18}), raw: [] },
   };
   const SOURCE_TYPE_ORDER = ['web', 'text', 'document', 'media', 'image', 'other'];
   const SOURCE_TYPE_LOOKUP = Object.entries(SOURCE_TYPE_GROUPS).reduce((lookup, [key, value]) => {
@@ -201,20 +201,20 @@
 	      <main class="sc-main">
 	        <div id="sc-detail-empty" class="sc-detail-empty">
 	          <div class="sc-detail-empty-copy">
-	            <div class="sc-detail-empty-icon">&#x1F4CB;</div>
+	            <div class="sc-detail-empty-icon">${icon.clipboard({size:24})}</div>
 	            <h3>还没有场景</h3>
 	            <p>创建你的第一个知识库场景，构建专属 AI 问答入口。配置知识源、LLM 模型与发布风格。</p>
-	            <button class="sc-empty-cta" onclick="document.getElementById('btn-sc-new').click()">&#x2795; 创建第一个场景</button>
+	            <button class="sc-empty-cta" onclick="document.getElementById('btn-sc-new').click()">+ 创建第一个场景</button>
 	          </div>
 	        </div>
 	        <div id="sc-detail" class="sc-detail hidden">
 	          <!-- Tab strip -->
 	          <div class="sc-detail-tabs">
-	            <button data-sctab="info" class="sc-tab-btn" style="color:var(--accent);">&#x2699;&#xFE0F; 基本信息</button>
-	            <button data-sctab="chunks" class="sc-tab-btn">&#x1F4DA; 知识库</button>
-	            <button data-sctab="keys" class="sc-tab-btn">&#x1F511; API 密钥</button>
-	            <button data-sctab="agent" class="sc-tab-btn">&#x1F916; Agent 助手</button>
-	            <a id="sc-open-api-doc-tab" class="sc-tab-link" href="#" target="_blank" rel="noreferrer">&#x1F517; 场景 API 接入</a>
+	            <button data-sctab="info" class="sc-tab-btn" style="color:var(--accent);">${icon.gear({size:14})} 基本信息</button>
+	            <button data-sctab="chunks" class="sc-tab-btn">${icon.books({size:14})} 知识库</button>
+	            <button data-sctab="keys" class="sc-tab-btn">${icon.lock({size:14})} API 密钥</button>
+	            <button data-sctab="agent" class="sc-tab-btn">${icon.robot({size:14})} Agent 助手</button>
+	            <a id="sc-open-api-doc-tab" class="sc-tab-link" href="#" target="_blank" rel="noreferrer">${icon.link({size:14})} 场景 API 接入</a>
 	            <button id="btn-sc-delete">删除场景</button>
 	          </div>
 
@@ -652,7 +652,7 @@
   function renderScenarioList() {
     if (!scenarios.length) {
       $list.innerHTML = `<div class="px-4 py-10 text-center">
-        <div style="font-size:32px;margin-bottom:8px;">📋</div>
+        <div style="font-size:32px;margin-bottom:8px;">${icon.clipboard({size:24})}</div>
         <p class="text-xs font-medium" style="color:var(--t2);">暂无场景</p>
         <p class="text-xs mt-1" style="color:var(--t3);">点击 <span style="color:var(--accent);">+</span> 新建</p>
       </div>`;
@@ -1210,7 +1210,7 @@
             <li>调整系统提示词（「让 AI 回答更简洁」）</li>
             <li>更新 LLM 配置（「换成 GPT-4o 模型」）</li>
           </ul>
-          <p>请描述你想要怎么调整这个场景 👇</p>
+          <p>请描述你想要怎么调整这个场景</p>
         </div>
       </div>
     `;
@@ -1284,10 +1284,10 @@
       // Actions performed summary
       const actionsHtml = [];
       if (data.actions_performed && data.actions_performed.length) {
-        actionsHtml.push(...data.actions_performed.map(a => '✓ ' + esc(a)));
+        actionsHtml.push(...data.actions_performed.map(a => icon.check({size:12}) + ' ' + esc(a)));
       }
       if (frontendPerformed.length) {
-        actionsHtml.push(...frontendPerformed.map(a => '✓ ' + esc(a)));
+        actionsHtml.push(...frontendPerformed.map(a => icon.check({size:12}) + ' ' + esc(a)));
       }
       if (actionsHtml.length) {
         replyHtml += `<div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--bd-subtle);font-size:11px;color:var(--accent);line-height:1.5;">${actionsHtml.join('<br>')}</div>`;

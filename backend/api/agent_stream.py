@@ -38,7 +38,7 @@ async def agent_events(request: Request):
           "kind":  "progress",
           "agent": "agent_browser",
           "label": "agent-browser",
-          "icon":  "🌐",
+          "icon":  "[WEB]",
           "task_id": "abc123"
         }
 

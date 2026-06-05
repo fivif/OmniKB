@@ -56,45 +56,45 @@
   <span style="font-weight:700;color:#4f46e5;">A 级 · 生产可用</span>
 </div>
 
-<h2 style="font-size:18px;margin-bottom:12px;">🔬 测试结果</h2>
+<h2 style="font-size:18px;margin-bottom:12px;">Test Results</h2>
 <div class="test-list">
   <div class="test-item test-pass">
-    <span class="test-icon">✅</span>
+    <span class="test-icon">[PASS]</span>
     <div class="test-body">
       <div class="test-name">1. URL 摄入</div>
       <div class="test-detail">POST /ingest/url — NiceGUI README 成功创建 source + task。source_id=9e89334a, task_id=57f69802</div>
     </div>
   </div>
   <div class="test-item test-pass">
-    <span class="test-icon">✅</span>
+    <span class="test-icon">[PASS]</span>
     <div class="test-body">
       <div class="test-name">2. 任务状态跟踪</div>
       <div class="test-detail">5 分钟内 pending→processing→done。日志：智能抓取→知识提取→Wiki 生成(3页)</div>
     </div>
   </div>
   <div class="test-item test-pass">
-    <span class="test-icon">✅</span>
+    <span class="test-icon">[PASS]</span>
     <div class="test-body">
       <div class="test-name">3. 源创建确认</div>
       <div class="test-detail">source status=done, type=url, tags=[test, open-source] 正确保存</div>
     </div>
   </div>
   <div class="test-item test-pass">
-    <span class="test-icon">✅</span>
+    <span class="test-icon">[PASS]</span>
     <div class="test-body">
       <div class="test-name">4. Wiki 生成</div>
       <div class="test-detail">107→110 页 (+3)。新页面：entity:nicegui, concept:nicegui-testing, source:nicegui-readme</div>
     </div>
   </div>
   <div class="test-item test-pass">
-    <span class="test-icon">✅</span>
+    <span class="test-icon">[PASS]</span>
     <div class="test-body">
       <div class="test-name">5. 流式对话</div>
       <div class="test-detail">SSE 流式输出正常。"NiceGUI is an open-source Python UI framework..."</div>
     </div>
   </div>
   <div class="test-item test-pass">
-    <span class="test-icon">✅</span>
+    <span class="test-icon">[PASS]</span>
     <div class="test-body">
       <div class="test-name">6. 场景 API 对话</div>
       <div class="test-detail">Bearer token 认证通过，游戏助手 persona 正常，346 字中文回复</div>
@@ -103,7 +103,7 @@
 </div>
 
 <div class="issues">
-  <h3>⚠️ 发现的问题 (3)</h3>
+  <h3>[WARN] 发现的问题 (3)</h3>
   <ol>
     <li>POST /ingest/url 的 tags 参数要求 JSON 数组，传逗号分隔字符串会 Pydantic 校验失败</li>
     <li>claude-opus-4-7 通过代理时 120 秒无 SSE 输出；deepseek-chat 正常工作</li>
@@ -111,7 +111,7 @@
   </ol>
 </div>
 
-<h2 style="font-size:18px;margin-bottom:12px;">📊 维度评分</h2>
+<h2 style="font-size:18px;margin-bottom:12px;">Scores</h2>
 <div class="dimension-grid">
   <div class="dim-card">
     <div class="dim-header"><span class="dim-name">采集管线</span><span class="dim-score" style="color:#10b981">8.5/10</span></div>

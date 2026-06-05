@@ -42,6 +42,7 @@ EventType = Literal[
     "wiki_analysis_start", "wiki_analysis_complete",
     "wiki_page_generating", "wiki_page_created", "wiki_page_error",
     "wiki_batch_start", "wiki_sync_complete", "wiki_sync_error",
+    "ingest_start", "ingest_progress", "ingest_complete", "ingest_error",
 ]
 
 EVENT_TYPES: tuple[str, ...] = (
@@ -52,6 +53,7 @@ EVENT_TYPES: tuple[str, ...] = (
     "wiki_analysis_start", "wiki_analysis_complete",
     "wiki_page_generating", "wiki_page_created", "wiki_page_error",
     "wiki_batch_start", "wiki_sync_complete", "wiki_sync_error",
+    "ingest_start", "ingest_progress", "ingest_complete", "ingest_error",
 )
 
 
@@ -245,8 +247,14 @@ def _event_kind_hint(event: AgentEvent) -> str:
         return "success"
     if event.type == "wiki_sync_complete":
         return "success"
-    if event.type in {"wiki_page_error", "wiki_sync_error"}:
+    if event.type in {"wiki_page_error", "wiki_sync_error", "ingest_error"}:
         return "error"
+    if event.type == "ingest_start":
+        return "info"
+    if event.type == "ingest_progress":
+        return "progress"
+    if event.type == "ingest_complete":
+        return "success"
     return "progress"
 
 
@@ -271,9 +279,9 @@ def _event_message_hint(event: AgentEvent) -> str:
     if t == "message_end":
         return f"message_end  tool_calls={len(d.get('tool_calls') or [])}"
     if t == "tool_execution_start":
-        return f"⚙ {d.get('tool_name','?')}({(d.get('args_preview') or '')[:60]})"
+        return f"[TOOL] {d.get('tool_name','?')}({(d.get('args_preview') or '')[:60]})"
     if t == "tool_execution_end":
-        return f"✓ {d.get('tool_name','?')}  status={d.get('status','?')}  {d.get('duration_ms','?')}ms"
+        return f"[OK] {d.get('tool_name','?')}  status={d.get('status','?')}  {d.get('duration_ms','?')}ms"
     if t == "turn_end":
         c = d.get("compaction_triggered")
         return f"turn_end  duration={d.get('duration_ms','?')}ms  compacted={c}"
@@ -295,4 +303,12 @@ def _event_message_hint(event: AgentEvent) -> str:
         return f"Wiki sync done: {d.get('pages_created',0)} created"
     if t == "wiki_sync_error":
         return f"Wiki sync error: {d.get('error','')[:120]}"
+    if t == "ingest_start":
+        return f"Ingest started: {d.get('title','')}"
+    if t == "ingest_progress":
+        return f"Ingest: {d.get('stage','')} — {d.get('detail','')}"
+    if t == "ingest_complete":
+        return f"Ingest done: {d.get('title','')} — {d.get('wiki_pages',0)} wiki pages"
+    if t == "ingest_error":
+        return f"Ingest error: {d.get('title','')} — {str(d.get('error',''))[:80]}"
     return t

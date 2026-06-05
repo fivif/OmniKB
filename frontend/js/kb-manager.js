@@ -64,13 +64,13 @@
 
       <div id="batch-toolbar" class="kb-batch-toolbar hidden">
         <span id="batch-count" class="kb-batch-count"></span>
-        <button id="btn-select-all" class="kb-batch-btn" type="button" title="全选当前页">☐ 全选</button>
-        <button id="btn-deselect-all" class="kb-batch-btn kb-batch-btn--ghost hidden" type="button" title="取消全选">☑ 取消全选</button>
+        <button id="btn-select-all" class="kb-batch-btn" type="button" title="全选当前页">${icon.checkboxOff({size:16})} 全选</button>
+        <button id="btn-deselect-all" class="kb-batch-btn kb-batch-btn--ghost hidden" type="button" title="取消全选">${icon.checkboxOn({size:16})} 取消全选</button>
         <div class="kb-batch-spacer"></div>
         <select id="kb-scenario-select" class="kb-batch-select">
           <option value="">选择场景</option>
         </select>
-        <button id="btn-batch-wiki" class="kb-batch-btn kb-batch-btn--primary" type="button" title="为选中的来源批量生成 Wiki 页面">🧠 生成 Wiki</button>
+        <button id="btn-batch-wiki" class="kb-batch-btn kb-batch-btn--primary" type="button" title="为选中的来源批量生成 Wiki 页面">${icon.brain({size:14})} 生成 Wiki</button>
         <button id="btn-batch-add-scenario" class="kb-batch-btn kb-batch-btn--primary" type="button">${ICONS.plus} 加入场景</button>
         <input id="batch-tag-input" class="kb-batch-input" type="text" placeholder="标签（逗号分隔）" />
         <button id="btn-batch-add-tag" class="kb-batch-btn" type="button">追加标签</button>

@@ -103,7 +103,7 @@ class JsHookMcpClient:
         )
         await self._notify("notifications/initialized", {})
         self._initialized = True
-        _emit(f"✅ jshookmcp 就绪 (pid={self._proc.pid})", kind="success", agent="jshook")
+        _emit(f"[OK] jshookmcp 就绪 (pid={self._proc.pid})", kind="success", agent="jshook")
         logger.info("jshookmcp ready (profile=%s, pid=%s)", self._profile, self._proc.pid)
 
     async def close(self) -> None:

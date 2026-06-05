@@ -33,18 +33,18 @@ EventKind = Literal["info", "success", "warning", "error", "progress"]
 
 # Agent display metadata: (label, icon)
 AGENT_META: dict[str, tuple[str, str]] = {
-    "agent_browser": ("agent-browser", "🌐"),
-    "jshook":        ("jshookmcp",     "🪝"),
-    "scrapling":     ("scrapling",     "🕷️"),
-    "llm":           ("LLM",           "🧠"),
-    "embedder":      ("Embedder",      "🔢"),
-    "orchestrator":  ("Orchestrator",  "🔄"),
-    "doc_agent":     ("DocAgent",      "📄"),
-    "media_agent":   ("MediaAgent",    "🎞️"),
-    "vision_agent":  ("VisionAgent",   "👁️"),
-    "system":        ("System",        "⚙️"),
-    "ingest":        ("Ingest",        "📥"),
-    "wiki":          ("Wiki",          "📝"),
+    "agent_browser": ("agent-browser", "[WEB]"),
+    "jshook":        ("jshookmcp",     "[JS]"),
+    "scrapling":     ("scrapling",     "[CRAWL]"),
+    "llm":           ("LLM",           "[LLM]"),
+    "embedder":      ("Embedder",      "[EMB]"),
+    "orchestrator":  ("Orchestrator",  "[ORCH]"),
+    "doc_agent":     ("DocAgent",      "[DOC]"),
+    "media_agent":   ("MediaAgent",    "[MEDIA]"),
+    "vision_agent":  ("VisionAgent",   "[VISION]"),
+    "system":        ("System",        "[SYS]"),
+    "ingest":        ("Ingest",        "[INGEST]"),
+    "wiki":          ("Wiki",          "[WIKI]"),
 }
 
 _subscribers: list[Queue[str]] = []
@@ -77,7 +77,7 @@ def emit(
     Safe to call from both sync and async code.  Queues that are full
     (i.e., a stale disconnected client) are silently dropped.
     """
-    label, icon = AGENT_META.get(agent, (agent, "⚙️"))
+    label, icon = AGENT_META.get(agent, (agent, "[SYS]"))
     payload = {
         "t": int(time.time() * 1000),
         "msg": message,

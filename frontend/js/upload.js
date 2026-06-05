@@ -4,7 +4,9 @@
   const panel = document.getElementById('tab-upload');
   let activeMode = 'file';
   let pollTimer = null;
-  const seenLogLen = new Map();
+  let _taskOffset = 0;
+  let _taskTotal = 0;
+  let agentEventSource = null;
 
   panel.innerHTML = `
     <div class="panel-shell upload-shell">
@@ -18,17 +20,17 @@
 
           <div class="mode-strip">
             <button class="mode-card ingest-mode-card active" data-mode="file" type="button">
-              <span class="mode-card-icon">📁</span>
+              <span class="mode-card-icon">${icon.folder({size:20})}</span>
               <span class="mode-card-title">文件 / 文件夹</span>
               <span class="mode-card-badge">Batch</span>
             </button>
             <button class="mode-card ingest-mode-card" data-mode="page" type="button">
-              <span class="mode-card-icon">🔗</span>
+              <span class="mode-card-icon">${icon.link({size:20})}</span>
               <span class="mode-card-title">智能抓取</span>
               <span class="mode-card-badge">Smart</span>
             </button>
             <button class="mode-card ingest-mode-card" data-mode="text" type="button">
-              <span class="mode-card-icon">✍️</span>
+              <span class="mode-card-icon">${icon.edit({size:20})}</span>
               <span class="mode-card-title">粘贴文本</span>
               <span class="mode-card-badge">Quick Note</span>
             </button>
@@ -119,7 +121,10 @@
               <div class="section-title">摄入任务</div>
               <div class="section-subtitle">所有入口共享同一任务队列。处理中的任务会持续轮询，完成后会自动刷新统计。</div>
             </div>
-            <button id="btn-refresh-tasks" class="btn btn-secondary" type="button">刷新队列</button>
+            <div class="upload-tasks-toolbar">
+              <button id="btn-clear-tasks" class="btn btn-secondary" type="button">清除已完成</button>
+              <button id="btn-refresh-tasks" class="btn btn-secondary" type="button">刷新队列</button>
+            </div>
           </div>
           <div id="task-list" class="upload-task-list"></div>
         </div>
@@ -353,50 +358,59 @@
     return { width: '8%', extra: '', className: 'is-pending' };
   }
 
-  function appendLog(taskId, sourceName, logText) {
-    const prev = seenLogLen.get(taskId) || 0;
-    if (!logText || logText.length <= prev) return;
 
-    const newPart = logText.slice(prev);
-    seenLogLen.set(taskId, logText.length);
-    const label = sourceName ? sourceName.slice(0, 40) : taskId.slice(0, 8);
-
-    newPart.split('\n').forEach(line => {
-      const trimmed = line.trim();
-      if (!trimmed) return;
-      let kind = 'progress';
-      if (trimmed.startsWith('✅') || trimmed.startsWith('🏁')) kind = 'success';
-      else if (trimmed.startsWith('❌') || trimmed.startsWith('⚠️')) kind = 'error';
-      else if (trimmed.startsWith('⛔')) kind = 'warning';
-    });
-  }
-
-  async function loadTasks() {
+  async function loadTasks({offset = 0, append = false} = {}) {
     try {
-      const tasks = await apiJson('/ingest/tasks?limit=20');
-      if (!tasks.length) {
+      const response = await apiJson(`/ingest/tasks?limit=20&offset=${offset}`);
+      const tasks = response.tasks || [];
+      const total = response.total || 0;
+      _taskTotal = total;
+      _taskOffset = offset;
+
+      if (!tasks.length && !append) {
         taskList.innerHTML = '<div class="upload-empty-state">还没有摄入任务。先从上面任意一个入口开始。</div>';
         clearInterval(pollTimer);
         refreshStats();
         return;
       }
 
-      taskList.innerHTML = tasks.map(task => {
-        const name = escapeHtml(task.source_name || `${task.source_id.slice(0, 8)}…`);
+      const html = tasks.map(task => {
+        const escapedName = task.source_name ? escapeHtml(task.source_name) : null;
+        const nameHtml = escapedName
+          ? `<div class="upload-task-name" title="${escapedName}">${escapedName}</div>`
+          : `<div class="upload-task-name"><span class="upload-task-name-orphan">[已删除]</span></div>`;
         const time = new Date(task.created_at).toLocaleString();
         const progress = taskProgress(task.status);
         const lastLog = task.log ? escapeHtml(task.log.trim().split('\n').filter(Boolean).pop() || '') : '';
+
+        let logHtml = '';
+        if (task.log) {
+          const lines = task.log.trim().split('\n').filter(Boolean);
+          if (lines.length > 0) {
+            const displayLines = lines.slice(-5);
+            const moreCount = lines.length - 5;
+            logHtml = `
+              <div class="upload-task-lines is-collapsed">
+                ${displayLines.map(l => `<div>${escapeHtml(l)}</div>`).join('')}
+              </div>
+              ${moreCount > 0 ? `<button class="upload-task-log-toggle" type="button">展开全部 (${moreCount} 行)</button>` : ''}
+            `;
+          }
+        }
+
         return `
-          <article class="upload-task-card">
+          <article class="upload-task-card" data-task-id="${task.id}">
             <div class="upload-task-head">
               <div>
-                <div class="upload-task-name" title="${name}">${name}</div>
+                ${nameHtml}
                 <div class="upload-task-sub">${time}</div>
               </div>
               ${taskStatusBadge(task.status)}
             </div>
             ${lastLog ? `<div class="upload-task-line">${lastLog}</div>` : ''}
             ${task.error ? `<div class="upload-task-error">${escapeHtml(task.error)}</div>` : ''}
+            ${logHtml}
+            <div class="upload-task-stream"></div>
             <div class="upload-progress-track ${progress.className}">
               <div class="upload-progress-bar ${progress.extra}" style="width:${progress.width};"></div>
             </div>
@@ -404,29 +418,200 @@
         `;
       }).join('');
 
-      tasks.forEach(task => {
-        if (!task.log) return;
-        try {
-          appendLog(task.id, task.source_name, task.log);
-        } catch (error) {
-          console.warn('[upload] appendLog failed', error);
-        }
-      });
+      if (append) {
+        taskList.insertAdjacentHTML('beforeend', html);
+      } else {
+        taskList.innerHTML = html;
+      }
+
+      if (_taskOffset + tasks.length < _taskTotal) {
+        taskList.insertAdjacentHTML('beforeend', '<button class="btn btn-secondary upload-load-more" type="button">加载更多</button>');
+      }
 
       const hasPending = tasks.some(task => task.status === 'pending' || task.status === 'processing');
       clearInterval(pollTimer);
-      if (hasPending) pollTimer = setInterval(loadTasks, 2000);
-      else refreshStats();
+      if (hasPending) {
+        pollTimer = setInterval(() => loadTasks({offset: _taskOffset, append: false}), 30000);
+      } else {
+        refreshStats();
+      }
+
+      connectAgentEvents();
     } catch {
-      taskList.innerHTML = '<div class="upload-empty-state">无法加载任务列表，请检查后端连接。</div>';
+      if (!append) {
+        taskList.innerHTML = '<div class="upload-empty-state">无法加载任务列表，请检查后端连接。</div>';
+      }
     }
   }
 
-  document.getElementById('btn-refresh-tasks').addEventListener('click', loadTasks);
-  document.addEventListener('tab:shown', event => {
-    if (event.detail === 'upload') loadTasks();
+  async function clearCompletedTasks() {
+    try {
+      await apiJson('/ingest/tasks?status=done,error', { method: 'DELETE' });
+      toast('已清除完成/失败的任务', 'success');
+      _taskOffset = 0;
+      loadTasks({offset: 0, append: false});
+    } catch {
+      toast('清除失败', 'error');
+    }
+  }
+
+  document.addEventListener('click', function(e) {
+    if (e.target.id === 'btn-clear-tasks' || e.target.closest('#btn-clear-tasks')) {
+      clearCompletedTasks();
+      return;
+    }
+    if (e.target.id === 'btn-refresh-tasks' || e.target.closest('#btn-refresh-tasks')) {
+      _taskOffset = 0;
+      loadTasks({offset: 0, append: false});
+      return;
+    }
+    if (e.target.classList.contains('upload-load-more')) {
+      _taskOffset += 20;
+      loadTasks({offset: _taskOffset, append: true});
+      return;
+    }
+    if (e.target.classList.contains('upload-task-log-toggle')) {
+      const linesEl = e.target.previousElementSibling;
+      const isExpanded = linesEl.classList.contains('is-expanded');
+      if (isExpanded) {
+        linesEl.classList.remove('is-expanded');
+        linesEl.classList.add('is-collapsed');
+        e.target.textContent = e.target.textContent.replace('收起', '展开全部');
+      } else {
+        linesEl.classList.remove('is-collapsed');
+        linesEl.classList.add('is-expanded');
+        e.target.textContent = e.target.textContent.replace('展开全部', '收起');
+      }
+      return;
+    }
   });
 
+  document.addEventListener('tab:shown', event => {
+    if (event.detail === 'upload') {
+      _taskOffset = 0;
+      loadTasks({offset: 0, append: false});
+      connectAgentEvents();
+    } else {
+      disconnectAgentEvents();
+    }
+  });
+
+  function connectAgentEvents() {
+    if (agentEventSource) return;
+    try {
+      const base = loadSettings().api_base || '';
+      agentEventSource = new EventSource(base + '/agent/v2/events');
+      agentEventSource.onmessage = function(e) {
+        try {
+          const evt = JSON.parse(e.data);
+          if (!evt.type) return;
+          if (!evt.type.startsWith('ingest_') && !evt.type.startsWith('wiki_') && evt.type !== 'message_start' && evt.type !== 'message_end') return;
+          handleIngestEvent(evt);
+        } catch {}
+      };
+      agentEventSource.onerror = function() {
+        agentEventSource.close();
+        agentEventSource = null;
+        setTimeout(connectAgentEvents, 5000);
+      };
+    } catch {}
+  }
+
+  function disconnectAgentEvents() {
+    if (agentEventSource) { agentEventSource.close(); agentEventSource = null; }
+  }
+
+  function handleIngestEvent(evt) {
+    const card = taskList.querySelector(`[data-task-id="${evt.task_id}"]`);
+    if (!card) return;
+    const d = evt.data || {};
+
+    const badgeEl = card.querySelector('.upload-task-status');
+    const lineEl = card.querySelector('.upload-task-line');
+    const trackEl = card.querySelector('.upload-progress-track');
+    const barEl = card.querySelector('.upload-progress-bar');
+    const streamEl = card.querySelector('.upload-task-stream');
+
+    function appendStream(text) {
+      if (!streamEl) return;
+      const line = document.createElement('div');
+      line.textContent = text;
+      streamEl.appendChild(line);
+      streamEl.scrollTop = streamEl.scrollHeight;
+      // Prune old entries if too many
+      while (streamEl.children.length > 50) {
+        streamEl.removeChild(streamEl.firstChild);
+      }
+    }
+
+    switch (evt.type) {
+      case 'ingest_start':
+        if (badgeEl) badgeEl.outerHTML = taskStatusBadge('processing');
+        if (trackEl) { trackEl.className = 'upload-progress-track is-processing'; }
+        if (barEl) { barEl.className = 'upload-progress-bar upload-progress-bar--indeterminate'; barEl.style.width = '20%'; }
+        if (lineEl && d.title) lineEl.textContent = '[开始] ' + d.title;
+        appendStream('[开始] ' + (d.title || d.source_id || ''));
+        break;
+      case 'ingest_progress':
+        if (lineEl && d.stage) {
+          const label = d.stage === 'metadata' ? '[元数据]' : d.stage === 'autotag' ? '[标签]' : d.stage === 'analysis' ? '[分析]' : d.stage === 'page' ? '[生成]' : '[Wiki]';
+          lineEl.textContent = label + ' ' + (d.detail || d.stage);
+        }
+        if (trackEl) { trackEl.className = 'upload-progress-track is-processing'; }
+        if (d.stage === 'page') {
+          const pt = d.page_type || '';
+          const ptLabel = pt === 'concept' ? '[概念]' : pt === 'entity' ? '[实体]' : pt === 'source' ? '[来源]' : pt === 'query' ? '[问答]' : pt === 'overview' ? '[综述]' : '[' + pt + ']';
+          appendStream(ptLabel + ' ' + (d.detail || d.page_id || ''));
+        } else if (d.stage === 'analysis') {
+          appendStream('[分析] 分析完成');
+        } else {
+          appendStream((d.stage === 'metadata' ? '[元数据] ' : d.stage === 'autotag' ? '[标签] ' : '[Wiki] ') + (d.detail || d.stage));
+        }
+        break;
+      case 'ingest_complete':
+        if (badgeEl) badgeEl.outerHTML = taskStatusBadge('done');
+        if (trackEl) { trackEl.className = 'upload-progress-track is-done'; }
+        if (barEl) { barEl.className = 'upload-progress-bar'; barEl.style.width = '100%'; }
+        if (lineEl) lineEl.textContent = '[完成] Wiki: ' + (d.wiki_pages || 0) + ' 页面';
+        appendStream('[完成] 摄入完成 — ' + (d.wiki_pages || 0) + ' 页面, ' + (d.pages_created || 0) + ' 新建 / ' + (d.pages_updated || 0) + ' 更新');
+        break;
+      case 'ingest_error':
+        if (badgeEl) badgeEl.outerHTML = taskStatusBadge('error');
+        if (trackEl) { trackEl.className = 'upload-progress-track is-error'; }
+        if (barEl) { barEl.className = 'upload-progress-bar'; barEl.style.width = '100%'; }
+        if (lineEl && d.error) lineEl.textContent = '[错误] ' + d.error;
+        appendStream('[错误] ' + (d.error || '未知错误'));
+        break;
+      case 'wiki_analysis_start':
+        if (trackEl) { trackEl.className = 'upload-progress-track is-processing'; }
+        appendStream('[分析] LLM 分析中: ' + (d.title || ''));
+        break;
+      case 'wiki_analysis_complete':
+        appendStream('[完成] 分析完成 — 计划 ' + (d.plan_pages || '?') + ' 页面');
+        break;
+      case 'wiki_page_generating':
+        appendStream('[生成] 生成页面: ' + (d.page_id || ''));
+        break;
+      case 'wiki_page_created':
+        appendStream('[完成] 页面创建: ' + (d.page_id || '') + (d.kind === 'updated' ? ' (更新)' : ''));
+        break;
+      case 'wiki_batch_start':
+        appendStream('[批量] 批量生成 ' + (d.batch_size || '?') + ' 页面');
+        break;
+      case 'wiki_sync_complete':
+        appendStream('[同步] Wiki 同步完成 — ' + (d.pages_created || 0) + ' 新建');
+        break;
+      case 'message_start':
+        // Only show analysis start — generation steps are covered by ingest_progress
+        if (d.step === 'analysis') appendStream('[LLM] 分析中…');
+        break;
+      case 'message_end':
+        // Suppressed — ingest_progress / wiki_* events carry the structured summary
+        break;
+    }
+  }
+
   setMode(activeMode);
-  loadTasks();
+  loadTasks({offset: 0, append: false});
+  connectAgentEvents();
 })();

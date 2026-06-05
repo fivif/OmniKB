@@ -678,23 +678,23 @@ async def agent_assist(scenario_id: str, body: AgentAssistRequest):
             mode = str(action.get("mode", "")).strip()
             html = str(action.get("html", ""))
             if not selector:
-                performed.append("❌ inject_html: selector 不能为空")
+                performed.append("[ERR] inject_html: selector 不能为空")
             elif mode not in ("replace", "append", "prepend"):
-                performed.append(f"❌ inject_html: 无效 mode={mode}，仅支持 replace/append/prepend")
+                performed.append(f"[ERR] inject_html: 无效 mode={mode}，仅支持 replace/append/prepend")
             elif not html:
-                performed.append("❌ inject_html: html 不能为空")
+                performed.append("[ERR] inject_html: html 不能为空")
             else:
-                performed.append(f"✅ 已注入 HTML 到: {selector} (mode={mode})")
+                performed.append(f"[OK] 已注入 HTML 到: {selector} (mode={mode})")
                 raw_actions.append({"action": "inject_html", "selector": selector, "mode": mode, "html": html})
 
         elif act_type == "execute_script":
             script = str(action.get("script", ""))
             if not script:
-                performed.append("❌ execute_script: script 不能为空")
+                performed.append("[ERR] execute_script: script 不能为空")
             elif len(script) > 2000:
-                performed.append(f"❌ execute_script: 脚本过长 ({len(script)} chars, max 2000)")
+                performed.append(f"[ERR] execute_script: 脚本过长 ({len(script)} chars, max 2000)")
             else:
-                performed.append("✅ 已执行脚本")
+                performed.append("[OK] 已执行脚本")
                 raw_actions.append({"action": "execute_script", "script": script})
 
         elif act_type == "rewrite_full_page":

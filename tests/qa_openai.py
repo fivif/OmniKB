@@ -219,7 +219,7 @@ td {{ padding:8px 6px;border-bottom:1px solid #1e293b;vertical-align:top }}
 .tag-定价限制 {{ background:#7c2d12;color:#fdba74 }}
 .tag-综合对比 {{ background:#4c1d95;color:#d8b4fe }}
 </style></head><body>
-<h1>🧪 OmniKB × OpenAI QA 测试报告</h1>
+<h1>Test Report OmniKB x OpenAI QA</h1>
 <h2>验证 OmniKB 对 OpenAI 产品资料的检索和问答能力</h2>
 <div class=meta>
 <div class=meta-item><div class=grade style='background:{gc}22;color:{gc}'>{gl}</div><div class=label>评级</div></div>
@@ -229,13 +229,13 @@ td {{ padding:8px 6px;border-bottom:1px solid #1e293b;vertical-align:top }}
 <div class=meta-item><div class=val style=color:#eab308>{sum(1 for c in cases if c['verdict']=='PARTIAL')}</div><div class=label>PARTIAL</div></div>
 <div class=meta-item><div class=val style=color:#ef4444>{sum(1 for c in cases if c['verdict']=='FAIL')}</div><div class=label>FAIL</div></div>
 </div>
-<div class=card><h3>📊 分类统计</h3>
+<div class=card><h3>Stats</h3>
 <table><thead><tr><th>类别</th><th>用例</th><th>得分</th><th>PASS</th><th>PARTIAL</th><th>FAIL</th><th>%</th></tr></thead>
 <tbody>{cat_rows}</tbody></table></div>
-<div class=section>📋 全部测试用例</div>
+<div class=section>All Cases</div>
 <table><thead><tr><th>#</th><th>类别</th><th>问题</th><th>命中关键词</th><th>缺失关键词</th><th>得分</th><th>判定</th></tr></thead>
 <tbody>{rows}</tbody></table>
-<div class=section>🔍 系统信息</div>
+<div class=section>System Info</div>
 <table>
 <tr><td style=color:#64748b;width:200px>Chunk size</td><td>800 chars</td></tr>
 <tr><td style=color:#64748b>搜索模式</td><td>Hybrid + Cross-encoder rerank + Source diversification + Query expansion</td></tr>

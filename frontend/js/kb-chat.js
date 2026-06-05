@@ -492,7 +492,7 @@
       for (const p of items) {
         const tag = document.createElement('span');
         tag.className = 'think-page-tag';
-        tag.textContent = '📄 ' + p;
+        tag.innerHTML = icon.document({size:14}) + ' ' + p;
         pagesEl.appendChild(tag);
       }
       thinkDiv.querySelector('.think-title').textContent = `已检索 ${thinkPages.length} 个页面`;
@@ -502,7 +502,7 @@
       const thinkDiv = document.getElementById(thinkMsgId);
       if (!thinkDiv) return;
       thinkDiv.querySelector('.think-spinner').classList.replace('think-spinner', 'think-check');
-      thinkDiv.querySelector('.think-check').textContent = '✅';
+      thinkDiv.querySelector('.think-check').innerHTML = icon.check({size:14});
       thinkDiv.querySelector('.think-title').textContent = `已检索 ${thinkPages.length} 个页面`;
       // 折叠思考卡片
       thinkDiv.classList.add('think-done');
@@ -647,7 +647,7 @@
     if (bubble.querySelector('.save-to-wiki-btn')) return;
     const btn = document.createElement('button');
     btn.className = 'save-to-wiki-btn';
-    btn.innerHTML = '💾';
+    btn.innerHTML = icon.save({size:14}) + ' 保存';
     btn.title = '保存到 Wiki';
     btn.onclick = async () => {
       const title = prompt('Wiki 页面标题:', '');

@@ -489,7 +489,7 @@ async def _run_wiki_sync(task_id: str, source_ids: list[str]) -> None:
 
     # Emit to v1 agent_bus for Agent Console visibility
     try:
-        emit(f"📝 Wiki 同步: {len(source_ids)} 个来源", kind="progress", agent="wiki", task_id=task_id)
+        emit(f"[WIKI] Wiki 同步: {len(source_ids)} 个来源", kind="progress", agent="wiki", task_id=task_id)
     except Exception:
         pass
 
@@ -503,7 +503,7 @@ async def _run_wiki_sync(task_id: str, source_ids: list[str]) -> None:
 
         # Emit per-source progress to Agent Console
         try:
-            emit(f"🧠 Wiki 生成: {src.get('name', sid)[:50]}", kind="progress", agent="wiki", task_id=task_id)
+            emit(f"[WIKI] Wiki 生成: {src.get('name', sid)[:50]}", kind="progress", agent="wiki", task_id=task_id)
         except Exception:
             pass
         source_name = src.get("name", sid)
@@ -561,10 +561,10 @@ async def _run_wiki_sync(task_id: str, source_ids: list[str]) -> None:
             failed_names = ", ".join(f["name"] for f in failed_sources[:3])
             if len(failed_sources) > 3:
                 failed_names += f" 等 {len(failed_sources)} 个来源"
-            emit(f"⚠️ Wiki 完成: {total_created} 创建 / {total_updated} 更新 / {total_failed} 失败 — {failed_names}",
+            emit(f"[WARN] Wiki 完成: {total_created} 创建 / {total_updated} 更新 / {total_failed} 失败 — {failed_names}",
                 kind="warning", agent="wiki", task_id=task_id)
         else:
-            emit(f"✅ Wiki 完成: {total_created} 创建 / {total_updated} 更新",
+            emit(f"[OK] Wiki 完成: {total_created} 创建 / {total_updated} 更新",
                 kind="success", agent="wiki", task_id=task_id)
     except Exception:
         pass

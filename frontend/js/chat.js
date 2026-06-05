@@ -31,7 +31,7 @@
       <div id="citations-panel" class="hidden" style="padding:12px 32px;border-top:1px solid var(--bd);background:var(--bg-muted);max-height:100px;overflow-y:auto;flex-shrink:0;">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
           <span style="font-size:11.5px;font-weight:600;color:var(--t3);text-transform:uppercase;letter-spacing:.05em;">引用来源</span>
-          <button id="btn-close-citations" class="btn-ghost" style="font-size:12px;padding:2px 7px;">✕</button>
+          <button id="btn-close-citations" class="btn-ghost" style="font-size:12px;padding:2px 7px;">${icon.x({size:14})}</button>
         </div>
         <div id="citations-list" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
       </div>

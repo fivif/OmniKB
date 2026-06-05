@@ -11,8 +11,8 @@
 </p>
 
 <p align="center">
-  🌐 <a href="https://kb.xzay.de/s/mfd">在线体验</a> ·
-  📊 <a href="https://kb.xzay.de/test">测试报告</a>
+  <a href="https://kb.xzay.de/s/mfd">在线体验</a> ·
+  <a href="https://kb.xzay.de/test">测试报告</a>
 </p>
 
 <p align="center">
@@ -22,13 +22,13 @@
 <p align="center"><em>左：Wiki 知识图谱 ｜ 右：500 题大规模幻觉测试报告</em></p>
 
 <p align="center">
-  <a href="#-什么是-omnikb">中文</a> ·
-  <a href="#-what-is-omnikb">English</a>
+  <a href="#什么是-omnikb">中文</a> ·
+  <a href="#what-is-omnikb">English</a>
 </p>
 
 ---
 
-## 🧠 什么是 OmniKB
+## 什么是 OmniKB
 
 **OmniKB** 是一个按场景划分的知识库问答系统。核心思路：
 
@@ -71,23 +71,23 @@
 
 ---
 
-## ✨ 核心特性
+## 核心特性
 
 | | |
 |---|---|
-| 🧠 **Wiki 自动生成** | 上传任意文档 → LLM 两步 Chain-of-Thought (分析→生成) → 实体/概念/来源/查询页面自动创建 |
-| 🔗 **知识图谱** | `[[wikilink]]` 双向链接，D3.js 力导向可视化，节点按连接度缩放，缩放显隐标签 |
-| 💬 **1M 上下文对话** | 全量 wiki_index 渐进式披露 → `read_wiki_page(id)` 按需深入 → SSE token-by-token 流式 |
-| 🎯 **场景发布** | 选择知识源 → 配置模板/LLM/样式 → 生成独立问答页 → API Key 鉴权。一键嵌入官网/客服系统 |
-| 🤖 **Agent 场景编辑** | 自然语言指令操控页面：改布局、换配色、加组件、重写 HTML/CSS/JS。支持重置还原 |
-| 🏢 **快速企业部署** | 单文件启动 `python backend/main.py`，无需外部服务。Web UI 配置 LLM，重启不丢。Docker 可选 |
-| 📡 **MCP 协议** | `read_wiki_page` + `fetch_url_preview` 工具暴露给 Claude/其他 AI Agent |
-| 🎨 **AURA Design** | 极简 Slate 色系，明暗双主题，spring 弹性过渡，响应式布局 |
-| 🔐 **Cookie 鉴权** | `ADMIN_PASSWORD` 环境变量一键开启，Cookie 30 天持久，Web UI 热更新无需重启 |
+| **Wiki 自动生成** | 上传任意文档 → LLM 两步 Chain-of-Thought (分析→生成) → 实体/概念/来源/查询页面自动创建 |
+| **知识图谱** | `[[wikilink]]` 双向链接，D3.js 力导向可视化，节点按连接度缩放，缩放显隐标签 |
+| **1M 上下文对话** | 全量 wiki_index 渐进式披露 → `read_wiki_page(id)` 按需深入 → SSE token-by-token 流式 |
+| **场景发布** | 选择知识源 → 配置模板/LLM/样式 → 生成独立问答页 → API Key 鉴权。一键嵌入官网/客服系统 |
+| **Agent 场景编辑** | 自然语言指令操控页面：改布局、换配色、加组件、重写 HTML/CSS/JS。支持重置还原 |
+| **快速企业部署** | 单文件启动 `python backend/main.py`，无需外部服务。Web UI 配置 LLM，重启不丢。Docker 可选 |
+| **MCP 协议** | `read_wiki_page` + `fetch_url_preview` 工具暴露给 Claude/其他 AI Agent |
+| **AURA Design** | 极简 Slate 色系，明暗双主题，spring 弹性过渡，响应式布局 |
+| **Cookie 鉴权** | `ADMIN_PASSWORD` 环境变量一键开启，Cookie 30 天持久，Web UI 热更新无需重启 |
 
 ---
 
-## 🚀 快速开始
+## 快速开始
 
 ```bash
 git clone https://github.com/fivif/OmniKB
@@ -138,7 +138,7 @@ python backend/main.py
 
 ---
 
-## 🧱 技术栈
+## 技术栈
 
 ### Backend
 
@@ -163,17 +163,17 @@ python backend/main.py
 
 ---
 
-## 📜 License
+## License
 
 [MIT](https://github.com/fivif/OmniKB/blob/master/LICENSE)
 
 ---
 
-<p align="center"><em>Built with ♥</em></p>
+<p align="center"><em>Built with love</em></p>
 
 ---
 
-## 🙏 致谢
+## 致谢
 
 - [DeepSeek](https://deepseek.com) — 梁圣恩情还不完
 - [LINUX DO](https://linux.do) — 技术社区与测试支持
@@ -182,11 +182,11 @@ python backend/main.py
 
 ---
 
-# 🇬🇧 English
+# English
 
 ---
 
-## 🧠 What is OmniKB
+## What is OmniKB
 
 **OmniKB** is NOT a RAG knowledge base. No document chunking, no vector embeddings, no semantic search. The LLM reads source files directly and generates structured wiki pages — the wiki IS the knowledge base.
 
@@ -213,21 +213,21 @@ Inspired by [Karpathy's LLM-Wiki pattern](https://gist.github.com/karpathy/442a6
 
 ---
 
-## ✨ Key Features
+## Key Features
 
 | | |
 |---|---|
-| 🧠 **Auto Wiki Generation** | Upload any document → LLM two-step CoT → auto-creates entity/concept/source pages |
-| 🔗 **Knowledge Graph** | `[[wikilink]]` bidirectional links, D3.js force visualization, degree-scaled nodes |
-| 💬 **1M Context Chat** | Full wiki_index progressive disclosure → `read_wiki_page(id)` on demand → true SSE streaming |
-| 🎯 **Scenario Publishing** | Select sources → configure template/LLM → generate standalone Q&A page → API Key auth |
-| 🤖 **Agent Page Editor** | Natural language commands → rewrite layout, inject HTML/CSS/JS, one-click reset |
-| 🏢 **Zero-Dependency Deploy** | Single-file startup, no external services, Web UI config, Docker optional |
-| 🔐 **Cookie Auth** | `ADMIN_PASSWORD` one-liner, 30-day cookie, hot-reload via Web UI without restart |
+| **Auto Wiki Generation** | Upload any document → LLM two-step CoT → auto-creates entity/concept/source pages |
+| **Knowledge Graph** | `[[wikilink]]` bidirectional links, D3.js force visualization, degree-scaled nodes |
+| **1M Context Chat** | Full wiki_index progressive disclosure → `read_wiki_page(id)` on demand → true SSE streaming |
+| **Scenario Publishing** | Select sources → configure template/LLM → generate standalone Q&A page → API Key auth |
+| **Agent Page Editor** | Natural language commands → rewrite layout, inject HTML/CSS/JS, one-click reset |
+| **Zero-Dependency Deploy** | Single-file startup, no external services, Web UI config, Docker optional |
+| **Cookie Auth** | `ADMIN_PASSWORD` one-liner, 30-day cookie, hot-reload via Web UI without restart |
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ```bash
 git clone https://github.com/fivif/OmniKB
@@ -241,6 +241,6 @@ python backend/main.py
 
 ---
 
-## 📜 License
+## License
 
 [MIT](https://github.com/fivif/OmniKB/blob/master/LICENSE)

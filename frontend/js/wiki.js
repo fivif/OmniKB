@@ -570,7 +570,7 @@
       const items = res.items || [];
       if (!items.length) {
         bodyEl.innerHTML = `<div class="wiki-preview-empty">
-          🎉 wiki 没有发现任何问题。<br><small>${res.count || 0} 条洞察</small>
+          Wiki 审查通过，没有发现任何问题。<br><small>${res.count || 0} 条洞察</small>
         </div>`;
         return;
       }

@@ -260,19 +260,20 @@
 
   function localDraft() {
     const saved = loadSettings();
+    // Use ?? so empty strings (intentional clear) are preserved, not coalesced away
     return {
-      http_proxy: saved.http_proxy || '',
+      http_proxy: saved.http_proxy ?? '',
       llm_provider: saved.llm_provider ? normalizeProvider(saved.llm_provider) : '',
-      llm_model: saved.llm_model || '',
-      llm_base_url: saved.llm_base_url || '',
-      llm_api_key: saved.llm_api_key || '',
+      llm_model: saved.llm_model ?? '',
+      llm_base_url: saved.llm_base_url ?? '',
+      llm_api_key: saved.llm_api_key ?? '',
 
       vision_enabled: saved.vision_enabled !== undefined ? saved.vision_enabled : defaults.vision_enabled,
-      vision_model: saved.vision_model || defaults.vision_model,
-      vision_base_url: saved.vision_base_url || '',
-      vision_api_key: saved.vision_api_key || '',
+      vision_model: saved.vision_model ?? defaults.vision_model,
+      vision_base_url: saved.vision_base_url ?? '',
+      vision_api_key: saved.vision_api_key ?? '',
       vision_frame_interval: saved.vision_frame_interval !== undefined ? saved.vision_frame_interval : defaults.vision_frame_interval,
-      admin_password: saved.admin_password || defaults.admin_password,
+      admin_password: saved.admin_password ?? defaults.admin_password,
       chat_context_window: saved.chat_context_window !== undefined ? saved.chat_context_window : defaults.chat_context_window,
       chat_compaction_threshold: saved.chat_compaction_threshold !== undefined ? saved.chat_compaction_threshold : defaults.chat_compaction_threshold,
     };
@@ -340,18 +341,18 @@
   }
 
   function applyRuntimeValues(values) {
-    refs.proxy.value = values.http_proxy || '';
+    refs.proxy.value = values.http_proxy ?? '';
     refs.provider.value = normalizeProvider(values.llm_provider);
-    refs.model.value = values.llm_model || defaults.llm_model;
-    refs.baseUrl.value = values.llm_base_url || '';
-    refs.apiKey.value = values.llm_api_key || '';
+    refs.model.value = values.llm_model ?? defaults.llm_model;
+    refs.baseUrl.value = values.llm_base_url ?? '';
+    refs.apiKey.value = values.llm_api_key ?? '';
 
     refs.visionEnabled.checked = values.vision_enabled !== undefined ? values.vision_enabled : defaults.vision_enabled;
-    refs.visionModel.value = values.vision_model || defaults.vision_model;
-    refs.visionBaseUrl.value = values.vision_base_url || '';
-    refs.visionApiKey.value = values.vision_api_key || '';
+    refs.visionModel.value = values.vision_model ?? defaults.vision_model;
+    refs.visionBaseUrl.value = values.vision_base_url ?? '';
+    refs.visionApiKey.value = values.vision_api_key ?? '';
     refs.visionFrameInterval.value = values.vision_frame_interval !== undefined ? values.vision_frame_interval : defaults.vision_frame_interval;
-    refs.adminPassword.value = values.admin_password || '';
+    refs.adminPassword.value = values.admin_password ?? '';
     refs.chatContext.value = values.chat_context_window !== undefined ? values.chat_context_window : defaults.chat_context_window;
     refs.chatCompaction.value = values.chat_compaction_threshold !== undefined ? values.chat_compaction_threshold : defaults.chat_compaction_threshold;
 
@@ -461,34 +462,34 @@
       ]);
 
       applyRuntimeValues({
-        http_proxy: local.http_proxy || proxy.proxy || '',
+        http_proxy: local.http_proxy ?? proxy.proxy ?? '',
         llm_provider: normalizeProvider(local.llm_provider || llm.provider || defaults.llm_provider),
-        llm_model: local.llm_model || llm.model || defaults.llm_model,
-        llm_base_url: local.llm_base_url || llm.base_url || '',
-        llm_api_key: local.llm_api_key || llm.api_key || '',
+        llm_model: local.llm_model ?? llm.model ?? defaults.llm_model,
+        llm_base_url: local.llm_base_url ?? llm.base_url ?? '',
+        llm_api_key: local.llm_api_key ?? llm.api_key ?? '',
         chat_context_window: local.chat_context_window !== undefined ? local.chat_context_window : (llm.chat_context_window !== undefined ? llm.chat_context_window : defaults.chat_context_window),
         chat_compaction_threshold: local.chat_compaction_threshold !== undefined ? local.chat_compaction_threshold : (llm.chat_compaction_threshold !== undefined ? llm.chat_compaction_threshold : defaults.chat_compaction_threshold),
         vision_enabled: local.vision_enabled !== undefined ? local.vision_enabled : (vision.vision_enabled !== undefined ? vision.vision_enabled : defaults.vision_enabled),
-        vision_model: local.vision_model || vision.vision_model || defaults.vision_model,
-        vision_base_url: local.vision_base_url || vision.vision_base_url || '',
-        vision_api_key: local.vision_api_key || vision.vision_api_key || '',
+        vision_model: local.vision_model ?? vision.vision_model ?? defaults.vision_model,
+        vision_base_url: local.vision_base_url ?? vision.vision_base_url ?? '',
+        vision_api_key: local.vision_api_key ?? vision.vision_api_key ?? '',
         vision_frame_interval: local.vision_frame_interval !== undefined ? local.vision_frame_interval : (vision.vision_frame_interval !== undefined ? vision.vision_frame_interval : defaults.vision_frame_interval),
       });
 
-      const shouldReplay = Boolean(
-        local.http_proxy ||
-        local.llm_provider ||
-        local.llm_model ||
-        local.llm_base_url ||
-        local.llm_api_key ||
-        local.vision_enabled !== undefined ||
-        local.vision_model ||
-        local.vision_base_url ||
-        local.vision_api_key ||
-        local.vision_frame_interval !== undefined ||
-        local.chat_context_window !== undefined ||
-        local.chat_compaction_threshold !== undefined
+      // Use raw saved keys, not localDraft default-applied values,
+      // so empty-string clears (http_proxy="") are still detected as explicit user settings.
+      const raw = loadSettings();
+      const hasLocalSetting = (
+        'http_proxy' in raw ||
+        'llm_provider' in raw ||
+        'llm_model' in raw ||
+        'llm_base_url' in raw ||
+        'llm_api_key' in raw ||
+        'vision_model' in raw ||
+        'vision_base_url' in raw ||
+        'vision_api_key' in raw
       );
+      const shouldReplay = hasLocalSetting;
       if (shouldReplay) {
         await syncRuntimeSettings({ silent: true, skipLocalSave: true });
       }
@@ -560,6 +561,11 @@
   }
 
   document.getElementById('btn-save-admin-password').addEventListener('click', saveAdminPassword);
+
+  document.getElementById('btn-save-settings').addEventListener('click', () => {
+    persistLocalDraft();
+    syncRuntimeSettings();
+  });
 
   [refs.proxy, refs.model, refs.baseUrl, refs.apiKey].forEach(node => {
     node.addEventListener('change', persistLocalDraft);

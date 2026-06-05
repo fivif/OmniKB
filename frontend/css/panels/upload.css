@@ -219,3 +219,95 @@
     flex-direction: column;
   }
 }
+
+/* ─── Task Management Extras ─────────────────────────────────── */
+
+.upload-task-name-orphan {
+  color: var(--t-quaternary);
+  font-style: italic;
+}
+
+.upload-tasks-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.upload-load-more {
+  display: block;
+  margin-top: 12px;
+  width: 100%;
+}
+
+/* ─── Expandable Log ─────────────────────────────────────────── */
+
+.upload-task-lines {
+  margin-top: 10px;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--t-secondary);
+  max-height: 4.5em;
+  overflow: hidden;
+  position: relative;
+}
+
+.upload-task-lines.is-collapsed::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2em;
+  background: linear-gradient(transparent, var(--panel-soft-surface-bg));
+}
+
+.upload-task-lines.is-expanded {
+  max-height: none;
+}
+
+.upload-task-lines.is-expanded::after {
+  display: none;
+}
+
+.upload-task-log-toggle {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--accent);
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0;
+}
+
+.upload-task-log-toggle:hover {
+  opacity: 0.8;
+}
+
+/* ─── Live Stream ────────────────────────────────────────────── */
+
+.upload-task-stream {
+  margin-top: 8px;
+  max-height: 112px;
+  overflow-y: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--t-tertiary);
+  background: rgba(0, 0, 0, 0.025);
+  border-radius: 8px;
+  padding: 4px 8px;
+  border: 1px solid var(--bd-subtle);
+  scroll-behavior: smooth;
+}
+
+.upload-task-stream:empty {
+  display: none;
+}
+
+.upload-task-stream > div {
+  padding: 1px 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

@@ -54,6 +54,7 @@ async def update_proxy(body: ProxyUpdate):
     from main import apply_proxy
 
     apply_proxy(body.url)
+    _persist_env("HTTP_PROXY", body.url)
 
     # Clear cached HTTP clients so they rebuild with the new proxy
     try:

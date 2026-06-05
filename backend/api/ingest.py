@@ -12,6 +12,8 @@ from agents.orchestrator import run_ingest_pipeline
 from storage.file_store import save_file
 from storage.metadata_db import (
     append_task_log,
+    count_tasks,
+    delete_tasks,
     get_task,
     insert_source,
     insert_task,
@@ -74,7 +76,7 @@ async def _run_file_task(
 ) -> None:
     try:
         ext = f".{file_type.lower()}"
-        await append_task_log(task_id, f"📂 收到文件，类型 {file_type.upper()}")
+        await append_task_log(task_id, f"[FILE] 收到文件，类型 {file_type.upper()}")
         # Route media files (video/audio) to MediaAgent
         try:
             from agents.media_agent import is_media_file, transcribe_async
@@ -89,7 +91,7 @@ async def _run_file_task(
         await run_ingest_pipeline(source_id, task_id, raw_doc, extra_metadata=extra)
     except Exception as exc:
         logger.exception("Background file task %s failed", task_id)
-        await append_task_log(task_id, f"❌ 处理失败：{exc}")
+        await append_task_log(task_id, f"[ERR] 处理失败：{exc}")
         await update_task(task_id, "error", error=str(exc))
         await update_source_status(source_id, "error")
 
@@ -101,12 +103,12 @@ async def _run_text_task(
     extra: dict,
 ) -> None:
     try:
-        await append_task_log(task_id, f"📝 收到文本，{len(content)} 字符")
+        await append_task_log(task_id, f"[TEXT] 收到文本，{len(content)} 字符")
         raw_doc = parse_text(content)
         await run_ingest_pipeline(source_id, task_id, raw_doc, extra_metadata=extra)
     except Exception as exc:
         logger.exception("Background text task %s failed", task_id)
-        await append_task_log(task_id, f"❌ 处理失败：{exc}")
+        await append_task_log(task_id, f"[ERR] 处理失败：{exc}")
         await update_task(task_id, "error", error=str(exc))
         await update_source_status(source_id, "error")
 
@@ -121,19 +123,19 @@ async def _run_url_task(
 ) -> None:
     try:
         await update_task(task_id, "processing")
-        await append_task_log(task_id, f"🌐 智能抓取：{url}{'  意图：' + intent if intent else ''}")
+        await append_task_log(task_id, f"[URL] 智能抓取：{url}{'  意图：' + intent if intent else ''}")
         from agents.web.loop import run_agent
         try:
             raw_doc = await run_agent(url=url, intent=intent, task_id=task_id)
         except Exception as exc:
-            await append_task_log(task_id, f"❌ 智能抓取失败：{exc}")
+            await append_task_log(task_id, f"[ERR] 智能抓取失败：{exc}")
             await update_task(task_id, "error", error=str(exc))
             await update_source_status(source_id, "error")
             return
         # Reject empty or trivial content (agent returned a plan instead of real content)
         content = (raw_doc.content or "").strip()
         if len(content) < 200:
-            await append_task_log(task_id, f"🚫 抓取内容过短（{len(content)} 字），可能为抓取计划而非实际内容，已跳过")
+            await append_task_log(task_id, f"[SKIP] 抓取内容过短（{len(content)} 字），可能为抓取计划而非实际内容，已跳过")
             await update_task(task_id, "error", error="Content too short — likely a scraping plan, not real page content")
             await update_source_status(source_id, "error")
             return
@@ -142,14 +144,14 @@ async def _run_url_task(
             from agents.web_agent import _apply_quality_gates
             raw_doc = await _apply_quality_gates(raw_doc, url, intent)
         except ValueError as exc:
-            await append_task_log(task_id, f"🚫 Agent 输出被 LLM 判定无价值，已跳过：{exc}")
+            await append_task_log(task_id, f"[SKIP] Agent 输出被 LLM 判定无价值，已跳过：{exc}")
             await update_task(task_id, "done")
             await update_source_status(source_id, "done")
             return
         await run_ingest_pipeline(source_id, task_id, raw_doc, extra_metadata=extra)
     except Exception as exc:
         logger.exception("Background url task %s failed", task_id)
-        await append_task_log(task_id, f"❌ 处理失败：{exc}")
+        await append_task_log(task_id, f"[ERR] 处理失败：{exc}")
         await update_task(task_id, "error", error=str(exc))
         await update_source_status(source_id, "error")
 
@@ -262,8 +264,25 @@ async def ingest_url(req: UrlIngestRequest, background_tasks: BackgroundTasks):
 
 # ── Endpoints ─────────────────────────────────────────────────
 @router.get("/tasks")
-async def get_tasks(limit: int = 50, offset: int = 0):
-    return await list_tasks(limit=limit, offset=offset)
+async def get_tasks(limit: int = 50, offset: int = 0, status: str | None = None):
+    tasks = await list_tasks(limit=limit, offset=offset, status=status)
+    total = await count_tasks(status=status)
+    return {"tasks": tasks, "total": total}
+
+
+@router.delete("/tasks")
+async def clear_tasks(status: str = "done,error"):
+    """Delete terminal tasks. Default: done + error. Pass status=all to clear everything."""
+    if status == "all":
+        deleted = await delete_tasks()
+    else:
+        total = 0
+        for s in status.split(","):
+            s = s.strip()
+            if s in ("done", "error", "pending", "processing"):
+                total += await delete_tasks(status=s)
+        deleted = total
+    return {"deleted": deleted}
 
 
 @router.get("/tasks/{task_id}")
@@ -305,7 +324,7 @@ async def resume_pending_tasks() -> dict:
         kind = params.get("kind")
 
         if not kind:
-            await append_task_log(task_id, "🧯 启动检测：缺少重放参数，标记为 error")
+            await append_task_log(task_id, "[RECOVERY] 启动检测：缺少重放参数，标记为 error")
             await update_task(task_id, "error", error="missing params after restart")
             await update_source_status(source_id, "error")
             failed += 1
@@ -315,12 +334,12 @@ async def resume_pending_tasks() -> dict:
             if kind == "file":
                 fp = params.get("file_path")
                 if not fp or not os.path.exists(fp):
-                    await append_task_log(task_id, f"🧯 启动检测：源文件不存在，标记为 error ({fp})")
+                    await append_task_log(task_id, f"[RECOVERY] 启动检测：源文件不存在，标记为 error ({fp})")
                     await update_task(task_id, "error", error="source file missing after restart")
                     await update_source_status(source_id, "error")
                     failed += 1
                     continue
-                await append_task_log(task_id, "🔁 启动重放：file")
+                await append_task_log(task_id, "[RESUME] 启动重放：file")
                 await update_task(task_id, "processing")
                 asyncio.create_task(_run_file_task(
                     source_id, task_id, fp,
@@ -330,18 +349,18 @@ async def resume_pending_tasks() -> dict:
             elif kind == "text":
                 content = params.get("content") or ""
                 if not content:
-                    await append_task_log(task_id, "🧯 启动检测：文本为空，标记为 error")
+                    await append_task_log(task_id, "[RECOVERY] 启动检测：文本为空，标记为 error")
                     await update_task(task_id, "error", error="empty text after restart")
                     await update_source_status(source_id, "error")
                     failed += 1
                     continue
-                await append_task_log(task_id, "🔁 启动重放：text")
+                await append_task_log(task_id, "[RESUME] 启动重放：text")
                 await update_task(task_id, "processing")
                 asyncio.create_task(_run_text_task(
                     source_id, task_id, content, params.get("extra") or {},
                 ))
             elif kind == "url":
-                await append_task_log(task_id, "🔁 启动重放：url")
+                await append_task_log(task_id, "[RESUME] 启动重放：url")
                 await update_task(task_id, "processing")
                 asyncio.create_task(_run_url_task(
                     source_id, task_id, params.get("url", ""),
@@ -350,7 +369,7 @@ async def resume_pending_tasks() -> dict:
                     params.get("intent") or "",
                 ))
             else:
-                await append_task_log(task_id, f"🧯 启动检测：未知 kind={kind}，标记为 error")
+                await append_task_log(task_id, f"[RECOVERY] 启动检测：未知 kind={kind}，标记为 error")
                 await update_task(task_id, "error", error=f"unknown task kind: {kind}")
                 await update_source_status(source_id, "error")
                 failed += 1

@@ -54,7 +54,7 @@ class Reporter:
             "hint": hint,
         })
         if not self.json_mode:
-            icon = {"ok": "✓", "warn": "⚠", "error": "✗"}.get(level, "?")
+            icon = {"ok": "+", "warn": "!", "error": "X"}.get(level, "?")
             colour = {"ok": "\033[32m", "warn": "\033[33m", "error": "\033[31m"}.get(level, "")
             reset = "\033[0m"
             print(f" {colour}{icon}{reset} {name:32} {message}")
@@ -244,7 +244,7 @@ async def run_all(args: argparse.Namespace) -> Reporter:
     rep = Reporter(json_mode=args.json)
 
     if not args.json:
-        print("\n🩺 OmniKB Doctor — environment pre-flight\n")
+        print("\nOmniKB Doctor — environment pre-flight\n")
         print(" runtime")
 
     check_python(rep)
@@ -287,7 +287,7 @@ def main() -> int:
     except KeyboardInterrupt:
         return 130
     except Exception as exc:
-        print(f"\n💥 doctor crashed: {exc}", file=sys.stderr)
+        print(f"\ndoctor crashed: {exc}", file=sys.stderr)
         return 2
 
     summary = rep.summary()

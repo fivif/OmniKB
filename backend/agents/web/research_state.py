@@ -55,7 +55,7 @@ class ResearchState:
         if self.success_criteria:
             lines.append("Success criteria:")
             for c in self.success_criteria[:6]:
-                lines.append(f"  ✓ {c}")
+                lines.append(f"  [OK] {c}")
         if self.open_subgoals:
             lines.append(f"Open subgoals ({len(self.open_subgoals)}):")
             for g in self.open_subgoals[:8]:

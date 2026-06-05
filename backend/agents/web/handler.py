@@ -176,7 +176,7 @@ class WebHandler:
                 return "[ask_user: no task_id wired; continuing without input]"
 
             # Surface the question to the UI / event log.
-            _emit(f"❓ {question}", kind="ask", task_id=tid)
+            _emit(f"[Q] {question}", kind="ask", task_id=tid)
 
             try:
                 from agent_core import steering as _steering

@@ -88,7 +88,7 @@ For the target URL, apply strategies IN ORDER until you get rich content:
   2. http_get the original URL
   3. If result < 300 chars OR looks like a JS-rendered blank → browser_get
   4. If browser_get also thin → cdp_get
-  ⚠️ Do NOT stop at the first strategy that "works". If you got 500 chars from http_get
+  [WARN] Do NOT stop at the first strategy that "works". If you got 500 chars from http_get
   but the page is clearly a docs site with more content, still try browser_get to compare.
 
 ### PHASE 2 — Deep Discovery (mandatory for any page with links)
@@ -431,7 +431,7 @@ async def smart_fetch(
         DeprecationWarning,
         stacklevel=2,
     )
-    _emit_progress(f"🤖 (compat) smart_fetch → web/loop.run_agent: {url[:80]}")
+    _emit_progress(f"[COMPAT] smart_fetch → web/loop.run_agent: {url[:80]}")
 
     from agents.web.loop import run_agent as _unified_run_agent
     return await _unified_run_agent(url=url, intent=intent, task_id=None)

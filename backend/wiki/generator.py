@@ -193,6 +193,7 @@ class WikiGenerator:
                 source_text=truncated,
                 purpose_excerpt=purpose_excerpt,
                 index_excerpt=index_excerpt,
+                task_id=task_id,
             )
         except Exception as exc:  # noqa: BLE001
             logger.exception("wiki analysis failed for %s: %s", source_id, exc)
@@ -251,6 +252,7 @@ class WikiGenerator:
                     index_excerpt=index_excerpt,
                     overview_text=overview_text,
                     analysis_text=analysis_text,
+                    task_id=task_id,
                 )
             )
             for p in pages
@@ -388,6 +390,7 @@ class WikiGenerator:
         source_text: str,
         purpose_excerpt: str,
         index_excerpt: str,
+        task_id: str | None = None,
     ) -> str:
         messages = build_analysis_messages(
             source_id=source_id,
@@ -399,9 +402,15 @@ class WikiGenerator:
             index_excerpt=index_excerpt,
         )
         # Emit thinking card for agent console
-        WikiGenerator._publish_event("message_start", {"source_id": source_id, "step": "analysis", "summary": "LLM 分析中…"}, None)
+        WikiGenerator._publish_event("message_start", {"source_id": source_id, "step": "analysis", "summary": "LLM 分析中…"}, task_id)
         raw = await self._invoke(messages)
-        WikiGenerator._publish_event("message_end", {"source_id": source_id, "step": "analysis", "content": raw[:200]}, None)
+        WikiGenerator._publish_event("message_end", {"source_id": source_id, "step": "analysis", "content": raw[:200]}, task_id)
+        # Notify task card — analysis complete
+        WikiGenerator._publish_event("ingest_progress", {
+            "source_id": source_id,
+            "stage": "analysis",
+            "detail": "分析完成，提取页面计划中…",
+        }, task_id)
         return raw
 
     # ── Step 2a: write source page directly (no LLM, full text) ──
@@ -518,6 +527,7 @@ class WikiGenerator:
         index_excerpt: str = "",
         overview_text: str = "",
         analysis_text: str = "",
+        task_id: str | None = None,
     ) -> tuple[str, str]:
         """Returns ``("created"|"updated"|"failed", page_id)``."""
         page_type = plan_page["page_type"]
@@ -550,10 +560,20 @@ class WikiGenerator:
             analysis_text=analysis_text,
         )
 
-        WikiGenerator._publish_event("message_start", {"source_id": source_id, "step": "generation", "page_id": page_id}, None)
+        WikiGenerator._publish_event("message_start", {"source_id": source_id, "step": "generation", "page_id": page_id}, task_id)
         async with self._sem:
             raw = await self._invoke(messages)
-        WikiGenerator._publish_event("message_end", {"source_id": source_id, "step": "generation", "page_id": page_id, "content": raw[:150]}, None)
+        WikiGenerator._publish_event("message_end", {"source_id": source_id, "step": "generation", "page_id": page_id, "content": raw[:150]}, task_id)
+        # Notify task card with clean page info (no raw markdown)
+        page_title = plan_page.get("title", slug)
+        page_type = plan_page.get("page_type", "unknown")
+        WikiGenerator._publish_event("ingest_progress", {
+            "source_id": source_id,
+            "stage": "page",
+            "detail": f"{page_title}",
+            "page_type": page_type,
+            "page_id": page_id,
+        }, task_id)
 
         # Parse + validate the LLM output. We accept the same markdown
         # we'd accept on a manual edit.

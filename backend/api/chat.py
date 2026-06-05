@@ -454,7 +454,7 @@ async def _stream(
         final_user = _NO_CTX_TEMPLATE.format(question=user_query)
     lc_msgs.append(HumanMessage(content=final_user))
 
-    emit(f"💬 LLM 生成中...", kind="progress", agent="rag", task_id=task_id)
+    emit(f"[LLM] LLM 生成中...", kind="progress", agent="rag", task_id=task_id)
     full_text = ""
     async for chunk in llm.astream(lc_msgs):
         reasoning = getattr(chunk, "reasoning_content", None) or ""
@@ -464,7 +464,7 @@ async def _stream(
         if token:
             full_text += token
             yield f"data: {json.dumps({'type': 'token', 'content': token})}\n\n"
-    emit(f"✅ 回答完成 ({len(full_text)} 字)", kind="success", agent="rag", task_id=task_id)
+    emit(f"[OK] 回答完成 ({len(full_text)} 字)", kind="success", agent="rag", task_id=task_id)
 
     # RAG removed — no chunk retrieval, citations always empty
     yield f"data: {json.dumps({'type': 'citations', 'citations': []})}\n\n"

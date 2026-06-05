@@ -523,6 +523,7 @@ async def _cleanup_wiki_for_source_ids(source_ids: list[str], db: aiosqlite.Conn
 async def delete_source(source_id: str) -> None:
     async with _connect() as db:
         await _cleanup_wiki_for_source_ids([source_id], db)
+        await db.execute("DELETE FROM tasks WHERE source_id = ?", (source_id,))
         await db.execute("DELETE FROM sources WHERE id = ?", (source_id,))
         await db.commit()
 
@@ -635,9 +636,22 @@ async def list_resumable_tasks() -> list[dict]:
     return out
 
 
-async def list_tasks(limit: int = 50, offset: int = 0) -> list[dict]:
+async def list_tasks(limit: int = 50, offset: int = 0, status: str | None = None) -> list[dict]:
     async with _connect() as db:
         db.row_factory = aiosqlite.Row
+        if status:
+            async with db.execute(
+                """
+                SELECT t.*, s.name AS source_name, s.type AS source_type
+                FROM tasks t
+                LEFT JOIN sources s ON s.id = t.source_id
+                WHERE t.status = ?
+                ORDER BY t.created_at DESC LIMIT ? OFFSET ?
+                """,
+                (status, limit, offset),
+            ) as cur:
+                rows = await cur.fetchall()
+                return [dict(r) for r in rows]
         async with db.execute(
             """
             SELECT t.*, s.name AS source_name, s.type AS source_type
@@ -649,6 +663,29 @@ async def list_tasks(limit: int = 50, offset: int = 0) -> list[dict]:
         ) as cur:
             rows = await cur.fetchall()
             return [dict(r) for r in rows]
+
+
+async def count_tasks(status: str | None = None) -> int:
+    """Count tasks, optionally filtered by status."""
+    async with _connect() as db:
+        if status:
+            async with db.execute("SELECT COUNT(*) FROM tasks WHERE status = ?", (status,)) as cur:
+                row = await cur.fetchone()
+                return row[0] if row else 0
+        async with db.execute("SELECT COUNT(*) FROM tasks") as cur:
+            row = await cur.fetchone()
+            return row[0] if row else 0
+
+
+async def delete_tasks(status: str | None = None) -> int:
+    """Delete tasks, optionally filtered by status. Returns deleted count."""
+    async with _connect() as db:
+        if status:
+            cur = await db.execute("DELETE FROM tasks WHERE status = ?", (status,))
+        else:
+            cur = await db.execute("DELETE FROM tasks")
+        await db.commit()
+        return cur.rowcount
 
 
 async def update_task(task_id: str, status: str, error: str | None = None) -> None:
@@ -674,10 +711,10 @@ async def append_task_log(task_id: str, line: str) -> None:
     try:
         from utils.agent_bus import emit
         kind = (
-            "success" if any(x in line for x in ("✅", "🏁", "已完成", "完成"))
-            else "error"   if any(x in line for x in ("❌", "失败", "错误", "Error"))
-            else "warning"  if any(x in line for x in ("⚠️", "跳过", "重复"))
-            else "progress" if any(x in line for x in ("⚙️", "📄", "✂️", "🔍", "🔢", "📥", "📝", "🌐", "🏷️"))
+            "success" if any(x in line for x in ("[OK]", "[DONE]", "已完成", "完成"))
+            else "error"   if any(x in line for x in ("[ERR]", "失败", "错误", "Error"))
+            else "warning"  if any(x in line for x in ("[WARN]", "[SKIP]", "跳过", "重复"))
+            else "progress" if any(x in line for x in ("[TOOL]", "[META]", "[TRIM]", "[ANALYZE]", "[EMBED]", "[INGEST]", "[TEXT]", "[URL]", "[TAG]", "[WIKI]"))
             else "info"
         )
         emit(line, kind=kind, agent="ingest", task_id=task_id)
@@ -788,6 +825,7 @@ async def batch_delete_sources(source_ids: list[str]) -> int:
     placeholders, params = _build_in_placeholders(source_ids, column="source_ids")
     async with _connect() as db:
         await _cleanup_wiki_for_source_ids(source_ids, db)
+        await db.execute(f"DELETE FROM tasks WHERE source_id IN ({placeholders})", params)
         await db.execute(f"DELETE FROM sources WHERE id IN ({placeholders})", params)
         pass  # chunks table removed
         await db.commit()
