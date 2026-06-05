@@ -670,15 +670,7 @@
 }
 
 .kbchat-message-author {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--kbchat-text-muted);
-}
-
-.kbchat-message-row.is-user .kbchat-message-author {
-  color: var(--kbchat-brand-solid);
+  display: none;
 }
 
 .kbchat-message-bubble {
@@ -829,23 +821,29 @@
 
 @media (max-width: 760px) {
   .kbchat-header {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 10px;
-    padding: 12px 16px;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    min-height: 40px !important;
   }
+  .kbchat-brand { gap: 6px; }
+  .kbchat-template-badge { height: 22px; padding: 0 8px; font-size: 9px; }
+  .kbchat-heading h1 { font-size: 13px; }
+  .kbchat-heading p { display: none; }
   .kbchat-actions {
     flex-direction: row;
     justify-content: flex-end;
-    gap: 8px;
+    gap: 6px;
+    margin-left: auto;
   }
   .kbchat-settings-label { display: none; }
   .kbchat-clear-btn,
   .kbchat-settings-btn {
-    height: 36px;
-    font-size: 12px;
-    padding: 0 12px;
-    border-radius: 10px;
+    height: 32px;
+    font-size: 11px;
+    padding: 0 10px;
+    border-radius: 8px;
   }
 
   /* Welcome */
@@ -886,17 +884,20 @@
 /* ── Responsive: Phones (≤640px) ──────────────────────────── */
 
 @media (max-width: 640px) {
+  .kbchat-header {
+    padding: 4px 10px;
+    min-height: 36px !important;
+  }
   .kbchat-brand {
-    flex-direction: column;
-    align-items: flex-start;
+    flex-direction: row;
+    align-items: center;
     gap: 6px;
   }
   .kbchat-template-badge {
-    height: 24px; padding: 0 10px;
-    font-size: 10px;
+    height: 20px; padding: 0 8px;
+    font-size: 9px;
   }
-  .kbchat-heading h1 { font-size: 13px; }
-  .kbchat-heading p { font-size: 11px; }
+  .kbchat-heading h1 { font-size: 12px; }
 
   /* Welcome */
   .kbchat-welcome {
@@ -945,11 +946,18 @@
 
 @media (max-width: 480px) {
   .kbchat-header {
-    padding: 8px 10px;
-    gap: 8px;
+    padding: 4px 8px;
+    gap: 6px;
+    min-height: 34px !important;
   }
-  .kbchat-heading h1 { font-size: 12px; }
+  .kbchat-heading h1 { font-size: 11px; }
   .kbchat-heading p { display: none; }
+  .kbchat-template-badge { height: 18px; padding: 0 6px; font-size: 8px; }
+  .kbchat-clear-btn,
+  .kbchat-settings-btn {
+    height: 28px; padding: 0 8px;
+    font-size: 10px;
+  }
 
   /* Welcome */
   .kbchat-welcome {

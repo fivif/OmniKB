@@ -410,7 +410,6 @@
     } else {
       el.className = `kbchat-message-row ${isUser ? 'is-user' : 'is-assistant'}`;
       el.innerHTML = `
-        <div class="kbchat-message-author">${isUser ? '你' : 'AI 助手'}</div>
         <div class="kbchat-message-bubble ${isUser ? 'bubble-user' : 'bubble-ai'}" id="${msgId}-content">
           ${isUser ? esc(content) : ''}
         </div>
