@@ -293,51 +293,81 @@ async def _stream_agentic(
     max_total_tool_calls = max(1, getattr(settings, "chat_agent_max_tool_calls", 10))
     total_tool_calls = 0
     final_text = ""
+    BUFFER_THRESHOLD = 200  # chars: buffer window for tool-call detection
 
     try:
         for turn in range(max_turns):
-            # Non-streaming invoke when we still expect tool calls; the LLM
-            # decides whether to call tools by returning ``.tool_calls``.
-            resp: AIMessage = await llm_with_tools.ainvoke(lc_msgs)
+            # ── Streaming-first invoke: detect tool calls + stream tokens in one pass ──
+            # Previously we called ainvoke() (non-streaming) to check for tool_calls,
+            # then re-issued astream() to actually stream the answer — doubling TTFT.
+            # Now we stream immediately and detect tool_call_chunks mid-stream.
+            collected_chunks: list = []
+            buffered_content = ""
+            tool_calls_detected = False
+            leak_buf = ""
+
+            async for chunk in llm_with_tools.astream(lc_msgs):
+                collected_chunks.append(chunk)
+
+                # Reasoning / thinking content — always emit
+                reasoning = getattr(chunk, "reasoning_content", None) or ""
+                if reasoning:
+                    yield f"data: {json.dumps({'type': 'reasoning', 'content': reasoning})}\n\n"
+
+                # Detect tool calls mid-stream (appear before or alongside content)
+                tc_chunks = getattr(chunk, "tool_call_chunks", None) or []
+                if tc_chunks:
+                    tool_calls_detected = True
+
+                tok = getattr(chunk, "content", "") or ""
+                if not tok:
+                    continue
+
+                if not tool_calls_detected and len(buffered_content) < BUFFER_THRESHOLD:
+                    # Still buffering — accumulate until we're confident there are no tool calls
+                    buffered_content += tok
+                elif not tool_calls_detected:
+                    # Past threshold with no tool calls → flush buffer + stream freely
+                    if buffered_content:
+                        clean, _ = _filter_tool_leak(buffered_content)
+                        if clean:
+                            final_text += clean
+                            yield f"data: {json.dumps({'type': 'token', 'content': clean})}\n\n"
+                        buffered_content = ""
+                    leak_buf += tok
+                    clean, leak_buf = _filter_tool_leak(leak_buf)
+                    if clean:
+                        final_text += clean
+                        yield f"data: {json.dumps({'type': 'token', 'content': clean})}\n\n"
+                # else: tool_calls_detected — suppress content; it'll be fed back
+                #        as part of the AIMessage for the next turn
+
+            # ── Flush remaining filter buffer ──
+            if leak_buf.strip():
+                clean, _ = _filter_tool_leak(leak_buf + '\n')
+                if clean:
+                    final_text += clean
+                    yield f"data: {json.dumps({'type': 'token', 'content': clean})}\n\n"
+
+            # ── Merge chunks into a complete AIMessage for tool_call inspection ──
+            if not collected_chunks:
+                break
+            resp = collected_chunks[0]
+            for c in collected_chunks[1:]:
+                resp = resp + c  # AIMessageChunk.__add__ merges tool_call_chunks → tool_calls
             lc_msgs.append(resp)
 
             tool_calls = getattr(resp, "tool_calls", None) or []
 
-            # No more tool calls — this is the final answer. Stream it
-            # token-by-token by re-issuing as a streaming call against the
-            # same context, so the user sees progressive output.
+            # No tool calls → already streamed the answer; done
             if not tool_calls:
-                # Always stream the final answer token-by-token
-                leak_buf = ""
-                stream_llm = _get_llm(_provider, _model, base_url=_base_url, api_key=_api_key)
-                async for chunk in stream_llm.astream(lc_msgs[:-1]):
-                    # Stream reasoning/thinking content if available (DeepSeek R1, etc.)
-                    reasoning = getattr(chunk, "reasoning_content", None) or ""
-                    if reasoning:
-                        yield f"data: {json.dumps({'type': 'reasoning', 'content': reasoning})}\n\n"
-                    tok = getattr(chunk, "content", "") or ""
-                    if tok:
-                        leak_buf += tok
-                        clean, leak_buf = _filter_tool_leak(leak_buf)
-                        if clean:
-                            final_text += clean
-                            yield f"data: {json.dumps({'type': 'token', 'content': clean})}\n\n"
-                # Flush any remaining buffer (should be empty, but belt and suspenders)
-                if leak_buf.strip():
-                    clean, _ = _filter_tool_leak(leak_buf + '\n')
-                    if clean:
-                        final_text += clean
-                        yield f"data: {json.dumps({'type': 'token', 'content': clean})}\n\n"
-                # Fallback: if streaming produced nothing (empty response),
-                # use the non-stream content as a single chunk
                 if not final_text and resp.content:
                     clean, _ = _filter_tool_leak(str(resp.content))
                     final_text = clean or str(resp.content)
                     yield f"data: {json.dumps({'type': 'token', 'content': final_text})}\n\n"
                 break
 
-            # Execute the requested tools (sequentially — most are cheap
-            # DB lookups; the only network call is fetch_url_preview).
+            # ── Tool-calling path: emit + execute tools, then loop ──
             for tc in tool_calls:
                 if total_tool_calls >= max_total_tool_calls:
                     blocked_payload = json.dumps({
