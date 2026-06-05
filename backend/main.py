@@ -351,6 +351,11 @@ if os.path.isdir(_frontend):
         """Serve the scenario Q&A page at /s/{slug}."""
         return FileResponse(os.path.join(_frontend, "kb-chat.html"))
 
+    @app.get("/test", tags=["system"])
+    async def test_report_page():
+        """Serve the civil code test report at /test."""
+        return FileResponse(os.path.join(_frontend, "test-report-civil-code.html"))
+
     app.mount("/", StaticFiles(directory=_frontend, html=True), name="frontend")
 
 if __name__ == "__main__":
