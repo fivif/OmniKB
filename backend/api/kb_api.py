@@ -138,7 +138,7 @@ async def kb_chat(
         )
 
     return StreamingResponse(
-        _stream_agentic(chat_req, system_prompt=system_prompt,
+        _stream_agentic(chat_req, system_prompt=system_prompt, is_public=True,
                         provider=provider, model=model,
                         base_url=base_url, api_key=api_key,
                         qdrant_filter=qdrant_filter,

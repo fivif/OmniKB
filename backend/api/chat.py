@@ -180,6 +180,7 @@ async def _stream_agentic(
     req: ChatRequest,
     *,
     system_prompt: str | None = None,
+    is_public: bool = False,
     provider: str | None = None,
     model: str | None = None,
     base_url: str | None = None,
@@ -224,7 +225,8 @@ async def _stream_agentic(
         )
     sys_prompt += wiki_stats
 
-    sys_prompt += _AGENTIC_SYSTEM_SUFFIX
+    if not is_public:
+        sys_prompt += _AGENTIC_SYSTEM_SUFFIX
     lc_msgs: list = [SystemMessage(content=sys_prompt)]
     for m in req.messages[:-1]:
         if m.role == "user":
